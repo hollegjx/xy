@@ -14,6 +14,12 @@ const router = createRouter({
           component: () => import('@/pages/system/StatusPage.vue'),
           meta: { title: '系统状态' },
         },
+        {
+          path: 'user/register',
+          name: 'user-register',
+          component: () => import('@/pages/user/RegisterPage.vue'),
+          meta: { title: '注册账号' },
+        },
       ],
     },
   ],

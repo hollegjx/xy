@@ -53,6 +53,13 @@ body {
   font-weight: 400;
 }
 
+.site-nav {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 12px 20px;
+}
+
 .nav-link {
   color: #356859;
   font-size: 14px;

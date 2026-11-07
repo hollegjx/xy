@@ -11,6 +11,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -114,7 +115,32 @@ class UserControllerTest {
                 Arguments.of("xy_demo", " ", "demo", "密码不能为空"),
                 Arguments.of("xy_demo", "demo", null, "确认密码不能为空"),
                 Arguments.of("xy_demo", "demo", " ", "确认密码不能为空"),
-                Arguments.of("xy_demo", "demo", "different", "两次输入的密码不一致"));
+                Arguments.of("xy_demo", "demo", "different", "两次输入的密码不一致"),
+                Arguments.of("a".repeat(129), "demo", "demo", "账号长度不能超过 128 个字符"),
+                Arguments.of("😀".repeat(129), "demo", "demo", "账号长度不能超过 128 个字符"));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"a", "😀"})
+    void acceptsAnAccountAtTheStorageLimit(String character) throws Exception {
+        when(userMapper.insert(any(User.class))).thenAnswer(invocation -> {
+            User user = invocation.getArgument(0);
+            user.setId(42L);
+            return 1;
+        });
+        String account = character.repeat(128);
+        String body = objectMapper.writeValueAsString(new UserRegisterRequest(account, "demo", "demo"));
+
+        mockMvc.perform(post("/api/users/register").contextPath("/api")
+                        .contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data").value("42"));
+
+        ArgumentCaptor<User> users = ArgumentCaptor.forClass(User.class);
+        verify(userMapper).insert(users.capture());
+        assertThat(users.getValue().getUserAccount()).isEqualTo(account);
+        assertThat(users.getValue().getUserName()).isEqualTo(account);
     }
 
     @Test

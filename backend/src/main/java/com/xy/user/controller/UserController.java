@@ -1,10 +1,13 @@
 package com.xy.user.controller;
 
 import com.xy.common.ApiResponse;
+import com.xy.user.model.dto.UserLoginRequest;
 import com.xy.user.model.dto.UserRegisterRequest;
+import com.xy.user.model.vo.UserVO;
 import com.xy.user.service.UserService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -26,5 +29,11 @@ public class UserController {
     @PostMapping("/register")
     public ApiResponse<String> register(@Valid @RequestBody UserRegisterRequest request) {
         return ApiResponse.success(Long.toString(userService.register(request)));
+    }
+
+    @Operation(summary = "用户登录", description = "无需登录；校验账号与密码，成功后建立 Session，返回不含密码散列的用户信息。")
+    @PostMapping("/login")
+    public ApiResponse<UserVO> login(@Valid @RequestBody UserLoginRequest request, HttpServletRequest servletRequest) {
+        return ApiResponse.success(userService.login(request, servletRequest));
     }
 }

@@ -1,10 +1,16 @@
 package com.xy.user.service.impl;
 
+import com.mybatisflex.core.query.QueryWrapper;
 import com.xy.exception.BusinessException;
+import com.xy.user.constant.UserConstant;
 import com.xy.user.mapper.UserMapper;
+import com.xy.user.model.dto.UserLoginRequest;
 import com.xy.user.model.dto.UserRegisterRequest;
 import com.xy.user.model.entity.User;
+import com.xy.user.model.vo.UserVO;
 import com.xy.user.service.UserService;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpSession;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -41,5 +47,20 @@ public class UserServiceImpl implements UserService {
             throw new BusinessException(HttpStatus.CONFLICT, 40000, "账号已存在");
         }
         return user.getId();
+    }
+
+    @Override
+    public UserVO login(UserLoginRequest request, HttpServletRequest servletRequest) {
+        QueryWrapper query = QueryWrapper.create().eq(User::getUserAccount, request.userAccount());
+        User user = userMapper.selectOneByQuery(query);
+        if (user == null || !passwordEncoder.matches(request.userPassword(), user.getUserPassword())) {
+            throw new BusinessException(HttpStatus.BAD_REQUEST, 40000, "账号或密码错误");
+        }
+
+        HttpSession session = servletRequest.getSession();
+        // 登录成功后更换会话标识，避免沿用登录前可能已暴露的 Session ID。
+        servletRequest.changeSessionId();
+        session.setAttribute(UserConstant.LOGIN_USER_ID, user.getId());
+        return new UserVO(Long.toString(user.getId()), user.getUserAccount(), user.getUserName(), user.getUserRole());
     }
 }

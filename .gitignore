@@ -35,6 +35,7 @@ logs/
 .cache/
 
 # Local environment files and private keys
+backend/src/main/resources/application.yml
 .env
 .env.*
 !.env.example

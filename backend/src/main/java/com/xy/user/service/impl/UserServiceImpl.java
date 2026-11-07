@@ -65,6 +65,13 @@ public class UserServiceImpl implements UserService {
     }
 
     @Override
+    public boolean logout(HttpServletRequest request) {
+        getLoginUser(request);
+        request.getSession(false).invalidate();
+        return true;
+    }
+
+    @Override
     public User getLoginUser(HttpServletRequest request) {
         HttpSession session = request.getSession(false);
         Object loginUserId = session == null ? null : session.getAttribute(UserConstant.LOGIN_USER_ID);

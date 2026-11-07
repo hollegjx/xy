@@ -12,6 +12,8 @@ public interface UserService {
 
     UserVO login(UserLoginRequest request, HttpServletRequest servletRequest);
 
+    boolean logout(HttpServletRequest request);
+
     User getLoginUser(HttpServletRequest request);
 
     UserVO getUserVO(User user);

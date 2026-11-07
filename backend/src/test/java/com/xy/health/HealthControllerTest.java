@@ -66,10 +66,11 @@ class HealthControllerTest {
     }
 
     @Test
-    void exposesTheHealthEndpointInOpenApi() throws Exception {
+    void exposesTheAvailableEndpointsInOpenApi() throws Exception {
         mockMvc.perform(get("/api/v3/api-docs").contextPath("/api"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.paths['/health'].get.summary").value("检查后端与数据库连接"));
+                .andExpect(jsonPath("$.paths['/health'].get.summary").value("检查后端与数据库连接"))
+                .andExpect(jsonPath("$.paths['/users/register'].post.summary").value("注册用户"));
     }
 
     @Test

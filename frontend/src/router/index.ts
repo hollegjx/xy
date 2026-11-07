@@ -20,6 +20,12 @@ const router = createRouter({
           component: () => import('@/pages/user/RegisterPage.vue'),
           meta: { title: '注册账号' },
         },
+        {
+          path: 'user/login',
+          name: 'user-login',
+          component: () => import('@/pages/user/LoginPage.vue'),
+          meta: { title: '登录' },
+        },
       ],
     },
   ],

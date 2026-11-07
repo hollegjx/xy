@@ -14,3 +14,15 @@ export interface UserRegisterRequest {
   userPassword: string
   checkPassword: string
 }
+
+export interface UserLoginRequest {
+  userAccount: string
+  userPassword: string
+}
+
+export interface UserVO {
+  id: string
+  userAccount: string
+  userName: string
+  userRole: 'user' | 'admin'
+}

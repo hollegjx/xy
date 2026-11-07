@@ -16,6 +16,13 @@ const route = useRoute()
       </RouterLink>
       <RouterLink
         v-if="route.name !== 'user-register' && route.name !== 'user-login'"
+        to="/user/login"
+        class="nav-link"
+      >
+        登录
+      </RouterLink>
+      <RouterLink
+        v-if="route.name !== 'user-register' && route.name !== 'user-login'"
         to="/user/register"
         class="nav-link"
       >

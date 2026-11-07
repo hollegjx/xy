@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { reactive, ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { computed, reactive, ref } from 'vue'
+import { RouterLink, useRoute, useRouter } from 'vue-router'
 import {
   Alert as AAlert,
   Button as AButton,
@@ -12,8 +12,10 @@ import {
 import { registerUser } from '@/service/api/user'
 import { errorMessage } from '@/request'
 import AuthShell from '@/components/AuthShell.vue'
+import { safeRedirect } from '@/utils/navigation'
 import type { UserRegisterRequest } from '@/types/api'
 
+const route = useRoute()
 const router = useRouter()
 const form = reactive<UserRegisterRequest>({
   userAccount: '',
@@ -23,6 +25,10 @@ const form = reactive<UserRegisterRequest>({
 const busy = ref(false)
 const error = ref('')
 const registered = ref(false)
+const loginLocation = computed(() => ({
+  path: '/user/login',
+  query: { redirect: safeRedirect(route.query.redirect) },
+}))
 
 async function validateAccountLength(): Promise<void> {
   // 与后端保持一致：按 Unicode 码点计数，emoji 不按两个字符计算。
@@ -59,7 +65,9 @@ async function submitRegistration(): Promise<void> {
     <div v-if="registered" aria-live="polite">
       <AAlert type="success" message="注册成功" description="账号已创建。" show-icon />
       <div class="success-actions">
-        <AButton type="primary" shape="round" block @click="router.push('/')">返回首页</AButton>
+        <AButton type="primary" shape="round" block @click="router.push(loginLocation)"
+          >去登录</AButton
+        >
       </div>
     </div>
     <AForm
@@ -137,6 +145,9 @@ async function submitRegistration(): Promise<void> {
         {{ busy ? '注册中' : error ? '重试' : '注册账号' }}
       </AButton>
     </AForm>
+    <template v-if="!registered && !busy" #footer>
+      已有账号？<RouterLink :to="loginLocation" class="auth-link">去登录</RouterLink>
+    </template>
   </AuthShell>
 </template>
 
@@ -146,5 +157,10 @@ async function submitRegistration(): Promise<void> {
 }
 .success-actions {
   margin-top: 24px;
+}
+.auth-link {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 4px;
 }
 </style>

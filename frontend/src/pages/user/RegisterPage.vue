@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { reactive, ref } from 'vue'
-import { RouterLink } from 'vue-router'
+import { useRouter } from 'vue-router'
 import {
   Alert as AAlert,
   Button as AButton,
@@ -8,13 +8,13 @@ import {
   FormItem as AFormItem,
   Input as AInput,
   InputPassword as AInputPassword,
-  Result as AResult,
 } from 'ant-design-vue'
 import { registerUser } from '@/service/api/user'
 import { errorMessage } from '@/request'
 import AuthShell from '@/components/AuthShell.vue'
 import type { UserRegisterRequest } from '@/types/api'
 
+const router = useRouter()
 const form = reactive<UserRegisterRequest>({
   userAccount: '',
   userPassword: '',
@@ -55,15 +55,12 @@ async function submitRegistration(): Promise<void> {
 </script>
 
 <template>
-  <AuthShell title="创建账号" description="注册星云，让创意成为应用。">
+  <AuthShell title="创建账号" description="填写账号和密码，两次密码须一致。">
     <div v-if="registered" aria-live="polite">
-      <AResult status="success" title="注册成功" sub-title="你的星云账号已创建。">
-        <template #extra>
-          <RouterLink to="/">
-            <AButton type="primary">返回首页</AButton>
-          </RouterLink>
-        </template>
-      </AResult>
+      <AAlert type="success" message="注册成功" description="账号已创建。" show-icon />
+      <div class="success-actions">
+        <AButton type="primary" shape="round" block @click="router.push('/')">返回首页</AButton>
+      </div>
     </div>
     <AForm
       v-else
@@ -100,7 +97,6 @@ async function submitRegistration(): Promise<void> {
           autocapitalize="none"
           :spellcheck="false"
           placeholder="请输入账号"
-          size="large"
         />
       </AFormItem>
       <AFormItem
@@ -112,7 +108,6 @@ async function submitRegistration(): Promise<void> {
           v-model:value="form.userPassword"
           autocomplete="new-password"
           placeholder="请输入密码"
-          size="large"
         />
       </AFormItem>
       <AFormItem
@@ -128,11 +123,18 @@ async function submitRegistration(): Promise<void> {
           v-model:value="form.checkPassword"
           autocomplete="new-password"
           placeholder="请再次输入密码"
-          size="large"
         />
       </AFormItem>
-      <AButton type="primary" html-type="submit" size="large" block :loading="busy">
-        {{ busy ? '正在注册…' : '注册账号' }}
+      <!-- loading 阻止重复点击，同时保留提交中文案的可读性。 -->
+      <AButton
+        type="primary"
+        shape="round"
+        html-type="submit"
+        block
+        :disabled="false"
+        :loading="busy"
+      >
+        {{ busy ? '注册中' : error ? '重试' : '注册账号' }}
       </AButton>
     </AForm>
   </AuthShell>
@@ -141,5 +143,8 @@ async function submitRegistration(): Promise<void> {
 <style scoped>
 .submit-error {
   margin-bottom: 24px;
+}
+.success-actions {
+  margin-top: 24px;
 }
 </style>

@@ -9,6 +9,7 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -35,5 +36,11 @@ public class UserController {
     @PostMapping("/login")
     public ApiResponse<UserVO> login(@Valid @RequestBody UserLoginRequest request, HttpServletRequest servletRequest) {
         return ApiResponse.success(userService.login(request, servletRequest));
+    }
+
+    @Operation(summary = "获取当前用户", description = "需要登录；通过 Session 查询当前有效账号，返回脱敏信息。未登录或账号已不可用时返回 HTTP 401。")
+    @GetMapping("/me")
+    public ApiResponse<UserVO> getCurrentUser(HttpServletRequest request) {
+        return ApiResponse.success(userService.getUserVO(userService.getLoginUser(request)));
     }
 }

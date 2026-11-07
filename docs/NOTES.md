@@ -44,6 +44,13 @@
 - 全局异常处理继承 Spring 的 `ResponseEntityExceptionHandler`，使用框架对应的 HTTP 状态码及协议响应头，统一包装为 `{ code, data, message }`。保留已有字段校验与 JSON 解析错误提示；405 / 415 保留原状态，未预期应用异常仍返回 500。
 - 回归测试覆盖 ASCII 与补充平面字符的 128 / 129 边界、超长输入不访问 Mapper、405 的 `Allow` 响应头、415 的 `Accept` 响应头，以及真正的应用异常继续返回 500。
 
+## 2026-11-07：用户模块第 3 步（当前用户）
+
+- 新增 `GET /users/me`，Controller 通过 `UserService.getLoginUser` 获取当前有效账号，再转换为 `UserVO`。登录接口和当前用户接口复用 `getUserVO`，统一脱敏字段。
+- `getLoginUser` 只读取已有 Session 中的 `loginUserId`，每次通过 Mapper 按 ID 查询当前有效用户，沿用实体逻辑删除过滤；请求参数不能指定或替换登录身份。响应使用数据库最新昵称和角色，不依赖登录时的用户信息快照。
+- 无会话或缺少有效登录身份时返回 HTTP 401 / 业务码 40100「请先登录」，不创建新 Session。账号已不可用时移除 Session 中的登录身份，同样返回 401。
+- 参考行为仍为此前已读取大纲中的当前用户能力；身份存储、失效处理和接口返回字段属于 XY 设计。测试覆盖登录 → 查询、最新用户信息、匿名访问、无效账号及会话隔离；浏览器携带 Cookie 的实际查询按 README 验收。
+
 ## 第三方文件与依赖来源
 
 - Maven Wrapper **3.3.4** 使用 Apache 发布的 `only-script` 发行包；保留原始脚本的 Apache-2.0 声明。Maven 发行版本固定 **3.9.11**。

@@ -61,6 +61,27 @@ public class UserServiceImpl implements UserService {
         // 登录成功后更换会话标识，避免沿用登录前可能已暴露的 Session ID。
         servletRequest.changeSessionId();
         session.setAttribute(UserConstant.LOGIN_USER_ID, user.getId());
+        return getUserVO(user);
+    }
+
+    @Override
+    public User getLoginUser(HttpServletRequest request) {
+        HttpSession session = request.getSession(false);
+        Object loginUserId = session == null ? null : session.getAttribute(UserConstant.LOGIN_USER_ID);
+        if (!(loginUserId instanceof Long userId)) {
+            throw new BusinessException(HttpStatus.UNAUTHORIZED, 40100, "请先登录");
+        }
+
+        User user = userMapper.selectOneById(userId);
+        if (user == null) {
+            session.removeAttribute(UserConstant.LOGIN_USER_ID);
+            throw new BusinessException(HttpStatus.UNAUTHORIZED, 40100, "请先登录");
+        }
+        return user;
+    }
+
+    @Override
+    public UserVO getUserVO(User user) {
         return new UserVO(Long.toString(user.getId()), user.getUserAccount(), user.getUserName(), user.getUserRole());
     }
 }

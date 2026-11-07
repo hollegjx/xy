@@ -27,6 +27,8 @@ dist/
 .vite/
 coverage/
 *.tsbuildinfo
+test-results/
+playwright-report/
 
 # Logs and temporary files
 *.log

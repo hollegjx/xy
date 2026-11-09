@@ -13,11 +13,13 @@ import {
 import AuthShell from '@/components/AuthShell.vue'
 import { errorMessage } from '@/request'
 import { loginUser } from '@/service/api/user'
+import { useLoginUserStore } from '@/stores/useLoginUserStore'
 import { safeRedirect } from '@/utils/navigation'
 import type { UserLoginRequest } from '@/types/api'
 
 const route = useRoute()
 const router = useRouter()
+const loginUserStore = useLoginUserStore()
 const form = reactive<UserLoginRequest>({ userAccount: '', userPassword: '' })
 const busy = ref(false)
 const error = ref('')
@@ -28,7 +30,7 @@ async function submitLogin(): Promise<void> {
   busy.value = true
   error.value = ''
   try {
-    await loginUser({ ...form })
+    loginUserStore.setUser(await loginUser({ ...form }))
     form.userPassword = ''
     const target = router.resolve(destination.value)
     await router.replace(target.matched.length > 0 ? destination.value : '/')

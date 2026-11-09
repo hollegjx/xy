@@ -6,3 +6,5 @@ export const registerUser = (data: UserRegisterRequest): Promise<string> =>
 
 export const loginUser = (data: UserLoginRequest): Promise<UserVO> =>
   request<UserVO>('/api/users/login', { method: 'POST', data })
+
+export const getCurrentUser = (): Promise<UserVO> => request<UserVO>('/api/users/me')

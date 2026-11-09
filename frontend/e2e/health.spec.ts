@@ -5,6 +5,10 @@ test('连接失败后可以重试并显示接口返回的数据库名称', async
   await page.route(
     (url) => url.pathname.startsWith('/api/'),
     async (route) => {
+      if (new URL(route.request().url()).pathname === '/api/users/me') {
+        await route.fulfill({ status: 401, json: { code: 40100, data: null, message: '请先登录' } })
+        return
+      }
       if (new URL(route.request().url()).pathname !== '/api/health') {
         await route.abort()
         return

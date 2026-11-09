@@ -6,7 +6,7 @@
 
 ## 当前阶段
 
-首期采用方案 B，功能范围见 [docs/spec.md](docs/spec.md)。当前包含后端健康检查、接口文档、前端连接检查页、注册页和用户注册、登录、当前用户、退出接口；登录页面与跨页面登录状态按后续步骤增加。
+首期采用方案 B，功能范围见 [docs/spec.md](docs/spec.md)。当前包含后端健康检查、接口文档、前端连接检查页、账号注册与登录页面、当前账号恢复和退出登录，以及应用创建接口。应用详情、首页创建入口和 AI 生成功能按 Spec 分步接入。
 
 ## 项目结构
 
@@ -37,7 +37,7 @@ xy/
 ## 本地配置与启动
 
 1. 在 IDEA 打开 `backend/pom.xml`，选择已有且受支持的 JDK，等待 Maven 导入完成。
-2. 在已有 MySQL 连接中依次执行 [backend/sql/001_create_database.sql](backend/sql/001_create_database.sql) 和 [backend/sql/002_create_user.sql](backend/sql/002_create_user.sql)，分别创建数据库和用户表。它们不删除或覆盖已有数据；已执行过的文件无需重复执行。如已有同名用户表，先核对结构。
+2. 在已有 MySQL 连接中依次执行 [backend/sql/001_create_database.sql](backend/sql/001_create_database.sql)、[backend/sql/002_create_user.sql](backend/sql/002_create_user.sql) 和 [backend/sql/003_create_app.sql](backend/sql/003_create_app.sql)，分别创建数据库、用户表和应用表。它们不删除或覆盖已有数据；已执行过的文件无需重复执行。如已有同名表，先核对结构。
 3. 将 `backend/src/main/resources/application.example.yml` 复制为同目录的 `application.yml`，填写实际数据库地址、库名、账号、密码。本工作区若已存在该文件，直接编辑，勿覆盖已有配置。密码建议使用 YAML 单引号字符串，密码本身含单引号时写成两个单引号。
 4. 在 IDEA 运行 `com.xy.MainApplication`，打开 `http://localhost:8101/api/doc.html`，在「健康检查」中调用 `GET /health`。
 

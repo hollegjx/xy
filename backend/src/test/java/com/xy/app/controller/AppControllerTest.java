@@ -1,0 +1,151 @@
+package com.xy.app.controller;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.xy.app.mapper.AppMapper;
+import com.xy.app.model.entity.App;
+import com.xy.user.constant.UserConstant;
+import com.xy.user.mapper.UserMapper;
+import com.xy.user.model.entity.User;
+import java.util.LinkedHashMap;
+import java.util.Map;
+import java.util.stream.Stream;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
+import org.mockito.ArgumentCaptor;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.http.MediaType;
+import org.springframework.mock.web.MockHttpSession;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.web.servlet.MockMvc;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+
+@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.MOCK, properties = {
+        "server.servlet.context-path=/api",
+        "spring.datasource.url=jdbc:mysql://unused.invalid:3306/xy_test",
+        "spring.datasource.username=test",
+        "spring.datasource.password=test",
+        "spring.datasource.driver-class-name=com.mysql.cj.jdbc.Driver",
+        "logging.level.com.xy.exception.GlobalExceptionHandler=OFF"
+})
+@AutoConfigureMockMvc
+class AppControllerTest {
+
+    @Autowired
+    private MockMvc mockMvc;
+
+    @Autowired
+    private ObjectMapper objectMapper;
+
+    @MockitoBean
+    private AppMapper appMapper;
+
+    @MockitoBean
+    private UserMapper userMapper;
+
+    @ParameterizedTest
+    @MethodSource("validApps")
+    void createsAnAppForTheCurrentUserWithAnAutomaticName(String prompt, String mode,
+            String expectedName, String expectedMode) throws Exception {
+        existingUser();
+        when(appMapper.insert(any(App.class))).thenAnswer(invocation -> {
+            App app = invocation.getArgument(0);
+            app.setId(55L);
+            return 1;
+        });
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("initPrompt", prompt);
+        if (mode != null) {
+            body.put("codeGenType", mode);
+        }
+        body.put("userId", 84);
+        body.put("appName", "客户端指定的名称");
+
+        mockMvc.perform(post("/api/apps").contextPath("/api").session(loggedInSession())
+                        .contentType(MediaType.APPLICATION_JSON).content(objectMapper.writeValueAsString(body)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data").value("55"));
+
+        ArgumentCaptor<App> apps = ArgumentCaptor.forClass(App.class);
+        verify(appMapper).insert(apps.capture());
+        assertThat(apps.getValue().getUserId()).isEqualTo(42L);
+        assertThat(apps.getValue().getAppName()).isEqualTo(expectedName);
+        assertThat(apps.getValue().getInitPrompt()).isEqualTo(prompt);
+        assertThat(apps.getValue().getCodeGenType()).isEqualTo(expectedMode);
+    }
+
+    static Stream<Arguments> validApps() {
+        return Stream.of(
+                Arguments.of("生成一个简洁的个人作品展示网站", null, "生成一个简洁的个人作品展", "multi_file"),
+                Arguments.of("博客", "html", "博客", "html"),
+                Arguments.of("12345678901🌟作品", "multi_file", "12345678901🌟", "multi_file"),
+                Arguments.of("🌟".repeat(16383), null, "🌟".repeat(12), "multi_file"));
+    }
+
+    @Test
+    void rejectsInvalidPromptsAndModesBeforeSaving() throws Exception {
+        String tooLong = objectMapper.writeValueAsString(Map.of("initPrompt", "a".repeat(16384)));
+        for (String body : new String[]{"{}", "{\"initPrompt\":\" \"}",
+                "{\"initPrompt\":\"博客\",\"codeGenType\":\"vue\"}", tooLong}) {
+            mockMvc.perform(post("/api/apps").contextPath("/api").session(loggedInSession())
+                            .contentType(MediaType.APPLICATION_JSON).content(body))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.code").value(40000));
+        }
+        verifyNoInteractions(appMapper);
+    }
+
+    @Test
+    void rejectsAnonymousCreation() throws Exception {
+        mockMvc.perform(post("/api/apps").contextPath("/api")
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"initPrompt\":\"博客\"}"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value(40100));
+        verifyNoInteractions(appMapper);
+    }
+
+    @Test
+    void rejectsCreationWhenTheSessionAccountIsUnavailable() throws Exception {
+        mockMvc.perform(post("/api/apps").contextPath("/api").session(loggedInSession())
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"initPrompt\":\"博客\"}"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value(40100));
+        verifyNoInteractions(appMapper);
+    }
+
+    @Test
+    void doesNotReturnSuccessWhenTheAppWasNotSaved() throws Exception {
+        existingUser();
+        when(appMapper.insert(any(App.class))).thenReturn(0);
+
+        mockMvc.perform(post("/api/apps").contextPath("/api").session(loggedInSession())
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"initPrompt\":\"博客\"}"))
+                .andExpect(status().isInternalServerError())
+                .andExpect(jsonPath("$.code").value(50001))
+                .andExpect(jsonPath("$.data").doesNotExist());
+    }
+
+    private void existingUser() {
+        User user = new User();
+        user.setId(42L);
+        when(userMapper.selectOneById(42L)).thenReturn(user);
+    }
+
+    private MockHttpSession loggedInSession() {
+        MockHttpSession session = new MockHttpSession();
+        session.setAttribute(UserConstant.LOGIN_USER_ID, 42L);
+        return session;
+    }
+}

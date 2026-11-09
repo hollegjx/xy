@@ -8,3 +8,6 @@ export const loginUser = (data: UserLoginRequest): Promise<UserVO> =>
   request<UserVO>('/api/users/login', { method: 'POST', data })
 
 export const getCurrentUser = (): Promise<UserVO> => request<UserVO>('/api/users/me')
+
+export const logoutUser = (): Promise<boolean> =>
+  request<boolean>('/api/users/logout', { method: 'POST' })

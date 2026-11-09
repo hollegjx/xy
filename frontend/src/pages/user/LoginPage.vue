@@ -12,7 +12,6 @@ import {
 } from 'ant-design-vue'
 import AuthShell from '@/components/AuthShell.vue'
 import { errorMessage } from '@/request'
-import { loginUser } from '@/service/api/user'
 import { useLoginUserStore } from '@/stores/useLoginUserStore'
 import { safeRedirect } from '@/utils/navigation'
 import type { UserLoginRequest } from '@/types/api'
@@ -21,24 +20,21 @@ const route = useRoute()
 const router = useRouter()
 const loginUserStore = useLoginUserStore()
 const form = reactive<UserLoginRequest>({ userAccount: '', userPassword: '' })
-const busy = ref(false)
 const error = ref('')
+const busy = computed(() => loginUserStore.authAction === 'login')
 const destination = computed(() => safeRedirect(route.query.redirect))
 
 async function submitLogin(): Promise<void> {
-  if (busy.value) return
-  busy.value = true
+  if (loginUserStore.authAction !== null) return
   error.value = ''
   try {
-    loginUserStore.setUser(await loginUser({ ...form }))
+    if (!(await loginUserStore.login({ ...form }))) return
     form.userPassword = ''
     const target = router.resolve(destination.value)
     await router.replace(target.matched.length > 0 ? destination.value : '/')
     message.success('登录成功')
   } catch (cause) {
     error.value = errorMessage(cause)
-  } finally {
-    busy.value = false
   }
 }
 </script>
@@ -49,7 +45,7 @@ async function submitLogin(): Promise<void> {
       name="login"
       :model="form"
       layout="vertical"
-      :disabled="busy"
+      :disabled="loginUserStore.authAction !== null"
       :aria-busy="busy"
       validate-trigger="blur"
       @finish="submitLogin"
@@ -92,7 +88,7 @@ async function submitLogin(): Promise<void> {
         shape="round"
         html-type="submit"
         block
-        :disabled="false"
+        :disabled="loginUserStore.authAction === 'logout'"
         :loading="busy"
       >
         {{ busy ? '登录中' : error ? '重试' : '登录' }}

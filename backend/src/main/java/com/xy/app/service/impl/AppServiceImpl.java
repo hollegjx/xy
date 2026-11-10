@@ -4,6 +4,7 @@ import com.xy.app.mapper.AppMapper;
 import com.xy.app.model.dto.AppAddRequest;
 import com.xy.app.model.entity.App;
 import com.xy.app.model.enums.CodeGenTypeEnum;
+import com.xy.app.model.vo.AppVO;
 import com.xy.app.service.AppService;
 import com.xy.exception.BusinessException;
 import com.xy.user.model.entity.User;
@@ -35,5 +36,22 @@ public class AppServiceImpl implements AppService {
             throw new BusinessException(HttpStatus.INTERNAL_SERVER_ERROR, 50001, "创建应用失败，请稍后重试");
         }
         return app.getId();
+    }
+
+    @Override
+    public AppVO getAppById(long id, User loginUser) {
+        App app = appMapper.selectOneById(id);
+        if (app == null) {
+            throw new BusinessException(HttpStatus.NOT_FOUND, 40400, "应用不存在");
+        }
+        if (!app.getUserId().equals(loginUser.getId())) {
+            throw new BusinessException(HttpStatus.FORBIDDEN, 40300, "无权访问该应用");
+        }
+        return getAppVO(app);
+    }
+
+    private AppVO getAppVO(App app) {
+        return new AppVO(Long.toString(app.getId()), Long.toString(app.getUserId()), app.getAppName(),
+                app.getInitPrompt(), app.getCodeGenType(), app.getCreateTime(), app.getUpdateTime());
     }
 }

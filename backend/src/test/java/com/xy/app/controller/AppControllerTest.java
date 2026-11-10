@@ -6,6 +6,7 @@ import com.xy.app.model.entity.App;
 import com.xy.user.constant.UserConstant;
 import com.xy.user.mapper.UserMapper;
 import com.xy.user.model.entity.User;
+import java.time.LocalDateTime;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.stream.Stream;
@@ -13,6 +14,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -23,10 +25,12 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.aMapWithSize;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -135,6 +139,82 @@ class AppControllerTest {
                 .andExpect(status().isInternalServerError())
                 .andExpect(jsonPath("$.code").value(50001))
                 .andExpect(jsonPath("$.data").doesNotExist());
+    }
+
+    @Test
+    void returnsAppDetailsToItsOwnerWithStringIds() throws Exception {
+        existingUser();
+        when(appMapper.selectOneById(55L)).thenReturn(existingApp(42L));
+
+        mockMvc.perform(get("/api/apps/55").contextPath("/api").session(loggedInSession()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data", aMapWithSize(7)))
+                .andExpect(jsonPath("$.data.id").value("55"))
+                .andExpect(jsonPath("$.data.userId").value("42"))
+                .andExpect(jsonPath("$.data.appName").value("个人博客"))
+                .andExpect(jsonPath("$.data.initPrompt").value("生成一个简洁的个人博客"))
+                .andExpect(jsonPath("$.data.codeGenType").value("multi_file"))
+                .andExpect(jsonPath("$.data.createTime").value("2026-11-09T10:00:00"))
+                .andExpect(jsonPath("$.data.updateTime").value("2026-11-09T10:00:00"));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"user", "admin"})
+    void rejectsOtherUsersIncludingAdministratorsWithoutExposingAppDetails(String role) throws Exception {
+        User user = new User();
+        user.setId(42L);
+        user.setUserRole(role);
+        when(userMapper.selectOneById(42L)).thenReturn(user);
+        when(appMapper.selectOneById(55L)).thenReturn(existingApp(84L));
+
+        mockMvc.perform(get("/api/apps/55").contextPath("/api").session(loggedInSession())
+                        .param("userId", "84"))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value(40300))
+                .andExpect(jsonPath("$.message").value("无权访问该应用"))
+                .andExpect(jsonPath("$.data").doesNotExist());
+    }
+
+    @Test
+    void reportsMissingAppAsNotFound() throws Exception {
+        existingUser();
+        when(appMapper.selectOneById(55L)).thenReturn(null);
+
+        mockMvc.perform(get("/api/apps/55").contextPath("/api").session(loggedInSession()))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value(40400))
+                .andExpect(jsonPath("$.message").value("应用不存在"))
+                .andExpect(jsonPath("$.data").doesNotExist());
+    }
+
+    @Test
+    void rejectsAnonymousAppDetailsAccessBeforeQueryingTheApp() throws Exception {
+        mockMvc.perform(get("/api/apps/55").contextPath("/api"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value(40100));
+        verifyNoInteractions(appMapper);
+    }
+
+    @ParameterizedTest
+    @ValueSource(longs = {0, -1})
+    void rejectsInvalidAppIdsBeforeQueryingTheApp(long id) throws Exception {
+        mockMvc.perform(get("/api/apps/{id}", id).contextPath("/api").session(loggedInSession()))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(40000));
+        verifyNoInteractions(appMapper);
+    }
+
+    private App existingApp(long userId) {
+        App app = new App();
+        app.setId(55L);
+        app.setUserId(userId);
+        app.setAppName("个人博客");
+        app.setInitPrompt("生成一个简洁的个人博客");
+        app.setCodeGenType("multi_file");
+        app.setCreateTime(LocalDateTime.of(2026, 11, 9, 10, 0));
+        app.setUpdateTime(LocalDateTime.of(2026, 11, 9, 10, 0));
+        return app;
     }
 
     private void existingUser() {

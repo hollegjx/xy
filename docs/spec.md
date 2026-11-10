@@ -59,7 +59,8 @@
 | `POST /users/logout`、`GET /users/me` | 登录 | 退出、当前用户 |
 | `POST /apps` | 登录 | 接收初始需求及可选生成模式，自动命名并返回字符串应用 ID |
 | `GET /apps/mine` | 登录 | 按名称查询自己的应用并分页，每页最多 20 个 |
-| `GET /apps/{id}`、`PATCH /apps/{id}`、`DELETE /apps/{id}` | 创建者 | 详情、改名、删除 |
+| `GET /apps/{id}` | 创建者 | 返回字符串应用 ID、创建者 ID、名称、初始需求、模式与创建 / 更新时间；未登录 401、非创建者 403、不存在或已删除 404、非正数 ID 400 |
+| `PATCH /apps/{id}`、`DELETE /apps/{id}` | 创建者 | 改名、删除 |
 | `POST /apps/{id}/generations` | 创建者 | 提交需求并返回 SSE 事件流，包含生成 ID、增量输出和最终状态 |
 | `POST /apps/{id}/generations/{generationId}/cancel` | 创建者 | 停止本次生成 |
 | `GET /apps/{id}/messages` | 创建者 | 按游标查询历史消息和生成状态，默认最近 10 条，支持向前加载 |

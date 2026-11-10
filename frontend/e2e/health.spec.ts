@@ -24,7 +24,7 @@ test('连接失败后可以重试并显示接口返回的数据库名称', async
     },
   )
 
-  await page.goto('/')
+  await page.goto('/system/status')
   await expect(page.getByRole('heading', { name: '连接检查' })).toBeVisible()
   await expect(page.getByText('数据库连接失败，请检查本地配置', { exact: true })).toBeVisible()
   await expect(page.getByText('后端与数据库连接正常', { exact: true })).toHaveCount(0)

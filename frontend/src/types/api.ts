@@ -26,3 +26,20 @@ export interface UserVO {
   userName: string
   userRole: 'user' | 'admin'
 }
+
+export type CodeGenType = 'html' | 'multi_file'
+
+export interface AppAddRequest {
+  initPrompt: string
+  codeGenType?: CodeGenType
+}
+
+export interface AppVO {
+  id: string
+  userId: string
+  appName: string
+  initPrompt: string
+  codeGenType: CodeGenType
+  createTime: string
+  updateTime: string
+}

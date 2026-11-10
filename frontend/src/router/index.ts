@@ -10,6 +10,18 @@ const router = createRouter({
       children: [
         {
           path: '',
+          name: 'home',
+          component: () => import('@/pages/app/HomePage.vue'),
+          meta: { title: '首页' },
+        },
+        {
+          path: 'apps/:id',
+          name: 'app-workbench',
+          component: () => import('@/pages/app/AppWorkbenchPage.vue'),
+          meta: { title: '应用工作台', requiresAuth: true },
+        },
+        {
+          path: 'system/status',
           name: 'system-status',
           component: () => import('@/pages/system/StatusPage.vue'),
           meta: { title: '系统状态' },

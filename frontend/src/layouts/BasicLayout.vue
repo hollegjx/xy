@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watchEffect } from 'vue'
 import { RouterLink, RouterView, useRoute, useRouter } from 'vue-router'
 import {
   Alert as AAlert,
   Button as AButton,
+  Skeleton as ASkeleton,
   SkeletonButton as ASkeletonButton,
   Tag as ATag,
 } from 'ant-design-vue'
@@ -28,6 +29,12 @@ async function handleLogout(): Promise<void> {
 }
 
 onMounted(() => loginUserStore.loadUser())
+
+watchEffect(() => {
+  if (route.meta.requiresAuth && loginUserStore.status === 'ready' && !loginUserStore.user) {
+    void router.replace({ path: '/user/login', query: { redirect: route.fullPath } })
+  }
+})
 </script>
 
 <template>
@@ -37,7 +44,7 @@ onMounted(() => loginUserStore.loadUser())
       <span>星云<span class="brand-subtitle">让灵感在此成形</span></span>
     </RouterLink>
     <nav class="site-nav" aria-label="主导航">
-      <RouterLink v-if="route.name !== 'system-status'" to="/" class="nav-link">
+      <RouterLink v-if="route.name !== 'system-status'" to="/system/status" class="nav-link">
         系统状态
       </RouterLink>
       <ASkeletonButton
@@ -102,7 +109,16 @@ onMounted(() => loginUserStore.loadUser())
         >
       </template>
     </AAlert>
-    <RouterView />
+    <RouterView
+      v-if="!route.meta.requiresAuth || loginUserStore.user"
+      :key="route.meta.requiresAuth ? loginUserStore.user?.id : undefined"
+    />
+    <ASkeleton
+      v-else-if="loginUserStore.status !== 'error'"
+      active
+      :paragraph="{ rows: 4 }"
+      aria-label="正在确认访问权限"
+    />
   </main>
 </template>
 

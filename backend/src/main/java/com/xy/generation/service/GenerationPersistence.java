@@ -13,10 +13,19 @@ public class GenerationPersistence {
 
     private final ChatHistoryMapper chatHistoryMapper;
     private final AppMapper appMapper;
+    private boolean interruptedGenerationsRecovered;
 
     public GenerationPersistence(ChatHistoryMapper chatHistoryMapper, AppMapper appMapper) {
         this.chatHistoryMapper = chatHistoryMapper;
         this.appMapper = appMapper;
+    }
+
+    // 单实例首次生成/查询共用这道入口。恢复独立提交后才允许新任务写入，避免误伤本进程任务。
+    public synchronized void recoverInterruptedGenerations() {
+        if (!interruptedGenerationsRecovered) {
+            chatHistoryMapper.failInterruptedGenerations();
+            interruptedGenerationsRecovered = true;
+        }
     }
 
     @Transactional

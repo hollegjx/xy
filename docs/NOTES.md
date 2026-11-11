@@ -114,6 +114,11 @@
 - 用户消息与运行中 AI 消息在短事务内建立；文件保存成功后，再在短事务中提交完成状态与应用成功版本。生成过程不占用数据库事务；当前按单实例协调同一应用的生成，防止旧版本覆盖新版本。
 - 单 HTML 固定写入按用户、应用、版本划分的目录；检查文档完整性，拒绝覆盖已有文件或跟随子目录符号链接。该检查不等于 HTML 安全净化，浏览器执行隔离随预览步骤实现。
 
+## 2026-11-11：消息与状态查询
+
+- 消息按应用和创建者限定，固定 ID 游标分页，默认 10 条、最多 20 条；多取一条判断是否还有历史，本页按旧到新返回，避免新消息插入导致翻页重复。
+- 单实例首次生成或消息查询共用一次恢复入口：旧 AI `running` 先独立更新为失败，再允许建立新生成；恢复失败不记为已完成。保留原内容和成功版本，后续查询不会误伤当前进程任务。
+
 ## 第三方文件与依赖来源
 
 - [LangChain4j 1.22.0 OpenAI 接入模块 POM](https://repo.maven.apache.org/maven2/dev/langchain4j/langchain4j-open-ai/1.22.0/langchain4j-open-ai-1.22.0.pom)；[同版本流式回调接口](https://github.com/langchain4j/langchain4j/blob/1.22.0/langchain4j-core/src/main/java/dev/langchain4j/model/chat/response/StreamingChatResponseHandler.java)。

@@ -43,6 +43,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -115,6 +116,9 @@ class GenerationControllerTest {
 
         assertThat(events).containsSubsequence("event:started", "event:delta", "event:completed")
                 .contains("\"generationId\":\"" + generationId + "\"").doesNotContain("event:failed");
+        var order = inOrder(persistence);
+        order.verify(persistence).recoverInterruptedGenerations();
+        order.verify(persistence).start(55L, 42L, "摄影作品集");
         verify(persistence).complete(55L, 42L, generationId, HTML);
         verify(persistence, never()).fail(eq(generationId), any(), any());
     }

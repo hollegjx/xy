@@ -62,6 +62,7 @@ public class GenerationServiceImpl implements GenerationService {
         if (model == null) {
             throw new BusinessException(HttpStatus.SERVICE_UNAVAILABLE, 50001, "请先配置并启用模型服务");
         }
+        persistence.recoverInterruptedGenerations();
         if (!runningApps.add(appId)) {
             throw new BusinessException(HttpStatus.CONFLICT, 50001, "该应用正在生成，请等待本次结束");
         }

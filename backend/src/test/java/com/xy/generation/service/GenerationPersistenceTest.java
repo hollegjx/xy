@@ -3,13 +3,19 @@ package com.xy.generation.service;
 import com.xy.app.mapper.AppMapper;
 import com.xy.chat.mapper.ChatHistoryMapper;
 import com.xy.chat.model.entity.ChatHistory;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -49,5 +55,47 @@ class GenerationPersistenceTest {
         var order = inOrder(messages, apps);
         order.verify(messages).finishGeneration(102, "completed", "html", null);
         order.verify(apps).updateGeneratedVersion(55, 42, 102);
+    }
+
+    @Test
+    void recoversOnceAndMakesConcurrentRequestsWaitBeforeStartingNewGenerations() throws Exception {
+        CountDownLatch recovering = new CountDownLatch(1);
+        CountDownLatch releaseRecovery = new CountDownLatch(1);
+        CountDownLatch secondRequest = new CountDownLatch(1);
+        when(messages.failInterruptedGenerations()).thenAnswer(invocation -> {
+            recovering.countDown();
+            assertThat(releaseRecovery.await(5, TimeUnit.SECONDS)).isTrue();
+            return 1;
+        });
+        try (var executor = Executors.newFixedThreadPool(2)) {
+            var first = executor.submit(persistence::recoverInterruptedGenerations);
+            try {
+                assertThat(recovering.await(5, TimeUnit.SECONDS)).isTrue();
+                var second = executor.submit(() -> {
+                    secondRequest.countDown();
+                    persistence.recoverInterruptedGenerations();
+                });
+                assertThat(secondRequest.await(5, TimeUnit.SECONDS)).isTrue();
+                assertThatThrownBy(() -> second.get(100, TimeUnit.MILLISECONDS)).isInstanceOf(TimeoutException.class);
+                releaseRecovery.countDown();
+                first.get(5, TimeUnit.SECONDS);
+                second.get(5, TimeUnit.SECONDS);
+                persistence.recoverInterruptedGenerations();
+                verify(messages).failInterruptedGenerations();
+                verifyNoInteractions(apps);
+            } finally {
+                releaseRecovery.countDown();
+            }
+        }
+    }
+
+    @Test
+    void retriesRecoveryAfterFailureBeforeRememberingItAsComplete() {
+        when(messages.failInterruptedGenerations()).thenThrow(new IllegalStateException("暂时不可用")).thenReturn(1);
+        assertThatThrownBy(persistence::recoverInterruptedGenerations).isInstanceOf(IllegalStateException.class);
+        persistence.recoverInterruptedGenerations();
+        persistence.recoverInterruptedGenerations();
+        verify(messages, times(2)).failInterruptedGenerations();
+        verifyNoInteractions(apps);
     }
 }

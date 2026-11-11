@@ -13,4 +13,8 @@ public interface ChatHistoryMapper extends BaseMapper<ChatHistory> {
             + "WHERE id = #{id} AND messageRole = 'assistant' AND status = 'running' AND isDelete = 0")
     int finishGeneration(@Param("id") long id, @Param("status") String status,
             @Param("content") String content, @Param("errorMessage") String errorMessage);
+
+    @Update("UPDATE chat_history SET status = 'failed', errorMessage = '服务已重启，本次生成中断，请重试' "
+            + "WHERE messageRole = 'assistant' AND status = 'running' AND isDelete = 0")
+    int failInterruptedGenerations();
 }

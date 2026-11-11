@@ -7,6 +7,7 @@ import org.springframework.dao.DataAccessException;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
@@ -23,6 +24,7 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
     @ExceptionHandler(BusinessException.class)
     public ResponseEntity<ApiResponse<Void>> handleBusinessException(BusinessException exception) {
         return ResponseEntity.status(exception.getStatus())
+                .contentType(MediaType.APPLICATION_JSON)
                 .body(ApiResponse.failure(exception.getCode(), exception.getMessage()));
     }
 
@@ -60,13 +62,17 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
             body = ApiResponse.failure(code, message);
         }
         // 交由框架保留原始状态码及 Allow、Accept 等协议响应头。
-        return super.handleExceptionInternal(exception, body, headers, status, request);
+        HttpHeaders responseHeaders = new HttpHeaders();
+        responseHeaders.putAll(headers);
+        responseHeaders.setContentType(MediaType.APPLICATION_JSON);
+        return super.handleExceptionInternal(exception, body, responseHeaders, status, request);
     }
 
     @ExceptionHandler(DataAccessException.class)
     public ResponseEntity<ApiResponse<Void>> handleDataAccessException(DataAccessException exception) {
         log.error("数据库访问失败", exception);
         return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+                .contentType(MediaType.APPLICATION_JSON)
                 .body(ApiResponse.failure(50000, "数据库连接失败，请检查本地配置"));
     }
 
@@ -74,6 +80,7 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
     public ResponseEntity<ApiResponse<Void>> handleUnexpectedException(Exception exception) {
         log.error("请求处理失败", exception);
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                .contentType(MediaType.APPLICATION_JSON)
                 .body(ApiResponse.failure(50000, "服务暂时不可用，请稍后重试"));
     }
 }

@@ -15,6 +15,7 @@ public class App {
     private String appName;
     private String initPrompt;
     private String codeGenType;
+    private Long generatedVersion;
     @Column(insertable = false, updatable = false)
     private LocalDateTime createTime;
     @Column(insertable = false, updatable = false)
@@ -56,6 +57,14 @@ public class App {
 
     public String getCodeGenType() {
         return codeGenType;
+    }
+
+    public Long getGeneratedVersion() {
+        return generatedVersion;
+    }
+
+    public void setGeneratedVersion(Long generatedVersion) {
+        this.generatedVersion = generatedVersion;
     }
 
     public void setCodeGenType(String codeGenType) {

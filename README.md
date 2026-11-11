@@ -6,7 +6,7 @@
 
 ## 当前阶段
 
-首期采用方案 B，功能范围见 [docs/spec.md](docs/spec.md)。当前包含健康检查、接口文档、账号注册与登录、当前账号恢复和退出登录，以及首页创建应用和应用详情工作台。创建后可查看已保存的初始需求与生成模式；工作台目前没有生成结果，AI 生成与预览按 Spec 分步接入。
+首期采用方案 B，功能范围见 [docs/spec.md](docs/spec.md)。当前包含健康检查、接口文档、账号注册与登录、当前账号恢复和退出登录，以及首页创建应用和应用详情工作台。后端已增加单 HTML 流式生成接口和产物保存；工作台生成操作、隔离预览与多文件生成按 Spec 分步接入。
 
 ## 项目结构
 
@@ -37,11 +37,15 @@ xy/
 ## 本地配置与启动
 
 1. 在 IDEA 打开 `backend/pom.xml`，选择已有且受支持的 JDK，等待 Maven 导入完成。
-2. 在已有 MySQL 连接中依次执行 [backend/sql/001_create_database.sql](backend/sql/001_create_database.sql)、[backend/sql/002_create_user.sql](backend/sql/002_create_user.sql) 和 [backend/sql/003_create_app.sql](backend/sql/003_create_app.sql)，分别创建数据库、用户表和应用表。它们不删除或覆盖已有数据；已执行过的文件无需重复执行。如已有同名表，先核对结构。
+2. 在已有 MySQL 连接中依次执行 [backend/sql/001_create_database.sql](backend/sql/001_create_database.sql)、[backend/sql/002_create_user.sql](backend/sql/002_create_user.sql)、[backend/sql/003_create_app.sql](backend/sql/003_create_app.sql) 和 [backend/sql/004_add_generation.sql](backend/sql/004_add_generation.sql)，创建数据库、用户表、应用表、消息表，并为应用增加最近成功版本字段。不删除已有数据；已执行过的文件无需重复执行，`004` 中的 ALTER 只能执行一次。如已有同名表或字段，先核对结构。
 3. 将 `backend/src/main/resources/application.example.yml` 复制为同目录的 `application.yml`，填写实际数据库地址、库名、账号、密码。本工作区若已存在该文件，直接编辑，勿覆盖已有配置。密码建议使用 YAML 单引号字符串，密码本身含单引号时写成两个单引号。
 4. 在 IDEA 运行 `com.xy.MainApplication`，打开 `http://localhost:8101/api/doc.html`，在「健康检查」中调用 `GET /health`。
 
 `application.yml` 是唯一的本地配置文件，已被 Git 忽略；仓库只保存不含真实凭证的 `application.example.yml`。不要强制添加本地配置到 Git。切换配置后需要重新运行后端。
+
+使用生成接口时，在该文件的 `xy.ai` 下填写 `base-url`、`api-key`、`model-name`，将 `enabled` 设为 `true`。默认超时为 180 秒、最大完成 token 数为 16384，可在同一配置中修改。配置示例默认关闭模型接入，账号与应用基础接口仍可使用。
+
+生成文件位于 `xy.generation.output-directory`，默认是相对于后端启动工作目录的 `./generated`；下级按用户 ID、应用 ID、生成 ID 划分，单 HTML 文件名为 `index.html`。目录被 Git 忽略。当前只保存源码，不在服务端执行它；预览隔离在后续步骤接入。
 
 成功结果示例：
 

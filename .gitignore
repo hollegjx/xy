@@ -29,6 +29,7 @@ coverage/
 *.tsbuildinfo
 test-results/
 playwright-report/
+generated/
 /frontend/e2e/_shots.spec.ts
 
 # Logs and temporary files

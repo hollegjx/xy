@@ -108,7 +108,15 @@
 - 用户提供的模型网关地址与密钥存入被 Git 忽略的 `application.yml` 的 `xy.ai` 下，模型名选定为 `gpt-6.1-sol`；已读取模型列表，生成和流式兼容性在生成接口步骤验证。
 - 先实现单 HTML 生成接口，再接入状态查询、取消、隔离预览、多文件和工作台；成功状态以产物校验与保存成功为准，延续 Spec 的版本与失败保护约定。
 
+## 2026-11-10：单 HTML 流式生成接口
+
+- 使用 LangChain4j 1.22.0 的流式模型回调，网关、密钥和 `gpt-6.1-sol` 模型名由后端配置；关闭请求与响应日志，上游异常只记录生成 ID 和异常类型，避免凭证泄露。
+- 用户消息与运行中 AI 消息在短事务内建立；文件保存成功后，再在短事务中提交完成状态与应用成功版本。生成过程不占用数据库事务；当前按单实例协调同一应用的生成，防止旧版本覆盖新版本。
+- 单 HTML 固定写入按用户、应用、版本划分的目录；检查文档完整性，拒绝覆盖已有文件或跟随子目录符号链接。该检查不等于 HTML 安全净化，浏览器执行隔离随预览步骤实现。
+
 ## 第三方文件与依赖来源
+
+- [LangChain4j 1.22.0 OpenAI 接入模块 POM](https://repo.maven.apache.org/maven2/dev/langchain4j/langchain4j-open-ai/1.22.0/langchain4j-open-ai-1.22.0.pom)；[同版本流式回调接口](https://github.com/langchain4j/langchain4j/blob/1.22.0/langchain4j-core/src/main/java/dev/langchain4j/model/chat/response/StreamingChatResponseHandler.java)。
 
 - Maven Wrapper **3.3.4** 使用 Apache 发布的 `only-script` 发行包；保留原始脚本的 Apache-2.0 声明。Maven 发行版本固定 **3.9.11**。
 - [Maven Wrapper 官方文档](https://maven.apache.org/wrapper/)；[Apache-2.0 许可](https://www.apache.org/licenses/LICENSE-2.0)。

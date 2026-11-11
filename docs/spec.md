@@ -28,7 +28,7 @@
 | --- | --- | --- |
 | `user` | `userAccount` varchar、`userPassword` varchar、`userName` varchar、`userRole` varchar | 账号唯一；密码保存安全散列；角色为 `user` / `admin`，注册只能创建普通用户 |
 | `app` | `userId` bigint、`appName` varchar、`initPrompt` text、`codeGenType` varchar、`generatedVersion` bigint 可空、`publishedVersion` bigint 可空、`deployKey` varchar 可空且唯一、`deployedAt` datetime 可空 | 记录创建者、初始需求、自动生成的名称、生成模式（默认 `multi_file`）、最近成功版本和已发布版本；版本引用成功生成的 AI 消息 ID |
-| `chat_history` | `appId` bigint、`userId` bigint、`messageRole` varchar、`content` longtext、`status` varchar | 角色为 `user` / `assistant`；状态为 `running` / `completed` / `failed` / `cancelled`；用户消息直接保存为 `completed` |
+| `chat_history` | `appId` bigint、`userId` bigint、`messageRole` varchar、`content` longtext、`status` varchar、`errorMessage` varchar 可空 | 角色为 `user` / `assistant`；状态为 `running` / `completed` / `failed` / `cancelled`；用户消息直接保存为 `completed`；失败原因只存可公开的文案 |
 
 源码文件按用户、应用和生成版本隔离存放，不把完整项目文件写进数据库；一个 AI 消息 ID 同时标识一次生成，暂不新增任务表。
 
@@ -103,7 +103,16 @@
 | 5. 多文件生成 | 多文件提示词、输出解析、路径校验及资源读取 | 同一生成接口支持默认 `multi_file`；HTML、CSS、JS 完整保存并可加载，非法路径与缺失产物被拒绝 |
 | 6. 工作台生成流程 | 前端生成与消息 API、SSE 解析、工作台与页面专属组件、E2E | 创建后自动首次生成，显示流式内容、失败与停止操作，完成后预览；刷新恢复状态且不重发请求，单 HTML 与多文件均可操作 |
 
-第一步先验证模型服务的生成与流式协议，再锁定相容的 LangChain4j 依赖版本。模型接入信息只放服务端配置，自动测试用可控替身；生成模块完成后，再在模块 4 接入跨轮次模型上下文与基于已有源码的持续修改。
+第一步核对模型接入库的生成与流式协议并锁定依赖版本，真实网关兼容性由用户联调验证。模型接入信息只放服务端配置，自动测试用可控替身；生成模块完成后，再在模块 4 接入跨轮次模型上下文与基于已有源码的持续修改。
+
+单 HTML 生成接口的当前契约：
+
+- 请求：`POST /api/apps/{appId}/generations`，JSON 为 `{"prompt":"本次需求"}`。需求必填且最多 16383 个 Unicode 码点；首次调用传入应用的初始需求。
+- 开始前返回普通 JSON 错误：未登录 401、非创建者 403、不存在 404、参数或非 `html` 模式 400、同一应用正在生成 409（业务码 50001）、模型未启用 503。
+- 接受后返回 `text/event-stream`：`started` 带字符串 `generationId` 和 `status: running`；`delta` 额外带 `text`；最终为 `completed` / `status: completed`，或 `failed` / `status: failed` 与可读 `message`。流内失败仍是 HTTP 200，连接关闭不代表成功。
+- 生成 ID 是 AI 消息 ID。文件固定保存为 `用户ID/应用ID/生成ID/index.html`，不能由模型指定路径；只有完整 HTML 保存且消息与应用成功版本在短事务内提交后，才发送完成事件。
+- 当前为单实例，同一应用同时只接受一次生成。超时或连接中断记录失败，取消已获得的模型流；句柄尚未到达时，后续回调会停止流。失败的部分输出保留为消息，但不会更新成功版本；重试必须由用户发起。
+- 本步只按当前需求全量生成，不声称已具备历史上下文修改能力；重启后遗留状态的恢复、查询、取消入口、预览和工作台接入仍按上表推进。
 
 ## 参考依据与差异
 

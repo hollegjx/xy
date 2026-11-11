@@ -1,4 +1,4 @@
-package com.xy.user.config;
+package com.xy.config;
 
 import java.util.Map;
 import org.springframework.context.annotation.Bean;

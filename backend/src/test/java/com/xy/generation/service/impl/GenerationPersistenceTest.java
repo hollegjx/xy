@@ -1,4 +1,4 @@
-package com.xy.generation.service;
+package com.xy.generation.service.impl;
 
 import com.xy.app.mapper.AppMapper;
 import com.xy.chat.mapper.ChatHistoryMapper;

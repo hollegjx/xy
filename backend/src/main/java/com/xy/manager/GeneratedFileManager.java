@@ -1,10 +1,11 @@
-package com.xy.generation.file;
+package com.xy.manager;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.FileAlreadyExistsException;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
+import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.util.Locale;
@@ -13,13 +14,13 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 @Component
-public class GeneratedFileStore {
+public class GeneratedFileManager {
 
     private static final Pattern HEAD = Pattern.compile("(?is)<head\\b[^>]*>.*?</head\\s*>");
     private static final Pattern BODY = Pattern.compile("(?is)<body\\b[^>]*>(.*?)</body\\s*>");
     private final Path root;
 
-    public GeneratedFileStore(@Value("${xy.generation.output-directory:./generated}") Path root) {
+    public GeneratedFileManager(@Value("${xy.generation.output-directory:./generated}") Path root) {
         this.root = root.toAbsolutePath().normalize();
     }
 
@@ -41,6 +42,25 @@ public class GeneratedFileStore {
         }
         Files.writeString(directory.resolve("index.html"), html, StandardCharsets.UTF_8,
                 StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE);
+    }
+
+    public String readHtml(long userId, long appId, long generationId) throws IOException {
+        Path directory = root.toRealPath();
+        for (long id : new long[]{userId, appId, generationId}) {
+            directory = directory.resolve(Long.toString(id));
+            if (Files.isSymbolicLink(directory)) throw new IOException("预览目录不可使用符号链接");
+            if (!Files.isDirectory(directory, LinkOption.NOFOLLOW_LINKS)) {
+                throw new NoSuchFileException("生成目录不存在");
+            }
+        }
+        Path file = directory.resolve("index.html");
+        if (Files.isSymbolicLink(file)) throw new IOException("预览文件不可使用符号链接");
+        if (!Files.isRegularFile(file, LinkOption.NOFOLLOW_LINKS)) {
+            throw new NoSuchFileException("生成文件不存在");
+        }
+        try (var input = Files.newInputStream(file, LinkOption.NOFOLLOW_LINKS)) {
+            return new String(input.readAllBytes(), StandardCharsets.UTF_8);
+        }
     }
 
     private String validateHtml(String content) {

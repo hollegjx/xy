@@ -2,8 +2,8 @@ package com.xy.generation.controller;
 
 import com.xy.app.mapper.AppMapper;
 import com.xy.app.model.entity.App;
-import com.xy.generation.service.GenerationPersistence;
-import com.xy.user.constant.UserConstant;
+import com.xy.common.UserConstant;
+import com.xy.generation.service.impl.GenerationPersistence;
 import com.xy.user.mapper.UserMapper;
 import com.xy.user.model.entity.User;
 import dev.langchain4j.data.message.AiMessage;

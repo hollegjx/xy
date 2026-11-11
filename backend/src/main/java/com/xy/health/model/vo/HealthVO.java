@@ -1,4 +1,4 @@
-package com.xy.health;
+package com.xy.health.model.vo;
 
 import io.swagger.v3.oas.annotations.media.Schema;
 

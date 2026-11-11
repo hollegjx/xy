@@ -1,8 +1,8 @@
 package com.xy.user.service.impl;
 
 import com.mybatisflex.core.query.QueryWrapper;
+import com.xy.common.UserConstant;
 import com.xy.exception.BusinessException;
-import com.xy.user.constant.UserConstant;
 import com.xy.user.mapper.UserMapper;
 import com.xy.user.model.dto.UserLoginRequest;
 import com.xy.user.model.dto.UserRegisterRequest;

@@ -1,4 +1,4 @@
-package com.xy.generation.file;
+package com.xy.manager;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -8,11 +8,13 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-class GeneratedFileStoreTest {
+class GeneratedFileManagerTest {
 
     private static final String HTML = "<!DOCTYPE html><html><head></head><body>你好</body></html>";
     @TempDir
@@ -20,17 +22,18 @@ class GeneratedFileStoreTest {
 
     @Test
     void savesFencedHtmlUnderItsOwnerAppAndVersionWithoutOverwriting() throws Exception {
-        GeneratedFileStore store = new GeneratedFileStore(directory);
+        GeneratedFileManager store = new GeneratedFileManager(directory);
         store.saveHtml(42, 55, 101, "```html\n" + HTML + "\n```");
         Path file = directory.resolve("42/55/101/index.html");
         assertThat(Files.readString(file)).isEqualTo(HTML);
+        assertThat(store.readHtml(42, 55, 101)).isEqualTo(HTML);
         assertThatThrownBy(() -> store.saveHtml(42, 55, 101, HTML)).isInstanceOf(IOException.class);
         assertThat(Files.readString(file)).isEqualTo(HTML);
     }
 
     @Test
     void rejectsIncompleteDocumentsBeforeCreatingFiles() {
-        GeneratedFileStore store = new GeneratedFileStore(directory);
+        GeneratedFileManager store = new GeneratedFileManager(directory);
         assertThatThrownBy(() -> store.saveHtml(42, 55, 101, "<!DOCTYPE html><html><body>中断"))
                 .isInstanceOf(IllegalArgumentException.class);
         assertThat(directory.resolve("42")).doesNotExist();
@@ -41,14 +44,14 @@ class GeneratedFileStoreTest {
         Path outside = Files.createDirectory(directory.resolve("outside"));
         Path root = Files.createDirectory(directory.resolve("generated"));
         Files.createSymbolicLink(root.resolve("42"), outside);
-        GeneratedFileStore store = new GeneratedFileStore(root);
+        GeneratedFileManager store = new GeneratedFileManager(root);
         assertThatThrownBy(() -> store.saveHtml(42, 55, 101, HTML)).isInstanceOf(IOException.class);
         assertThat(outside.resolve("55")).doesNotExist();
     }
 
     @Test
     void differentAppsCanCreateTheSameOwnerDirectoryConcurrently() throws Exception {
-        GeneratedFileStore store = new GeneratedFileStore(directory);
+        GeneratedFileManager store = new GeneratedFileManager(directory);
         try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
             var writes = new ArrayList<Future<?>>();
             for (long appId = 1; appId <= 16; appId++) {
@@ -61,5 +64,18 @@ class GeneratedFileStoreTest {
             for (Future<?> write : writes) write.get();
         }
         assertThat(Files.readString(directory.resolve("42/16/101/index.html"))).isEqualTo(HTML);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"42", "42/55", "42/55/101", "42/55/101/index.html"})
+    void refusesToReadThroughSymlinksAtEveryApplicationPathLevel(String relative) throws Exception {
+        Path root = Files.createDirectory(directory.resolve("generated"));
+        Path outside = Files.createDirectory(directory.resolve("outside"));
+        Path secret = Files.writeString(outside.resolve("secret.html"), "不可暴露的内容");
+        Path link = root.resolve(relative);
+        Files.createDirectories(link.getParent());
+        Files.createSymbolicLink(link, relative.endsWith("index.html") ? secret : outside);
+        GeneratedFileManager store = new GeneratedFileManager(root);
+        assertThatThrownBy(() -> store.readHtml(42, 55, 101)).isInstanceOf(IOException.class);
     }
 }

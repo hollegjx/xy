@@ -21,7 +21,7 @@
 
 ## 2026-11-07：用户模块第 1 步（注册）
 
-- 代码保留按业务模块组织，模块内遵循 `fullstack-conventions` 的分层目录：`controller`、`service` / `service/impl`、`mapper`、`model/entity`、`model/dto` 和 `config`。Controller 依赖 `UserService` 接口，业务实现在 `UserServiceImpl`；实体与请求模型分别放置。后续新增业务模块沿用此结构，VO 在有相应响应模型时加入。
+- 代码保留按业务模块组织，模块内遵循 `fullstack-conventions` 的分层目录：`controller`、`service` / `service/impl`、`mapper`、`model/entity` 和 `model/dto`。Controller 依赖 `UserService` 接口，业务实现在 `UserServiceImpl`；实体与请求模型分别放置。VO 在有相应响应模型时加入；配置于 2026-11-11 统一迁移到顶层 `config`。
 - 参考行为是此前已读取大纲中的用户注册能力；本步未取得教程该章正文。请求字段、表结构、散列方案和错误响应属于 XY 的独立设计。
 - 新增 `POST /users/register`。请求只接收账号、密码和确认密码；边界使用 Bean Validation 校验必填及账号最多 128 个 Unicode 码点，Service 校验两次密码一致并固定普通用户角色。初始昵称使用账号，成功仅返回字符串形式的用户 ID。
 - `002_create_user.sql` 只创建用户表，按 `001` → `002` 顺序由用户执行；ID 使用 MySQL 自增，创建和更新时间由数据库维护，MyBatis-Flex 显式关闭驼峰转下划线以匹配 SQL 字段。账号使用唯一索引，沿用数据库的 `utf8mb4_0900_ai_ci` 排序规则；逻辑删除记录也保留账号占用。
@@ -33,7 +33,7 @@
 
 ## 2026-11-07：用户模块第 2 步（登录）
 
-- 新增 `POST /users/login`，沿用模块内分层：请求放 `model/dto/UserLoginRequest`，脱敏响应放 `model/vo/UserVO`，会话键放 `constant/UserConstant`；业务实现在 `service/impl/UserServiceImpl`，Controller 通过 Service 接口调用。
+- 新增 `POST /users/login`，沿用模块内分层：请求放 `model/dto/UserLoginRequest`，脱敏响应放 `model/vo/UserVO`；业务实现在 `service/impl/UserServiceImpl`，Controller 通过 Service 接口调用。会话键于 2026-11-11 统一归入 `common/UserConstant`。
 - 账号和密码在请求边界校验必填，密码复用注册时的 `PasswordEncoder.matches` 校验；账号不存在与密码错误统一返回 HTTP 400 / 业务码 40000「账号或密码错误」。账号查询通过 MyBatis-Flex 参数化条件完成，沿用实体的逻辑删除过滤。
 - 成功后建立 Session 并更换 Session ID，仅写入 `loginUserId`；密码散列和角色不存入会话。用户响应只包含字符串 ID、账号、昵称及数据库中的角色。失败路径不会创建会话或写入新的登录身份。
 - 参考行为仍基于此前读取的大纲；接口字段、会话内容和错误语义为 XY 设计。技术行为核对参考 [MyBatis-Flex 逻辑删除文档](https://mybatis-flex.com/zh/core/logic-delete.html)和 [Servlet HttpServletRequest API](https://tomcat.apache.org/tomcat-10.1-doc/servletapi/jakarta/servlet/http/HttpServletRequest.html)。测试以 Mapper 替身验证登录业务和会话状态，真实数据库查询与浏览器 Cookie 按 README 验收。
@@ -129,7 +129,22 @@
 - 失败状态落库异常时，保留生成 ID、部分输出和原因；后续查询、生成或停止请求先补写，数据库仍不可用时返回错误并保留重试记录。运行期间的补写与启动时的一次恢复分开处理。
 - 补写只更新 `running`；更新未命中时查询确认终态或删除状态后清理记录，避免响应丢失造成无休止重试。该记录保存在当前进程内，重启后的状态继续由已有恢复逻辑处理。
 
+## 2026-11-11：成功版本预览
+
+- 预览归入 `app` 模块，复用 `AppService.getOwnedApp` 的归属校验，通过 `manager/GeneratedFileManager` 读取成功版本快照；核对消息归属与终态后才读固定文件，失败和取消产物不能替换它。
+- 使用响应头 CSP 沙箱生成不透明来源，仅允许内联交互与内联资源；直接打开和 iframe 嵌入都受约束。当前禁止外部资源与联网，后续多文件读取仍需保留隔离边界。
+
+## 2026-11-11：统一后端包结构
+
+- 按用户指定的目录重构，长期约定写入 `AGENTS.md`。AI 与密码配置统一放在 `config`；文件存取组件迁移并改名为 `manager/GeneratedFileManager`，由生成和预览共同使用。
+- 取消顶层 `preview` 包，预览 Controller、Service 接口和实现归入 `app` 对应层；健康检查改为 Controller、Service 接口与实现、VO 分层。共享会话键归入 `common/UserConstant`。
+- `generation/service` 仅保留接口，`GenerationPersistence` 迁入 `service/impl`，与 `GenerationServiceImpl`、`GenerationSession` 同目录。消息查询继续调用持久化协作类完成状态恢复，保留当前事务与补写时序。
+- 同步测试包和引用；HTTP 路径、响应、数据库结构、模型配置项、文件目录与预览隔离策略沿用当前契约。
+- 验证：`sh mvnw clean test` 的 93 项测试全部通过，预览浏览器隔离测试 2 项通过；源码比对与包路径检查通过。测试使用数据库替身和本地模型协议替身，浏览器拦截全部请求，未连接真实 MySQL、模型服务或用户运行中的项目服务。
+
 ## 第三方文件与依赖来源
+
+- 预览隔离依据：[CSP sandbox / connect-src 规范](https://www.w3.org/TR/CSP3/)、[HTML 沙箱来源与存储限制](https://html.spec.whatwg.org/multipage/browsers.html#sandboxing)。
 
 - [LangChain4j 1.22.0 OpenAI 接入模块 POM](https://repo.maven.apache.org/maven2/dev/langchain4j/langchain4j-open-ai/1.22.0/langchain4j-open-ai-1.22.0.pom)；[同版本流式回调接口](https://github.com/langchain4j/langchain4j/blob/1.22.0/langchain4j-core/src/main/java/dev/langchain4j/model/chat/response/StreamingChatResponseHandler.java)。
 

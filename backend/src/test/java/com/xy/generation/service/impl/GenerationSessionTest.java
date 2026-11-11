@@ -6,8 +6,7 @@ import com.xy.chat.mapper.ChatHistoryMapper;
 import com.xy.chat.model.dto.ChatHistoryQueryRequest;
 import com.xy.chat.model.entity.ChatHistory;
 import com.xy.chat.service.impl.ChatHistoryServiceImpl;
-import com.xy.generation.file.GeneratedFileStore;
-import com.xy.generation.service.GenerationPersistence;
+import com.xy.manager.GeneratedFileManager;
 import com.xy.user.model.entity.User;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.model.chat.response.ChatResponse;
@@ -38,7 +37,7 @@ import static org.mockito.Mockito.when;
 class GenerationSessionTest {
 
     private final GenerationPersistence persistence = mock(GenerationPersistence.class);
-    private final GeneratedFileStore files = mock(GeneratedFileStore.class);
+    private final GeneratedFileManager files = mock(GeneratedFileManager.class);
     private final SseEmitter emitter = mock(SseEmitter.class);
     private final Runnable release = mock(Runnable.class);
     private final GenerationSession session = new GenerationSession(55, 42, 101, emitter, persistence, files, release);

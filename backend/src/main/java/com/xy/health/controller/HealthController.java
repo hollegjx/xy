@@ -1,6 +1,8 @@
-package com.xy.health;
+package com.xy.health.controller;
 
 import com.xy.common.ApiResponse;
+import com.xy.health.model.vo.HealthVO;
+import com.xy.health.service.HealthService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.web.bind.annotation.GetMapping;

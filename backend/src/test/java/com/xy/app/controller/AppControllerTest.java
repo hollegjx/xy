@@ -3,7 +3,7 @@ package com.xy.app.controller;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.xy.app.mapper.AppMapper;
 import com.xy.app.model.entity.App;
-import com.xy.user.constant.UserConstant;
+import com.xy.common.UserConstant;
 import com.xy.user.mapper.UserMapper;
 import com.xy.user.model.entity.User;
 import java.time.LocalDateTime;

@@ -1,4 +1,4 @@
-package com.xy.health;
+package com.xy.health.controller;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -75,6 +75,7 @@ class HealthControllerTest {
                 .andExpect(jsonPath("$.paths['/apps/{appId}/generations'].post.summary").value("流式生成单 HTML 网站"))
                 .andExpect(jsonPath("$.paths['/apps/{appId}/generations/{generationId}/cancel'].post.summary").value("停止应用生成"))
                 .andExpect(jsonPath("$.paths['/apps/{appId}/messages'].get.summary").value("查询应用消息与生成状态"))
+                .andExpect(jsonPath("$.paths['/apps/{appId}/preview'].get.summary").value("预览最近成功版本"))
                 .andExpect(jsonPath("$.paths['/users/register'].post.summary").value("注册用户"))
                 .andExpect(jsonPath("$.paths['/users/login'].post.summary").value("用户登录"))
                 .andExpect(jsonPath("$.paths['/users/logout'].post.summary").value("用户退出"))

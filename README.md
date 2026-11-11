@@ -6,7 +6,7 @@
 
 ## 当前阶段
 
-首期采用方案 B，功能范围见 [docs/spec.md](docs/spec.md)。当前包含健康检查、接口文档、账号注册与登录、当前账号恢复和退出登录，以及首页创建应用和应用详情工作台。后端已增加单 HTML 流式生成、停止生成、产物保存、消息游标查询与生成状态恢复；工作台生成操作、隔离预览与多文件生成按 Spec 分步接入。
+首期采用方案 B，功能范围见 [docs/spec.md](docs/spec.md)。当前包含健康检查、接口文档、账号注册与登录、当前账号恢复和退出登录，以及首页创建应用和应用详情工作台。后端已增加单 HTML 流式生成、停止生成、产物保存、消息游标查询、生成状态恢复与成功版本隔离预览；工作台的生成与预览操作、多文件生成按 Spec 分步接入。
 
 ## 项目结构
 
@@ -19,6 +19,22 @@ xy/
 ├── .gitattributes  Git 文本与换行规则
 └── .gitignore      本地文件与构建产物忽略规则
 ```
+
+后端 Java 包位于 `backend/src/main/java/com/xy`：
+
+```text
+com.xy/
+├── common/、exception/  全局响应、共享常量与异常
+├── config/              AI 模型、密码编码配置
+├── manager/             GeneratedFileManager，生成文件存取
+├── health/              controller、service/impl、model/vo
+├── user/                用户业务
+├── app/                 应用业务，包含 PreviewController 与 PreviewService
+├── chat/                消息与历史
+└── generation/          controller、model、service/impl
+```
+
+业务模块按需使用 `controller`、`service`、`service/impl`、`mapper` 和 `model/{entity,dto,vo,enums}`；`service` 只放接口。生成模块的会话与持久化协作类位于 `generation/service/impl`。测试采用对应包路径；长期目录约定见 [AGENTS.md](AGENTS.md)。
 
 ## Git 约定
 
@@ -45,7 +61,7 @@ xy/
 
 使用生成接口时，在该文件的 `xy.ai` 下填写 `base-url`、`api-key`、`model-name`，将 `enabled` 设为 `true`。默认超时为 180 秒、最大完成 token 数为 16384，可在同一配置中修改。配置示例默认关闭模型接入，账号与应用基础接口仍可使用。
 
-生成文件位于 `xy.generation.output-directory`，默认是相对于后端启动工作目录的 `./generated`；下级按用户 ID、应用 ID、生成 ID 划分，单 HTML 文件名为 `index.html`。目录被 Git 忽略。当前只保存源码，不在服务端执行它；预览隔离在后续步骤接入。
+生成文件位于 `xy.generation.output-directory`，默认是相对于后端启动工作目录的 `./generated`；下级按用户 ID、应用 ID、生成 ID 划分，单 HTML 文件名为 `index.html`。目录被 Git 忽略。服务端只保存和读取源码，浏览器通过 `GET /api/apps/{appId}/preview` 在沙箱中运行最近成功版本；需要应用创建者的登录会话。预览允许内联样式和脚本交互，禁止读取平台凭证和联网加载资源。工作台嵌入时使用前端代理后的同源 `/api` 地址。
 
 当前后端按单实例运行。服务重启后，首次有效生成、停止请求或消息查询会将遗留的运行中生成记为失败，保留已有成功版本；查询不会自动重发生成请求。消息接口返回已保存的内容，运行中的增量输出通过生成接口的 SSE 获取；主动停止后保留部分输出，状态为 `cancelled`。
 
@@ -221,6 +237,15 @@ npm run test:e2e
 ```
 
 前端单元测试验证请求客户端对业务码和错误的处理。页面流程测试只临时使用 5175 端口，拦截所有 `/api` 请求，不访问实际后端；完成后关闭测试进程，不录屏或截图。Playwright 1.56.1 使用本机已有的 Chromium 1194；其他开发环境若缺少测试浏览器，需自行准备对应浏览器后运行页面测试。
+
+预览沙箱的浏览器检查在 `backend/` 下执行，先运行 Maven 测试生成真实接口响应，并确保前端依赖与测试浏览器已就绪：
+
+```sh
+sh mvnw -Dtest=PreviewControllerTest test
+node --test src/test/browser/preview-isolation.test.mjs
+```
+
+该检查复用前端已有的 Playwright，拦截全部网络请求，验证直接打开和 iframe 嵌入时的交互及凭证隔离，不启动项目服务。
 
 后端健康检查的完整验收用例：
 

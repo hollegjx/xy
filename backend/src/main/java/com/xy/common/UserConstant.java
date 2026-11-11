@@ -1,4 +1,4 @@
-package com.xy.user.constant;
+package com.xy.common;
 
 public final class UserConstant {
 

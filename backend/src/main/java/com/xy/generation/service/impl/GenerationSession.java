@@ -1,9 +1,8 @@
 package com.xy.generation.service.impl;
 
 import com.xy.exception.BusinessException;
-import com.xy.generation.file.GeneratedFileStore;
 import com.xy.generation.model.vo.GenerationEventVO;
-import com.xy.generation.service.GenerationPersistence;
+import com.xy.manager.GeneratedFileManager;
 import dev.langchain4j.model.chat.response.ChatResponse;
 import dev.langchain4j.model.chat.response.PartialResponse;
 import dev.langchain4j.model.chat.response.PartialResponseContext;
@@ -28,20 +27,20 @@ final class GenerationSession implements StreamingChatResponseHandler {
     private final long generationId;
     private final SseEmitter emitter;
     private final GenerationPersistence persistence;
-    private final GeneratedFileStore fileStore;
+    private final GeneratedFileManager fileManager;
     private final Runnable release;
     private final StringBuilder content = new StringBuilder();
     private StreamingHandle handle;
     private boolean finished;
 
     GenerationSession(long appId, long userId, long generationId, SseEmitter emitter,
-            GenerationPersistence persistence, GeneratedFileStore fileStore, Runnable release) {
+            GenerationPersistence persistence, GeneratedFileManager fileManager, Runnable release) {
         this.appId = appId;
         this.userId = userId;
         this.generationId = generationId;
         this.emitter = emitter;
         this.persistence = persistence;
-        this.fileStore = fileStore;
+        this.fileManager = fileManager;
         this.release = release;
         emitter.onTimeout(() -> fail("生成超时，请重试"));
         emitter.onError(error -> fail("生成连接中断，请重试"));
@@ -115,7 +114,7 @@ final class GenerationSession implements StreamingChatResponseHandler {
         }
         try {
             String html = response.aiMessage().text();
-            fileStore.saveHtml(userId, appId, generationId, html);
+            fileManager.saveHtml(userId, appId, generationId, html);
             persistence.complete(appId, userId, generationId, html);
         } catch (IllegalArgumentException error) {
             fail("模型未返回完整的 HTML 文档，请重试");

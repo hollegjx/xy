@@ -8,7 +8,7 @@ import com.xy.chat.model.entity.ChatHistory;
 import com.xy.chat.model.vo.ChatHistoryPageVO;
 import com.xy.chat.model.vo.ChatHistoryVO;
 import com.xy.chat.service.ChatHistoryService;
-import com.xy.generation.service.GenerationPersistence;
+import com.xy.generation.service.impl.GenerationPersistence;
 import com.xy.user.model.entity.User;
 import java.util.List;
 import org.springframework.stereotype.Service;

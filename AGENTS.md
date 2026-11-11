@@ -64,6 +64,19 @@
 ### 后端
 
 - 按用户、应用、对话、生成等业务模块组织代码，模块内保持 Controller、Service、Mapper 和模型的职责边界。
+- `com.xy` 的包结构固定如下，子目录按实际类创建，不为占位增加空目录：
+
+  ```text
+  common/、exception/          全局响应、共享常量与异常处理
+  config/                      全局配置，包括 AI 模型与密码编码配置
+  manager/                     跨模块技术能力，当前为 GeneratedFileManager
+  health/                      controller、service/impl、model/vo；service 下放接口
+  user/、app/、chat/            controller、service/impl、mapper、model/{entity,dto,vo,enums}
+  generation/                  controller、model、service/impl
+  ```
+
+- 各模块 `service/` 只放接口，`service/impl/` 放实现和实现协作类；生成模块的 `GenerationServiceImpl`、`GenerationSession`、`GenerationPersistence` 均在 `generation/service/impl/`。协作类不为目录对称而增加接口。
+- 应用预览的 `PreviewController`、`PreviewService` 和实现归入 `app`，不另建顶层 `preview` 包；生成文件存取归入 `manager/GeneratedFileManager`，不再放在 `generation/file`。配置统一放在顶层 `config`，测试包跟随被测代码。
 - Controller 负责协议与调用编排；Service 负责业务规则、资源归属、权限和事务；Mapper 负责数据访问。
 - 优先构造器注入。请求与响应使用清晰的 DTO / VO，避免直接向外暴露数据库实体和敏感字段。
 - 基础输入格式在请求边界校验，业务约束在 Service 校验，唯一性等数据约束由数据库兜底；同一规则不要在各层重复实现。

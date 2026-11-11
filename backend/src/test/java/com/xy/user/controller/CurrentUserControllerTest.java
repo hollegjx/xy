@@ -1,7 +1,7 @@
 package com.xy.user.controller;
 
 import com.mybatisflex.core.query.QueryWrapper;
-import com.xy.user.constant.UserConstant;
+import com.xy.common.UserConstant;
 import com.xy.user.mapper.UserMapper;
 import com.xy.user.model.entity.User;
 import org.junit.jupiter.api.Test;

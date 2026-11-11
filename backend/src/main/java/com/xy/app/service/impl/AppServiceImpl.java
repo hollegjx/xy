@@ -40,6 +40,11 @@ public class AppServiceImpl implements AppService {
 
     @Override
     public AppVO getAppById(long id, User loginUser) {
+        return getAppVO(getOwnedApp(id, loginUser));
+    }
+
+    @Override
+    public App getOwnedApp(long id, User loginUser) {
         App app = appMapper.selectOneById(id);
         if (app == null) {
             throw new BusinessException(HttpStatus.NOT_FOUND, 40400, "应用不存在");
@@ -47,7 +52,7 @@ public class AppServiceImpl implements AppService {
         if (!app.getUserId().equals(loginUser.getId())) {
             throw new BusinessException(HttpStatus.FORBIDDEN, 40300, "无权访问该应用");
         }
-        return getAppVO(app);
+        return app;
     }
 
     private AppVO getAppVO(App app) {

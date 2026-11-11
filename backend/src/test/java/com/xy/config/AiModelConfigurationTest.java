@@ -1,4 +1,4 @@
-package com.xy.generation.config;
+package com.xy.config;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;

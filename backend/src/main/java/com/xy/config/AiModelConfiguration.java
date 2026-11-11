@@ -1,4 +1,4 @@
-package com.xy.generation.config;
+package com.xy.config;
 
 import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.model.openai.OpenAiStreamingChatModel;

@@ -3,10 +3,9 @@ package com.xy.generation.service.impl;
 import com.xy.app.model.vo.AppVO;
 import com.xy.app.service.AppService;
 import com.xy.exception.BusinessException;
-import com.xy.generation.file.GeneratedFileStore;
 import com.xy.generation.model.dto.GenerationRequest;
-import com.xy.generation.service.GenerationPersistence;
 import com.xy.generation.service.GenerationService;
+import com.xy.manager.GeneratedFileManager;
 import com.xy.user.model.entity.User;
 import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.UserMessage;
@@ -30,7 +29,7 @@ public class GenerationServiceImpl implements GenerationService {
 
     private final AppService appService;
     private final GenerationPersistence persistence;
-    private final GeneratedFileStore fileStore;
+    private final GeneratedFileManager fileManager;
     private final ObjectProvider<StreamingChatModel> modelProvider;
     private final Executor executor;
     private final String systemPrompt;
@@ -39,13 +38,13 @@ public class GenerationServiceImpl implements GenerationService {
     private final Map<Long, GenerationSession> runningSessions = new ConcurrentHashMap<>();
 
     public GenerationServiceImpl(AppService appService, GenerationPersistence persistence,
-            GeneratedFileStore fileStore, ObjectProvider<StreamingChatModel> modelProvider,
+            GeneratedFileManager fileManager, ObjectProvider<StreamingChatModel> modelProvider,
             @Qualifier("generationExecutor") Executor executor,
             @Value("classpath:prompts/single-html.txt") Resource prompt,
             @Value("${xy.ai.timeout-seconds:180}") long timeoutSeconds) throws IOException {
         this.appService = appService;
         this.persistence = persistence;
-        this.fileStore = fileStore;
+        this.fileManager = fileManager;
         this.modelProvider = modelProvider;
         this.executor = executor;
         this.systemPrompt = prompt.getContentAsString(StandardCharsets.UTF_8);
@@ -70,7 +69,7 @@ public class GenerationServiceImpl implements GenerationService {
             }
             long generationId = persistence.start(appId, loginUser.getId(), request.prompt());
             return new GenerationSession(appId, loginUser.getId(), generationId,
-                    emitter, persistence, fileStore, () -> runningSessions.remove(appId));
+                    emitter, persistence, fileManager, () -> runningSessions.remove(appId));
         });
         if (session.start()) {
             try {

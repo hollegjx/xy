@@ -8,7 +8,10 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
+import org.springframework.dao.DataAccessResourceFailureException;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -48,6 +51,9 @@ class GenerationPersistenceTest {
     void onlyCompletionUpdatesTheSuccessfulVersion() {
         when(messages.finishGeneration(101, "failed", "partial", "failure")).thenReturn(1);
         persistence.fail(101, "partial", "failure");
+        when(messages.finishGeneration(103, "cancelled", "partial", null)).thenReturn(1);
+        persistence.cancel(103, "partial");
+        verify(messages).finishGeneration(103, "cancelled", "partial", null);
         verifyNoInteractions(apps);
         when(messages.finishGeneration(102, "completed", "html", null)).thenReturn(1);
         when(apps.updateGeneratedVersion(55, 42, 102)).thenReturn(1);
@@ -96,6 +102,28 @@ class GenerationPersistenceTest {
         persistence.recoverInterruptedGenerations();
         persistence.recoverInterruptedGenerations();
         verify(messages, times(2)).failInterruptedGenerations();
+        verifyNoInteractions(apps);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"completed", "failed", "cancelled"})
+    void stopsRetryingOnceTheDatabaseConfirmsAnExistingTerminalState(String status) {
+        persistence.recoverInterruptedGenerations();
+        when(messages.finishGeneration(101, "failed", "partial", "failure"))
+                .thenThrow(new DataAccessResourceFailureException("write outcome unknown")).thenReturn(0);
+        ChatHistory stored = new ChatHistory();
+        stored.setStatus(status);
+        when(messages.selectOneById(101L)).thenReturn(stored);
+
+        assertThatThrownBy(() -> persistence.fail(101, "partial", "failure"))
+                .isInstanceOf(DataAccessResourceFailureException.class);
+        persistence.recoverInterruptedGenerations();
+        persistence.recoverInterruptedGenerations();
+
+        verify(messages, times(2)).finishGeneration(101, "failed", "partial", "failure");
+        verify(messages).selectOneById(101L);
+        verify(messages).failInterruptedGenerations();
+        assertThat(stored.getStatus()).isEqualTo(status);
         verifyNoInteractions(apps);
     }
 }

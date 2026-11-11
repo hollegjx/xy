@@ -7,4 +7,6 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 public interface GenerationService {
 
     SseEmitter generate(long appId, GenerationRequest request, User loginUser);
+
+    void cancel(long appId, long generationId, User loginUser);
 }

@@ -1,5 +1,6 @@
 package com.xy.generation.service.impl;
 
+import com.xy.exception.BusinessException;
 import com.xy.generation.file.GeneratedFileStore;
 import com.xy.generation.model.vo.GenerationEventVO;
 import com.xy.generation.service.GenerationPersistence;
@@ -14,6 +15,7 @@ import dev.langchain4j.model.output.FinishReason;
 import java.io.IOException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
@@ -47,6 +49,7 @@ final class GenerationSession implements StreamingChatResponseHandler {
     }
 
     synchronized boolean start() {
+        if (finished) return false;
         try {
             send("started", "running", null, null);
             return true;
@@ -58,6 +61,22 @@ final class GenerationSession implements StreamingChatResponseHandler {
 
     synchronized boolean isRunning() {
         return !finished;
+    }
+
+    long getGenerationId() {
+        return generationId;
+    }
+
+    synchronized void cancel() {
+        if (finished) {
+            throw new BusinessException(HttpStatus.CONFLICT, 50001, "该生成不在运行中，请刷新消息状态");
+        }
+        // 与完成回调共用锁：取消先保存成功才能报告成功；保存失败时保留任务，允许重试。
+        persistence.cancel(generationId, content.toString());
+        finished = true;
+        stopModel();
+        release.run();
+        finishStream("cancelled", "cancelled", "生成已停止");
     }
 
     @Override
@@ -127,7 +146,7 @@ final class GenerationSession implements StreamingChatResponseHandler {
             persistence.fail(generationId, content.toString(), message);
         } catch (RuntimeException error) {
             logFailure(error);
-            message = "生成失败，状态记录未保存，请稍后查询";
+            message = "生成失败，状态待恢复，请稍后查询";
         } finally {
             release.run();
         }

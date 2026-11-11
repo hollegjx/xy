@@ -14,7 +14,7 @@ import dev.langchain4j.model.chat.StreamingChatModel;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
-import java.util.Set;
+import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
 import org.springframework.beans.factory.ObjectProvider;
@@ -36,7 +36,7 @@ public class GenerationServiceImpl implements GenerationService {
     private final String systemPrompt;
     private final long timeoutMillis;
     // 当前部署为单实例；保证较早的生成不会晚于后一次生成覆盖成功版本。
-    private final Set<Long> runningApps = ConcurrentHashMap.newKeySet();
+    private final Map<Long, GenerationSession> runningSessions = new ConcurrentHashMap<>();
 
     public GenerationServiceImpl(AppService appService, GenerationPersistence persistence,
             GeneratedFileStore fileStore, ObjectProvider<StreamingChatModel> modelProvider,
@@ -63,19 +63,15 @@ public class GenerationServiceImpl implements GenerationService {
             throw new BusinessException(HttpStatus.SERVICE_UNAVAILABLE, 50001, "请先配置并启用模型服务");
         }
         persistence.recoverInterruptedGenerations();
-        if (!runningApps.add(appId)) {
-            throw new BusinessException(HttpStatus.CONFLICT, 50001, "该应用正在生成，请等待本次结束");
-        }
-        long generationId;
-        try {
-            generationId = persistence.start(appId, loginUser.getId(), request.prompt());
-        } catch (RuntimeException error) {
-            runningApps.remove(appId);
-            throw error;
-        }
         SseEmitter emitter = new SseEmitter(timeoutMillis);
-        GenerationSession session = new GenerationSession(appId, loginUser.getId(), generationId,
-                emitter, persistence, fileStore, () -> runningApps.remove(appId));
+        GenerationSession session = runningSessions.compute(appId, (id, current) -> {
+            if (current != null) {
+                throw new BusinessException(HttpStatus.CONFLICT, 50001, "该应用正在生成，请等待本次结束");
+            }
+            long generationId = persistence.start(appId, loginUser.getId(), request.prompt());
+            return new GenerationSession(appId, loginUser.getId(), generationId,
+                    emitter, persistence, fileStore, () -> runningSessions.remove(appId));
+        });
         if (session.start()) {
             try {
                 executor.execute(() -> {
@@ -91,5 +87,16 @@ public class GenerationServiceImpl implements GenerationService {
             }
         }
         return emitter;
+    }
+
+    @Override
+    public void cancel(long appId, long generationId, User loginUser) {
+        appService.getAppById(appId, loginUser);
+        persistence.recoverInterruptedGenerations();
+        GenerationSession session = runningSessions.get(appId);
+        if (session == null || session.getGenerationId() != generationId) {
+            throw new BusinessException(HttpStatus.CONFLICT, 50001, "该生成不在运行中，请刷新消息状态");
+        }
+        session.cancel();
     }
 }

@@ -1,5 +1,6 @@
 package com.xy.generation.service.impl;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.xy.app.mapper.AppMapper;
 import com.xy.app.service.AppService;
 import com.xy.chat.mapper.ChatHistoryMapper;
@@ -16,6 +17,7 @@ import dev.langchain4j.model.chat.response.StreamingHandle;
 import dev.langchain4j.model.output.FinishReason;
 import java.io.IOException;
 import java.util.List;
+import java.util.Map;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
@@ -40,7 +42,8 @@ class GenerationSessionTest {
     private final GeneratedFileManager files = mock(GeneratedFileManager.class);
     private final SseEmitter emitter = mock(SseEmitter.class);
     private final Runnable release = mock(Runnable.class);
-    private final GenerationSession session = new GenerationSession(55, 42, 101, emitter, persistence, files, release);
+    private final GenerationSession session = new GenerationSession(55, 42, 101, emitter, persistence, files,
+            "html", new ObjectMapper(), release);
 
     @Test
     void timeoutStopsTheModelAndLateCompletionCannotOverwriteFailure() {
@@ -65,6 +68,22 @@ class GenerationSessionTest {
         session.onCompleteResponse(ChatResponse.builder().aiMessage(AiMessage.from("html"))
                 .finishReason(FinishReason.STOP).build());
         verify(persistence).fail(101, "html", "生成结果保存失败，请重试");
+        verify(persistence, never()).complete(eq(55L), eq(42L), eq(101L), any());
+        verify(release).run();
+    }
+
+    @Test
+    void multiFileWriteFailureNeverUpdatesTheSuccessfulVersion() throws Exception {
+        ObjectMapper mapper = new ObjectMapper();
+        Map<String, String> output = Map.of("index.html", "html", "style.css", "css", "script.js", "js");
+        String json = mapper.writeValueAsString(output);
+        GenerationSession multiFile = new GenerationSession(55, 42, 101, mock(SseEmitter.class),
+                persistence, files, "multi_file", mapper, release);
+        doThrow(new IOException("disk unavailable")).when(files).saveMultiFile(42, 55, 101, output);
+        multiFile.onPartialResponse(json);
+        multiFile.onCompleteResponse(ChatResponse.builder().aiMessage(AiMessage.from(json))
+                .finishReason(FinishReason.STOP).build());
+        verify(persistence).fail(101, json, "生成结果保存失败，请重试");
         verify(persistence, never()).complete(eq(55L), eq(42L), eq(101L), any());
         verify(release).run();
     }
@@ -112,7 +131,7 @@ class GenerationSessionTest {
         when(messages.selectListByQuery(any())).thenReturn(List.of(stored));
         SseEmitter recoveringEmitter = mock(SseEmitter.class);
         GenerationSession recoveringSession = new GenerationSession(55, 42, 101, recoveringEmitter,
-                actualPersistence, files, release);
+                actualPersistence, files, "html", new ObjectMapper(), release);
         StreamingHandle handle = mock(StreamingHandle.class);
         recoveringSession.onPartialResponse(new PartialResponse("partial"), new PartialResponseContext(handle));
         if (timedOut) {

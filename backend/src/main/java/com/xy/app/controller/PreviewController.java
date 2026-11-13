@@ -25,7 +25,7 @@ public class PreviewController {
 
     // 用响应头强制沙箱；不授予 allow-same-origin，直接打开页面也不能获得平台来源的权限。
     private static final String PREVIEW_POLICY = "sandbox allow-scripts; default-src 'none'; "
-            + "script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; "
+            + "script-src 'unsafe-inline' data:; style-src 'unsafe-inline' data:; img-src data: blob:; "
             + "font-src data:; media-src data: blob:; connect-src 'none'; "
             + "form-action 'none'; base-uri 'none'; frame-ancestors 'self'";
     private final PreviewService previewService;
@@ -36,8 +36,8 @@ public class PreviewController {
         this.userService = userService;
     }
 
-    @Operation(summary = "预览最近成功版本", description = "仅创建者可访问；当前支持 html，直接返回 UTF-8 HTML，"
-            + "错误返回普通 JSON。无成功版本返回 409，生成文件缺失返回 404。允许内联脚本与样式，"
+    @Operation(summary = "预览最近成功版本", description = "仅创建者可访问；支持 html 与 multi_file，直接返回 UTF-8 HTML，"
+            + "错误返回普通 JSON。无成功版本返回 409，生成文件缺失返回 404。多文件 CSS/JS 编码为 data URL，"
             + "沙箱阻止读取平台 Cookie、存储和父页面，禁止联网与表单提交；iframe 应通过同源 /api 地址加载。")
     @ApiResponse(responseCode = "200", description = "隔离运行的 HTML；在浏览器直接访问本接口可预览",
             content = @Content(mediaType = "text/html", schema = @Schema(type = "string")))

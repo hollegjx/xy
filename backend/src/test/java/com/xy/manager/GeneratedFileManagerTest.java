@@ -4,12 +4,17 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Base64;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
+import org.jsoup.Jsoup;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -77,5 +82,67 @@ class GeneratedFileManagerTest {
         Files.createSymbolicLink(link, relative.endsWith("index.html") ? secret : outside);
         GeneratedFileManager store = new GeneratedFileManager(root);
         assertThatThrownBy(() -> store.readHtml(42, 55, 101)).isInstanceOf(IOException.class);
+    }
+
+    @Test
+    void savesThreeOriginalFilesAndBundlesTheirExactContentsForPreview() throws Exception {
+        GeneratedFileManager manager = new GeneratedFileManager(directory);
+        Map<String, String> files = multiFiles();
+        manager.saveMultiFile(42, 55, 101, files);
+        for (var file : files.entrySet()) {
+            assertThat(Files.readString(directory.resolve("42/55/101/" + file.getKey()))).isEqualTo(file.getValue());
+        }
+        var preview = Jsoup.parse(manager.readMultiFilePreview(42, 55, 101));
+        String cssUrl = preview.selectFirst("link[href]").attr("href");
+        String jsUrl = preview.selectFirst("script[src]").attr("src");
+        assertThat(Base64.getDecoder().decode(cssUrl.substring(cssUrl.indexOf(',') + 1)))
+                .isEqualTo(files.get("style.css").getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        assertThat(Base64.getDecoder().decode(jsUrl.substring(jsUrl.indexOf(',') + 1)))
+                .isEqualTo(files.get("script.js").getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        assertThatThrownBy(() -> manager.saveMultiFile(42, 55, 101, files)).isInstanceOf(IOException.class);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"../style.css", "/tmp/xy-style.css", "nested/style.css", "style.css/../index.html"})
+    void rejectsUnapprovedFilePathsBeforeWritingAnything(String path) {
+        GeneratedFileManager manager = new GeneratedFileManager(directory);
+        Map<String, String> files = new LinkedHashMap<>(multiFiles());
+        files.put(path, files.remove("style.css"));
+        assertThatThrownBy(() -> manager.saveMultiFile(42, 55, 101, files)).isInstanceOf(IllegalArgumentException.class);
+        assertThat(directory.resolve("42")).doesNotExist();
+    }
+
+    @Test
+    void rejectsMissingBlankOrUnlinkedAssetsBeforeWritingAnything() {
+        GeneratedFileManager manager = new GeneratedFileManager(directory);
+        Map<String, String> files = new LinkedHashMap<>(multiFiles());
+        files.remove("style.css");
+        assertThatThrownBy(() -> manager.saveMultiFile(42, 55, 101, files)).isInstanceOf(IllegalArgumentException.class);
+        files.put("style.css", " ");
+        assertThatThrownBy(() -> manager.saveMultiFile(42, 55, 101, files)).isInstanceOf(IllegalArgumentException.class);
+        files.put("style.css", "body{}");
+        for (String html : List.of(HTML, multiFiles().get("index.html").replace("script.js", "https://external.invalid/app.js"))) {
+            files.put("index.html", html);
+            assertThatThrownBy(() -> manager.saveMultiFile(42, 55, 101, files)).isInstanceOf(IllegalArgumentException.class);
+        }
+        assertThat(directory.resolve("42")).doesNotExist();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"style.css", "script.js"})
+    void refusesToReadMultiFileAssetsThroughSymlinks(String filename) throws Exception {
+        GeneratedFileManager manager = new GeneratedFileManager(directory);
+        manager.saveMultiFile(42, 55, 101, multiFiles());
+        Path asset = directory.resolve("42/55/101/" + filename);
+        Path outside = Files.writeString(directory.resolve("private-file"), "private");
+        Files.delete(asset);
+        Files.createSymbolicLink(asset, outside);
+        assertThatThrownBy(() -> manager.readMultiFilePreview(42, 55, 101)).isInstanceOf(IOException.class);
+    }
+
+    private Map<String, String> multiFiles() {
+        return Map.of("index.html", HTML.replace("</head>", "<link rel=\"stylesheet\" href=\"./style.css\"></head>")
+                        .replace("</body>", "<script src=\"./script.js\"></script></body>"),
+                "style.css", "body { color: red; } /* </style> */", "script.js", "window.closingTag = '</script>';");
     }
 }

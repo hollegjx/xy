@@ -22,9 +22,15 @@
     <knife4j.version>4.5.0</knife4j.version>
     <springdoc.version>2.8.17</springdoc.version>
     <langchain4j.version>1.22.0</langchain4j.version>
+    <jsoup.version>1.24.1</jsoup.version>
   </properties>
 
   <dependencies>
+    <dependency>
+      <groupId>org.jsoup</groupId>
+      <artifactId>jsoup</artifactId>
+      <version>${jsoup.version}</version>
+    </dependency>
     <dependency>
       <groupId>dev.langchain4j</groupId>
       <artifactId>langchain4j-open-ai</artifactId>

@@ -33,6 +33,16 @@
         image.src = '/api/private.png';
         document.body.appendChild(image);
       });
+      for (const name of ['script', 'style']) {
+        checks[name] = await new Promise(resolve => {
+          const resource = document.createElement(name === 'script' ? 'script' : 'link');
+          resource.onload = () => resolve('loaded');
+          resource.onerror = () => resolve('blocked');
+          if (name === 'script') resource.src = '/api/private.js';
+          else { resource.rel = 'stylesheet'; resource.href = '/api/private.css'; }
+          document.head.appendChild(resource);
+        });
+      }
       const form = document.createElement('form');
       form.action = '/api/users/logout';
       form.method = 'POST';

@@ -1,5 +1,6 @@
 package com.xy.generation.controller;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.xy.app.mapper.AppMapper;
 import com.xy.app.model.entity.App;
 import com.xy.common.UserConstant;
@@ -8,6 +9,7 @@ import com.xy.user.mapper.UserMapper;
 import com.xy.user.model.entity.User;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
+import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.model.chat.response.ChatResponse;
@@ -20,6 +22,8 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
@@ -78,6 +82,8 @@ class GenerationControllerTest {
     static Path directory;
     @Autowired
     MockMvc mockMvc;
+    @Autowired
+    ObjectMapper objectMapper;
     @MockitoBean
     StreamingChatModel model;
     @MockitoBean
@@ -133,6 +139,60 @@ class GenerationControllerTest {
     }
 
     @Test
+    void multiFileGenerationSavesAllThreeFilesBeforeUpdatingTheVersion() throws Exception {
+        when(appMapper.selectOneById(55L)).thenReturn(app(42L, "multi_file"));
+        Map<String, String> files = multiFiles();
+        String json = objectMapper.writeValueAsString(files);
+        doAnswer(invocation -> {
+            List<ChatMessage> messages = invocation.getArgument(0);
+            assertThat(((SystemMessage) messages.getFirst()).text()).contains("合法 JSON 对象", "style.css", "script.js");
+            StreamingChatResponseHandler handler = invocation.getArgument(1);
+            handler.onPartialResponse(json);
+            handler.onCompleteResponse(response(json, FinishReason.STOP));
+            return null;
+        }).when(model).chat(anyList(), any(StreamingChatResponseHandler.class));
+        doAnswer(invocation -> {
+            for (var file : files.entrySet()) {
+                assertThat(Files.readString(htmlPath().resolveSibling(file.getKey()))).isEqualTo(file.getValue());
+            }
+            return null;
+        }).when(persistence).complete(55L, 42L, generationId, json);
+
+        String events = finish(mockMvc.perform(generate().session(session())).andReturn());
+        assertThat(events).containsSubsequence("event:started", "event:delta", "event:completed").doesNotContain("event:failed");
+        verify(persistence).complete(55L, 42L, generationId, json);
+        verify(persistence, never()).fail(eq(generationId), any(), any());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"malformed", "missing", "duplicate", "trailing", "wrong_type", "path"})
+    void rejectsInvalidMultiFileOutputWithoutPublishingAVersion(String invalid) throws Exception {
+        when(appMapper.selectOneById(55L)).thenReturn(app(42L, "multi_file"));
+        Map<String, Object> files = new LinkedHashMap<>(multiFiles());
+        if (invalid.equals("missing")) files.remove("script.js");
+        if (invalid.equals("wrong_type")) files.put("style.css", 42);
+        if (invalid.equals("path")) files.put("../style.css", files.remove("style.css"));
+        String json = objectMapper.writeValueAsString(files);
+        String output = switch (invalid) {
+            case "malformed" -> json.substring(0, json.length() - 1);
+            case "duplicate" -> json.substring(0, json.length() - 1) + ",\"style.css\":\"duplicate\"}";
+            case "trailing" -> json + " {}";
+            default -> json;
+        };
+        doAnswer(invocation -> {
+            StreamingChatResponseHandler handler = invocation.getArgument(1);
+            handler.onPartialResponse(output);
+            handler.onCompleteResponse(response(output, FinishReason.STOP));
+            return null;
+        }).when(model).chat(anyList(), any(StreamingChatResponseHandler.class));
+
+        String events = finish(mockMvc.perform(generate().session(session())).andReturn());
+        assertThat(events).contains("event:failed", "模型未返回完整的 HTML/CSS/JS 文件").doesNotContain("event:completed");
+        assertThat(htmlPath().getParent()).doesNotExist();
+        verify(persistence, never()).complete(eq(55L), eq(42L), eq(generationId), any());
+    }
+
+    @Test
     void keepsPartialOutputOnModelFailureWithoutLeakingTheUpstreamError() throws Exception {
         doAnswer(invocation -> {
             StreamingChatResponseHandler handler = invocation.getArgument(1);
@@ -182,9 +242,9 @@ class GenerationControllerTest {
 
     @Test
     void rejectsUnsupportedModeAndInvalidPromptBeforeStarting() throws Exception {
-        when(appMapper.selectOneById(55L)).thenReturn(app(42L, "multi_file"));
+        when(appMapper.selectOneById(55L)).thenReturn(app(42L, "vue"));
         mockMvc.perform(generate().session(session())).andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.message").value("当前生成接口仅支持单 HTML 模式"));
+                .andExpect(jsonPath("$.message").value("当前生成仅支持 html 或 multi_file 模式"));
         mockMvc.perform(generate().session(session()).content("{\"prompt\":\" \"}"))
                 .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value(40000));
         verifyNoInteractions(model, persistence);
@@ -215,8 +275,10 @@ class GenerationControllerTest {
         assertThat(finish(mockMvc.perform(generate().session(session())).andReturn())).contains("event:started");
     }
 
-    @Test
-    void cancelsTheMatchingGenerationAndOldRequestsCannotStopItsReplacement() throws Exception {
+    @ParameterizedTest
+    @ValueSource(strings = {"html", "multi_file"})
+    void cancelsTheMatchingGenerationAndOldRequestsCannotStopItsReplacement(String mode) throws Exception {
+        when(appMapper.selectOneById(55L)).thenReturn(app(42L, mode));
         AtomicReference<StreamingChatResponseHandler> handler = new AtomicReference<>();
         StreamingHandle handle = mock(StreamingHandle.class);
         MvcResult first = startPendingGeneration(handler, handle);
@@ -234,7 +296,8 @@ class GenerationControllerTest {
         MvcResult next = startPendingGeneration(handler, mock(StreamingHandle.class));
         try {
             oldHandler.onPartialResponse("late output");
-            oldHandler.onCompleteResponse(response(HTML, FinishReason.STOP));
+            oldHandler.onCompleteResponse(response(mode.equals("html") ? HTML : objectMapper.writeValueAsString(multiFiles()),
+                    FinishReason.STOP));
             oldHandler.onError(new IllegalStateException("late failure"));
             mockMvc.perform(cancel(generationId).session(session()))
                     .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value(50001));
@@ -335,6 +398,12 @@ class GenerationControllerTest {
 
     private Path htmlPath() {
         return directory.resolve("42/55/" + generationId + "/index.html");
+    }
+
+    private Map<String, String> multiFiles() {
+        return Map.of("index.html", HTML.replace("</head>", "<link rel=\"stylesheet\" href=\"style.css\"></head>")
+                        .replace("</body>", "<script src=\"script.js\"></script></body>"),
+                "style.css", "body { color: #1d1d1f; }", "script.js", "document.body.dataset.loaded = 'true';");
     }
 
     private ChatResponse response(String text, FinishReason reason) {

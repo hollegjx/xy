@@ -8,8 +8,13 @@ import java.nio.file.LinkOption;
 import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
+import java.util.Base64;
 import java.util.Locale;
+import java.util.Map;
+import java.util.Set;
 import java.util.regex.Pattern;
+import org.jsoup.Jsoup;
+import org.jsoup.nodes.Document;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
@@ -18,6 +23,7 @@ public class GeneratedFileManager {
 
     private static final Pattern HEAD = Pattern.compile("(?is)<head\\b[^>]*>.*?</head\\s*>");
     private static final Pattern BODY = Pattern.compile("(?is)<body\\b[^>]*>(.*?)</body\\s*>");
+    private static final Set<String> MULTI_FILE_NAMES = Set.of("index.html", "style.css", "script.js");
     private final Path root;
 
     public GeneratedFileManager(@Value("${xy.generation.output-directory:./generated}") Path root) {
@@ -25,7 +31,22 @@ public class GeneratedFileManager {
     }
 
     public void saveHtml(long userId, long appId, long generationId, String content) throws IOException {
-        String html = validateHtml(content);
+        saveFiles(userId, appId, generationId, Map.of("index.html", validateHtml(content)));
+    }
+
+    public void saveMultiFile(long userId, long appId, long generationId, Map<String, String> files) throws IOException {
+        // 固定三文件白名单；模型不能添加路径、目录或覆盖平台文件。
+        if (!files.keySet().equals(MULTI_FILE_NAMES)
+                || files.values().stream().anyMatch(value -> value == null || value.isBlank())) {
+            throw new IllegalArgumentException("必须包含完整的 index.html、style.css 和 script.js");
+        }
+        String html = validateHtml(files.get("index.html"));
+        parseMultiFileHtml(html);
+        saveFiles(userId, appId, generationId, Map.of("index.html", html,
+                "style.css", files.get("style.css"), "script.js", files.get("script.js")));
+    }
+
+    private void saveFiles(long userId, long appId, long generationId, Map<String, String> files) throws IOException {
         Files.createDirectories(root);
         Path directory = root.toRealPath();
         // 文件名由服务端固定，模型输出不能提供路径；各层禁止符号链接。
@@ -40,11 +61,47 @@ public class GeneratedFileManager {
                 throw new IOException("生成目录不可用");
             }
         }
-        Files.writeString(directory.resolve("index.html"), html, StandardCharsets.UTF_8,
-                StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE);
+        for (var file : files.entrySet()) {
+            Files.writeString(directory.resolve(file.getKey()), file.getValue(), StandardCharsets.UTF_8,
+                    StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE);
+        }
     }
 
     public String readHtml(long userId, long appId, long generationId) throws IOException {
+        return readFile(versionDirectory(userId, appId, generationId), "index.html");
+    }
+
+    public String readMultiFilePreview(long userId, long appId, long generationId) throws IOException {
+        Path directory = versionDirectory(userId, appId, generationId);
+        Document document = parseMultiFileHtml(readFile(directory, "index.html"));
+        String css = readFile(directory, "style.css");
+        String js = readFile(directory, "script.js");
+        if (css.isBlank() || js.isBlank()) throw new IOException("生成文件内容不完整");
+        // Data URL 保留源码里的结束标签字面量；浏览器不需要携带会话去请求 CSS/JS。
+        document.select("link[rel=stylesheet][href]").attr("href", dataUrl("text/css", css));
+        document.select("script[src]").attr("src", dataUrl("text/javascript", js));
+        return document.outerHtml();
+    }
+
+    private Document parseMultiFileHtml(String html) {
+        Document document = Jsoup.parse(validateHtml(html));
+        document.outputSettings().prettyPrint(false);
+        var styles = document.select("link[rel=stylesheet][href]");
+        var scripts = document.select("script[src]");
+        if (styles.isEmpty() || scripts.isEmpty()
+                || styles.stream().anyMatch(element -> !Set.of("style.css", "./style.css").contains(element.attr("href")))
+                || scripts.stream().anyMatch(element -> !Set.of("script.js", "./script.js").contains(element.attr("src")))) {
+            throw new IllegalArgumentException("HTML 必须引用本版本的 style.css 和 script.js");
+        }
+        return document;
+    }
+
+    private String dataUrl(String mediaType, String content) {
+        return "data:" + mediaType + ";charset=UTF-8;base64,"
+                + Base64.getEncoder().encodeToString(content.getBytes(StandardCharsets.UTF_8));
+    }
+
+    private Path versionDirectory(long userId, long appId, long generationId) throws IOException {
         Path directory = root.toRealPath();
         for (long id : new long[]{userId, appId, generationId}) {
             directory = directory.resolve(Long.toString(id));
@@ -53,7 +110,11 @@ public class GeneratedFileManager {
                 throw new NoSuchFileException("生成目录不存在");
             }
         }
-        Path file = directory.resolve("index.html");
+        return directory;
+    }
+
+    private String readFile(Path directory, String filename) throws IOException {
+        Path file = directory.resolve(filename);
         if (Files.isSymbolicLink(file)) throw new IOException("预览文件不可使用符号链接");
         if (!Files.isRegularFile(file, LinkOption.NOFOLLOW_LINKS)) {
             throw new NoSuchFileException("生成文件不存在");

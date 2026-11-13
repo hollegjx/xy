@@ -1,5 +1,6 @@
 package com.xy.generation.service.impl;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.xy.app.model.vo.AppVO;
 import com.xy.app.service.AppService;
 import com.xy.exception.BusinessException;
@@ -32,7 +33,8 @@ public class GenerationServiceImpl implements GenerationService {
     private final GeneratedFileManager fileManager;
     private final ObjectProvider<StreamingChatModel> modelProvider;
     private final Executor executor;
-    private final String systemPrompt;
+    private final Map<String, String> systemPrompts;
+    private final ObjectMapper objectMapper;
     private final long timeoutMillis;
     // 当前部署为单实例；保证较早的生成不会晚于后一次生成覆盖成功版本。
     private final Map<Long, GenerationSession> runningSessions = new ConcurrentHashMap<>();
@@ -40,22 +42,27 @@ public class GenerationServiceImpl implements GenerationService {
     public GenerationServiceImpl(AppService appService, GenerationPersistence persistence,
             GeneratedFileManager fileManager, ObjectProvider<StreamingChatModel> modelProvider,
             @Qualifier("generationExecutor") Executor executor,
-            @Value("classpath:prompts/single-html.txt") Resource prompt,
+            @Value("classpath:prompts/single-html.txt") Resource htmlPrompt,
+            @Value("classpath:prompts/multi-file.txt") Resource multiFilePrompt,
+            ObjectMapper objectMapper,
             @Value("${xy.ai.timeout-seconds:180}") long timeoutSeconds) throws IOException {
         this.appService = appService;
         this.persistence = persistence;
         this.fileManager = fileManager;
         this.modelProvider = modelProvider;
         this.executor = executor;
-        this.systemPrompt = prompt.getContentAsString(StandardCharsets.UTF_8);
+        this.systemPrompts = Map.of("html", htmlPrompt.getContentAsString(StandardCharsets.UTF_8),
+                "multi_file", multiFilePrompt.getContentAsString(StandardCharsets.UTF_8));
+        this.objectMapper = objectMapper;
         this.timeoutMillis = Math.multiplyExact(timeoutSeconds, 1000);
     }
 
     @Override
     public SseEmitter generate(long appId, GenerationRequest request, User loginUser) {
         AppVO app = appService.getAppById(appId, loginUser);
-        if (!"html".equals(app.codeGenType())) {
-            throw new BusinessException(HttpStatus.BAD_REQUEST, 40000, "当前生成接口仅支持单 HTML 模式");
+        String systemPrompt = systemPrompts.get(app.codeGenType());
+        if (systemPrompt == null) {
+            throw new BusinessException(HttpStatus.BAD_REQUEST, 40000, "当前生成仅支持 html 或 multi_file 模式");
         }
         StreamingChatModel model = modelProvider.getIfAvailable();
         if (model == null) {
@@ -69,7 +76,8 @@ public class GenerationServiceImpl implements GenerationService {
             }
             long generationId = persistence.start(appId, loginUser.getId(), request.prompt());
             return new GenerationSession(appId, loginUser.getId(), generationId,
-                    emitter, persistence, fileManager, () -> runningSessions.remove(appId));
+                    emitter, persistence, fileManager, app.codeGenType(), objectMapper,
+                    () -> runningSessions.remove(appId));
         });
         if (session.start()) {
             try {

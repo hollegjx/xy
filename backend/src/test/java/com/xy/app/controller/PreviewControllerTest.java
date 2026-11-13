@@ -18,12 +18,15 @@ import java.util.Map;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.jsoup.Jsoup;
+import org.jsoup.nodes.Element;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.http.MediaType;
 import org.springframework.mock.web.MockHttpSession;
+import org.springframework.mock.web.MockHttpServletResponse;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
@@ -111,11 +114,31 @@ class PreviewControllerTest {
                 .andReturn().getResponse();
         assertThat(response.getHeader("Content-Security-Policy")).doesNotContain("allow-same-origin");
         verify(messages).selectOneById(101L);
-        // 浏览器检查复用真实 Controller 的响应，避免测试里手抄一份安全策略。
-        Map<String, String> headers = new LinkedHashMap<>();
-        response.getHeaderNames().forEach(name -> headers.put(name, response.getHeader(name)));
-        Files.writeString(Path.of("target/preview-browser-fixture.json"), objectMapper.writeValueAsString(
-                Map.of("headers", headers, "body", response.getContentAsString(StandardCharsets.UTF_8))));
+        writeBrowserFixture(response, "preview-browser-fixture.json");
+    }
+
+    @Test
+    void bundlesMultiFileAssetsUnderTheSameIsolationAndReportsMissingAssets() throws Exception {
+        app.setCodeGenType("multi_file");
+        app.setGeneratedVersion(201L);
+        version.setId(201L);
+        when(messages.selectOneById(201L)).thenReturn(version);
+        var document = Jsoup.parse(new ClassPathResource("preview/isolation.html").getContentAsString(StandardCharsets.UTF_8));
+        Element style = document.selectFirst("style");
+        Element script = document.selectFirst("script");
+        String css = style.data() + "\n/* </style> */";
+        String js = script.data() + "\nwindow.closingScriptTag = '</script>';";
+        style.replaceWith(new Element("link").attr("rel", "stylesheet").attr("href", "style.css"));
+        script.replaceWith(new Element("script").attr("src", "script.js"));
+        files.saveMultiFile(42, 55, 201, Map.of("index.html", document.outerHtml(), "style.css", css, "script.js", js));
+        var response = mockMvc.perform(preview().session(session())).andExpect(status().isOk())
+                .andExpect(content().string(containsString("data:text/css;charset=UTF-8;base64,")))
+                .andExpect(content().string(containsString("data:text/javascript;charset=UTF-8;base64,")))
+                .andReturn().getResponse();
+        writeBrowserFixture(response, "preview-multi-file-browser-fixture.json");
+        Files.delete(directory.resolve("42/55/201/style.css"));
+        mockMvc.perform(preview().session(session())).andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.message").value("生成文件不存在，请重新生成"));
     }
 
     @Test
@@ -149,7 +172,7 @@ class PreviewControllerTest {
         version.setMessageRole("user");
         mockMvc.perform(preview().session(session())).andExpect(status().isConflict());
         version.setMessageRole("assistant");
-        app.setCodeGenType("multi_file");
+        app.setCodeGenType("vue");
         mockMvc.perform(preview().session(session())).andExpect(status().isBadRequest());
         app.setCodeGenType("html");
         app.setGeneratedVersion(999L);
@@ -161,6 +184,14 @@ class PreviewControllerTest {
 
     private MockHttpServletRequestBuilder preview() {
         return get("/api/apps/55/preview").contextPath("/api");
+    }
+
+    private void writeBrowserFixture(MockHttpServletResponse response, String filename) throws Exception {
+        // 浏览器检查复用真实 Controller 的响应，避免测试里手抄一份安全策略。
+        Map<String, String> headers = new LinkedHashMap<>();
+        response.getHeaderNames().forEach(name -> headers.put(name, response.getHeader(name)));
+        Files.writeString(Path.of("target", filename), objectMapper.writeValueAsString(
+                Map.of("headers", headers, "body", response.getContentAsString(StandardCharsets.UTF_8))));
     }
 
     private MockHttpSession session() {

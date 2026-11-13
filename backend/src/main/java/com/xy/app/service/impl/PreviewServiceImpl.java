@@ -41,14 +41,16 @@ public class PreviewServiceImpl implements PreviewService {
                 || !"assistant".equals(version.getMessageRole()) || !"completed".equals(version.getStatus())) {
             throw new BusinessException(HttpStatus.CONFLICT, 50001, "应用没有可预览的成功版本");
         }
-        if (!"html".equals(app.getCodeGenType())) {
-            throw new BusinessException(HttpStatus.BAD_REQUEST, 40000, "当前预览仅支持单 HTML 模式");
+        if (!"html".equals(app.getCodeGenType()) && !"multi_file".equals(app.getCodeGenType())) {
+            throw new BusinessException(HttpStatus.BAD_REQUEST, 40000, "当前预览仅支持 html 或 multi_file 模式");
         }
         try {
-            return fileManager.readHtml(app.getUserId(), appId, versionId);
+            return "multi_file".equals(app.getCodeGenType())
+                    ? fileManager.readMultiFilePreview(app.getUserId(), appId, versionId)
+                    : fileManager.readHtml(app.getUserId(), appId, versionId);
         } catch (NoSuchFileException error) {
             throw new BusinessException(HttpStatus.NOT_FOUND, 40400, "生成文件不存在，请重新生成");
-        } catch (IOException error) {
+        } catch (IOException | IllegalArgumentException error) {
             log.error("应用 {} 版本 {} 预览读取失败，异常类型 {}", appId, versionId, error.getClass().getSimpleName());
             throw new BusinessException(HttpStatus.INTERNAL_SERVER_ERROR, 50001, "读取预览失败，请检查生成文件");
         }

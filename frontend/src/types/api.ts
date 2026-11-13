@@ -46,6 +46,13 @@ export interface AppVO {
 
 export type GenerationStatus = 'running' | 'completed' | 'failed' | 'cancelled'
 
+export interface GenerationEventVO {
+  generationId: string
+  status: GenerationStatus
+  text?: string
+  message?: string
+}
+
 export interface ChatHistoryVO {
   id: string
   messageRole: 'user' | 'assistant'

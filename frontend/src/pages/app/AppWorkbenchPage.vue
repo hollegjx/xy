@@ -85,7 +85,7 @@ onBeforeUnmount(() => {
             </div>
           </dl>
           <p class="prompt-content">{{ app.initPrompt }}</p>
-          <ChatHistoryPanel :app-id="app.id" />
+          <ChatHistoryPanel :key="app.id" :app-id="app.id" :init-prompt="app.initPrompt" />
         </section>
         <section
           class="workspace-panel preview-panel"

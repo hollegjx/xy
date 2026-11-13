@@ -211,3 +211,118 @@ test('直接访问工作台先确认身份，登录后返回原地址并显示�
   await expect(page.getByRole('alert')).toContainText('无权访问该应用')
   await expect(page.getByText(app.initPrompt, { exact: true })).toHaveCount(0)
 })
+
+test('工作台逐段展示生成内容，完成后恢复记录，并可停止下一次生成', async ({ page }) => {
+  let records: ChatHistoryVO[] = []
+  let cancels = 0
+  await page.route(
+    (url) => url.pathname.startsWith('/api/'),
+    async (route) => {
+      const path = new URL(route.request().url()).pathname
+      if (path === '/api/users/me') {
+        await route.fulfill({ json: { code: 0, data: user, message: 'ok' } })
+      } else if (path === `/api/apps/${app.id}`) {
+        await route.fulfill({ json: { code: 0, data: app, message: 'ok' } })
+      } else if (path === `/api/apps/${app.id}/messages`) {
+        await route.fulfill({
+          json: { code: 0, data: { records, hasMore: false, nextCursor: null }, message: 'ok' },
+        })
+      } else if (path === `/api/apps/${app.id}/generations/102/cancel`) {
+        expect(route.request().method()).toBe('POST')
+        cancels += 1
+        records.push({ ...records[0]!, id: '102', status: 'cancelled', content: '部分内容' })
+        await route.fulfill({ json: { code: 0, data: true, message: 'ok' } })
+      } else {
+        await route.abort()
+        throw new Error(`意外的 API 请求：${path}`)
+      }
+    },
+  )
+  // route.fulfill 会一次性返回响应；此替身用于实际验证浏览器逐段读取与中止。
+  await page.addInitScript(
+    ({ appId, prompt }) => {
+      const originalFetch = window.fetch.bind(window)
+      let generationId = 100
+      window.fetch = async (input, init) => {
+        if (input !== `/api/apps/${appId}/generations`) return originalFetch(input, init)
+        if (init?.body !== JSON.stringify({ prompt })) throw new Error('生成需求与表单不一致')
+        const id = String(++generationId)
+        const encoder = new TextEncoder()
+        return new Response(
+          new ReadableStream({
+            start(controller) {
+              const send = (event: string, status: string, text?: string) =>
+                controller.enqueue(
+                  encoder.encode(
+                    `event:${event}\ndata:${JSON.stringify({ generationId: id, status, text })}\n\n`,
+                  ),
+                )
+              send('started', 'running')
+              const receive = (event: Event) => {
+                const { type, text } = (event as CustomEvent<{ type: string; text?: string }>)
+                  .detail
+                send(type, type === 'delta' ? 'running' : type, text)
+                if (type !== 'delta') {
+                  window.removeEventListener('xy-test-generation', receive)
+                  controller.close()
+                }
+              }
+              window.addEventListener('xy-test-generation', receive)
+              init?.signal?.addEventListener(
+                'abort',
+                () => {
+                  window.removeEventListener('xy-test-generation', receive)
+                  controller.error(new DOMException('Aborted', 'AbortError'))
+                },
+                { once: true },
+              )
+            },
+          }),
+          { headers: { 'Content-Type': 'text/event-stream' } },
+        )
+      }
+    },
+    { appId: app.id, prompt: app.initPrompt },
+  )
+
+  await page.goto(`/apps/${app.id}`)
+  await expect(page.getByLabel('本次需求', { exact: true })).toHaveValue(app.initPrompt)
+  await page.getByRole('button', { name: '开始生成', exact: true }).click()
+  const live = page.getByLabel('本次生成', { exact: true })
+  await expect(page.getByRole('button', { name: /生成中/ })).toBeDisabled()
+  await page.evaluate(() =>
+    window.dispatchEvent(
+      new CustomEvent('xy-test-generation', {
+        detail: { type: 'delta', text: '<h1>星云🌟</h1>' },
+      }),
+    ),
+  )
+  await expect(live.locator('pre')).toHaveText('<h1>星云🌟</h1>')
+  records = [
+    {
+      id: '101',
+      messageRole: 'assistant',
+      content: '<h1>星云🌟</h1>',
+      status: 'completed',
+      errorMessage: null,
+      createTime: app.createTime,
+      updateTime: app.updateTime,
+    },
+  ]
+  await page.evaluate(() =>
+    window.dispatchEvent(
+      new CustomEvent('xy-test-generation', {
+        detail: { type: 'completed' },
+      }),
+    ),
+  )
+  await expect(live).toContainText('已完成')
+  await page.getByRole('button', { name: '开始生成', exact: true }).click()
+  await page.getByRole('button', { name: '停止生成', exact: true }).click()
+  await expect(live).toContainText('已停止')
+  expect(cancels).toBe(1)
+  await page.reload()
+  await expect(page.getByRole('region', { name: '生成记录', exact: true })).toContainText('已停止')
+  await expect(live).toHaveCount(0)
+  await expect(page.getByRole('button', { name: '开始生成', exact: true })).toBeEnabled()
+})

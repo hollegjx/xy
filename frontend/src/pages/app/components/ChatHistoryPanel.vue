@@ -1,23 +1,52 @@
 <script setup lang="ts">
-import { onBeforeUnmount, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import {
   Alert as AAlert,
   Button as AButton,
   Empty as AEmpty,
+  Form as AForm,
+  FormItem as AFormItem,
   Skeleton as ASkeleton,
   Tag as ATag,
+  Textarea as ATextarea,
 } from 'ant-design-vue'
 import { ApiError, errorMessage } from '@/request'
 import { getAppMessages } from '@/service/api/chat'
+import { cancelGeneration, generateApp } from '@/service/api/generation'
 import { useLoginUserStore } from '@/stores/useLoginUserStore'
-import type { ChatHistoryPageVO, GenerationStatus } from '@/types/api'
+import type { ChatHistoryPageVO, GenerationEventVO, GenerationStatus } from '@/types/api'
 
-const props = defineProps<{ appId: string }>()
+const props = defineProps<{ appId: string; initPrompt: string }>()
 const loginUserStore = useLoginUserStore()
 const history = ref<ChatHistoryPageVO | null>(null)
 const loading = ref(false)
 const error = ref('')
+const form = reactive({ prompt: props.initPrompt })
+const generating = ref(false)
+const stopping = ref(false)
+const generationError = ref('')
+const live = ref<GenerationEventVO | null>(null)
+const output = ref('')
+let controller: globalThis.AbortController | null = null
+let active = true
 let revision = 0
+
+const runningId = computed(() =>
+  generating.value && live.value?.status === 'running'
+    ? live.value.generationId
+    : history.value?.records.find(
+        (item) => item.messageRole === 'assistant' && item.status === 'running',
+      )?.id,
+)
+const canGenerate = computed(
+  () =>
+    history.value !== null &&
+    !loading.value &&
+    !generating.value &&
+    !stopping.value &&
+    !runningId.value &&
+    loginUserStore.authAction === null,
+)
 
 const statusLabels: Record<GenerationStatus, string> = {
   running: '进行中',
@@ -39,7 +68,18 @@ async function load(): Promise<void> {
   history.value = null
   try {
     const result = await getAppMessages(props.appId)
-    if (currentRevision === revision) history.value = result
+    if (currentRevision !== revision) return
+    history.value = result
+    const saved = result.records.find((item) => item.id === live.value?.generationId)
+    if (saved && saved.status !== 'running') {
+      live.value = {
+        generationId: saved.id,
+        status: saved.status,
+        message: saved.errorMessage ?? undefined,
+      }
+      output.value = saved.content
+      generationError.value = ''
+    }
   } catch (cause) {
     if (currentRevision !== revision) return
     if (cause instanceof ApiError && cause.code === 40100) {
@@ -52,17 +92,131 @@ async function load(): Promise<void> {
   }
 }
 
+async function validatePromptLength(): Promise<void> {
+  if (Array.from(form.prompt).length > 16383) throw new Error('需求长度不能超过 16383 个字符')
+}
+
+function showGenerationError(cause: unknown): void {
+  if (cause instanceof ApiError && cause.code === 40100) loginUserStore.setUser(null)
+  else generationError.value = errorMessage(cause)
+}
+
+async function generate(): Promise<void> {
+  if (!canGenerate.value) return
+  const currentController = new globalThis.AbortController()
+  controller = currentController
+  generating.value = true
+  generationError.value = ''
+  live.value = null
+  output.value = ''
+  try {
+    await generateApp(props.appId, form.prompt, currentController.signal, (event) => {
+      if (!active || currentController.signal.aborted) return
+      live.value = event
+      output.value += event.text ?? ''
+    })
+  } catch (cause) {
+    if (active && !currentController.signal.aborted) showGenerationError(cause)
+  } finally {
+    if (active) {
+      generating.value = false
+      controller = null
+      await load()
+    }
+  }
+}
+
+async function stop(): Promise<void> {
+  const id = runningId.value
+  if (!id || stopping.value) return
+  stopping.value = true
+  generationError.value = ''
+  try {
+    await cancelGeneration(props.appId, id)
+    if (!active) return
+    if (generating.value && live.value?.generationId === id) {
+      live.value = { generationId: id, status: 'cancelled' }
+      controller?.abort()
+    } else await load()
+  } catch (cause) {
+    if (active) {
+      showGenerationError(cause)
+      if (cause instanceof ApiError && cause.code === 50001) await load()
+    }
+  } finally {
+    if (active) stopping.value = false
+  }
+}
+
 watch(() => props.appId, load, { immediate: true })
 onBeforeUnmount(() => {
+  active = false
+  controller?.abort()
   revision += 1
 })
 </script>
 
 <template>
+  <section class="generation-panel" aria-label="生成网站">
+    <AForm :model="form" layout="vertical" name="generate-app" @finish="generate">
+      <AFormItem
+        label="本次需求"
+        name="prompt"
+        :rules="[
+          { required: true, whitespace: true, message: '请填写本次需求' },
+          { validator: validatePromptLength },
+        ]"
+      >
+        <ATextarea v-model:value="form.prompt" :rows="4" :disabled="generating || stopping" />
+      </AFormItem>
+      <p class="history-hint">每次根据本次需求重新生成完整网站。</p>
+      <div class="generation-actions">
+        <AButton
+          type="primary"
+          shape="round"
+          html-type="submit"
+          :loading="generating"
+          :disabled="!canGenerate"
+        >
+          {{
+            generating
+              ? '生成中'
+              : generationError || live?.status === 'failed'
+                ? '重试生成'
+                : '开始生成'
+          }}
+        </AButton>
+        <AButton v-if="runningId" :loading="stopping" :disabled="stopping" @click="stop"
+          >停止生成</AButton
+        >
+      </div>
+    </AForm>
+    <AAlert v-if="generationError" type="error" :message="generationError" show-icon role="alert" />
+    <div v-if="live" class="live-output" aria-label="本次生成">
+      <ATag
+        :color="!generating && live.status === 'running' ? 'default' : statusColors[live.status]"
+      >
+        {{ !generating && live.status === 'running' ? '状态待确认' : statusLabels[live.status] }}
+      </ATag>
+      <AAlert
+        v-if="live.status === 'failed'"
+        type="error"
+        :message="live.message || '本次生成失败，可再次提交需求'"
+        show-icon
+      />
+      <pre v-if="output">{{ output }}</pre>
+      <p v-else-if="generating" class="history-hint">正在等待生成内容…</p>
+    </div>
+  </section>
   <section class="history-panel" aria-label="生成记录" :aria-busy="loading">
     <div class="history-heading">
       <h2>生成记录</h2>
-      <AButton v-if="!error" :loading="loading" :disabled="loading" @click="load">
+      <AButton
+        v-if="!error"
+        :loading="loading"
+        :disabled="loading || generating || stopping"
+        @click="load"
+      >
         刷新状态
       </AButton>
     </div>
@@ -115,6 +269,20 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
+.generation-panel {
+  display: grid;
+  gap: 16px;
+  margin-top: 24px;
+}
+.generation-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 16px;
+}
+.live-output {
+  min-width: 0;
+}
 .history-panel {
   margin-top: 24px;
   padding-top: 24px;

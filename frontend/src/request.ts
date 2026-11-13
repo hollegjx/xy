@@ -46,3 +46,30 @@ export default async function request<T>(url: string, config: AxiosRequestConfig
 export function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : '请求失败，请稍后重试'
 }
+
+export async function requestStream(
+  url: string,
+  data: unknown,
+  signal: AbortSignal,
+): Promise<ReadableStream<Uint8Array>> {
+  let response: Response
+  try {
+    response = await fetch(url, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
+      body: JSON.stringify(data),
+      signal,
+    })
+  } catch (cause) {
+    if (signal.aborted) throw cause
+    throw new ApiError('无法连接后端服务，请确认服务已启动')
+  }
+  if (!response.ok || !response.headers.get('Content-Type')?.includes('text/event-stream')) {
+    const body: unknown = await response.json().catch(() => null)
+    if (isApiResponse(body)) throw new ApiError(body.message || '请求失败，请重试', body.code)
+    throw new ApiError('未能建立生成连接，请稍后重试')
+  }
+  if (!response.body) throw new ApiError('生成响应为空，请稍后重试')
+  return response.body
+}

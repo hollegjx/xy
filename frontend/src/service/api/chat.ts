@@ -1,5 +1,8 @@
 import request from '@/request'
-import type { ChatHistoryPageVO } from '@/types/api'
+import type { ChatHistoryPageVO, ChatHistoryQueryRequest } from '@/types/api'
 
-export const getAppMessages = (appId: string): Promise<ChatHistoryPageVO> =>
-  request<ChatHistoryPageVO>(`/api/apps/${encodeURIComponent(appId)}/messages`)
+export const getAppMessages = (
+  appId: string,
+  params: ChatHistoryQueryRequest = {},
+): Promise<ChatHistoryPageVO> =>
+  request<ChatHistoryPageVO>(`/api/apps/${encodeURIComponent(appId)}/messages`, { params })

@@ -2,6 +2,7 @@ import { AxiosError } from 'axios'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import request, { httpClient, requestHtml, requestStream } from '@/request'
 import { hasAppPreview } from '@/service/api/app'
+import { getAppMessages } from '@/service/api/chat'
 import { generateApp } from '@/service/api/generation'
 import type { GenerationEventVO } from '@/types/api'
 
@@ -84,6 +85,24 @@ describe('生成请求', () => {
 })
 
 describe('请求客户端', () => {
+  it('历史查询原样传递字符串游标，不丢失长整数精度', async () => {
+    httpClient.defaults.adapter = async (config) => {
+      expect(httpClient.getUri(config)).toBe('/api/apps/55/messages?beforeId=9007199254740993')
+      return {
+        data: { code: 0, data: { records: [], hasMore: false, nextCursor: null }, message: 'ok' },
+        status: 200,
+        statusText: 'OK',
+        headers: {},
+        config,
+      }
+    }
+    await expect(getAppMessages('55', { beforeId: '9007199254740993' })).resolves.toEqual({
+      records: [],
+      hasMore: false,
+      nextCursor: null,
+    })
+  })
+
   it('返回成功响应中的业务数据', async () => {
     httpClient.defaults.adapter = async (config) => ({
       data: { code: 0, data: { database: 'xy_contract' }, message: 'ok' },

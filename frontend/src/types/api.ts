@@ -68,3 +68,8 @@ export interface ChatHistoryPageVO {
   hasMore: boolean
   nextCursor: string | null
 }
+
+export interface ChatHistoryQueryRequest {
+  beforeId?: string
+  pageSize?: number
+}

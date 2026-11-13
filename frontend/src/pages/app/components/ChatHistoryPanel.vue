@@ -22,6 +22,8 @@ const loginUserStore = useLoginUserStore()
 const history = ref<ChatHistoryPageVO | null>(null)
 const loading = ref(false)
 const error = ref('')
+const loadingMore = ref(false)
+const moreError = ref('')
 const form = reactive({ prompt: props.initPrompt })
 const generating = ref(false)
 const stopping = ref(false)
@@ -66,6 +68,8 @@ async function load(): Promise<void> {
   const currentRevision = ++revision
   loading.value = true
   error.value = ''
+  loadingMore.value = false
+  moreError.value = ''
   history.value = null
   try {
     const result = await getAppMessages(props.appId)
@@ -94,6 +98,34 @@ async function load(): Promise<void> {
     }
   } finally {
     if (currentRevision === revision) loading.value = false
+  }
+}
+
+async function loadMore(): Promise<void> {
+  const current = history.value
+  if (
+    !current?.hasMore ||
+    !current.nextCursor ||
+    loading.value ||
+    loadingMore.value ||
+    generating.value ||
+    stopping.value
+  )
+    return
+  const currentRevision = revision
+  loadingMore.value = true
+  moreError.value = ''
+  try {
+    const result = await getAppMessages(props.appId, { beforeId: current.nextCursor })
+    // 刷新或离开工作台后，旧分页响应不能混入新列表。
+    if (currentRevision !== revision) return
+    history.value = { ...result, records: [...result.records, ...current.records] }
+  } catch (cause) {
+    if (currentRevision !== revision) return
+    if (cause instanceof ApiError && cause.code === 40100) loginUserStore.setUser(null)
+    else moreError.value = errorMessage(cause)
+  } finally {
+    if (currentRevision === revision) loadingMore.value = false
   }
 }
 
@@ -221,7 +253,7 @@ onBeforeUnmount(() => {
       <p v-else-if="generating" class="history-hint">正在等待生成内容…</p>
     </div>
   </section>
-  <section class="history-panel" aria-label="生成记录" :aria-busy="loading">
+  <section class="history-panel" aria-label="生成记录" :aria-busy="loading || loadingMore">
     <div class="history-heading">
       <h2>生成记录</h2>
       <AButton
@@ -247,7 +279,31 @@ onBeforeUnmount(() => {
     <template v-else-if="history">
       <AEmpty v-if="history.records.length === 0" description="还没有生成记录" />
       <template v-else>
-        <p v-if="history.hasMore" class="history-hint">当前显示最近 10 条记录。</p>
+        <div class="history-pagination">
+          <AAlert
+            v-if="moreError"
+            type="error"
+            message="更早消息读取失败"
+            :description="moreError"
+            show-icon
+            role="alert"
+          />
+          <div class="history-controls">
+            <p class="history-hint">
+              已显示 {{ history.records.length }} 条记录{{
+                history.hasMore ? '' : '，已全部加载'
+              }}。
+            </p>
+            <AButton
+              v-if="history.hasMore"
+              :loading="loadingMore"
+              :disabled="loadingMore || generating || stopping"
+              @click="loadMore"
+            >
+              {{ moreError ? '重试' : '加载更早消息' }}
+            </AButton>
+          </div>
+        </div>
         <ol class="message-list">
           <li v-for="item in history.records" :key="item.id" class="message-item">
             <div class="message-heading">
@@ -302,6 +358,7 @@ onBeforeUnmount(() => {
   border-top: 1px solid var(--border);
 }
 .history-heading,
+.history-controls,
 .message-heading {
   display: flex;
   flex-wrap: wrap;
@@ -309,7 +366,15 @@ onBeforeUnmount(() => {
   gap: 8px;
 }
 .history-heading {
+  margin-bottom: 16px;
+}
+.history-heading,
+.history-controls {
   justify-content: space-between;
+}
+.history-pagination {
+  display: grid;
+  gap: 12px;
   margin-bottom: 16px;
 }
 h2 {
@@ -342,9 +407,6 @@ time,
   margin: 0;
   white-space: pre-wrap;
   line-height: 1.75;
-}
-.history-hint + .message-list {
-  margin-top: 16px;
 }
 summary {
   cursor: pointer;

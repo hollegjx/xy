@@ -33,6 +33,12 @@ for (const codeGenType of ['html', 'multi_file']) {
     let reads = 0
     let generations = 0
     let records: ChatHistoryVO[] = []
+    let hasMore = false
+    const olderQueries: string[] = []
+    let finishOlder!: () => void
+    const olderResponse = new Promise<void>((resolve) => {
+      finishOlder = resolve
+    })
     await page.route(
       (url) => url.pathname.startsWith('/api/'),
       async (route) => {
@@ -63,8 +69,42 @@ for (const codeGenType of ['html', 'multi_file']) {
           await route.fulfill({ json: { code: 0, data: { ...app, codeGenType }, message: 'ok' } })
         } else if (path === `/api/apps/${app.id}/messages`) {
           expect(request.method()).toBe('GET')
+          const cursor = new URL(request.url()).searchParams.get('beforeId')
+          if (cursor) {
+            olderQueries.push(cursor)
+            expect(cursor).toBe('101')
+            if (olderQueries.length === 3) await olderResponse
+            await route.fulfill({
+              status: olderQueries.length === 1 ? 503 : 200,
+              json:
+                olderQueries.length === 1
+                  ? { code: 50000, data: null, message: '更早消息暂时不可用' }
+                  : {
+                      code: 0,
+                      data: {
+                        records: [
+                          {
+                            ...records[0]!,
+                            id: '100',
+                            messageRole: 'user',
+                            status: 'completed',
+                            content: '更早的需求：保留导航栏。',
+                          },
+                        ],
+                        hasMore: false,
+                        nextCursor: null,
+                      },
+                      message: 'ok',
+                    },
+            })
+            return
+          }
           await route.fulfill({
-            json: { code: 0, data: { records, hasMore: false, nextCursor: null }, message: 'ok' },
+            json: {
+              code: 0,
+              data: { records, hasMore, nextCursor: hasMore ? records[0]!.id : null },
+              message: 'ok',
+            },
           })
         } else if (path === `/api/apps/${app.id}/generations`) {
           expect(request.method()).toBe('POST')
@@ -139,6 +179,7 @@ for (const codeGenType of ['html', 'multi_file']) {
       createTime: '2026-11-13T10:00:00',
       updateTime: '2026-11-13T10:01:00',
     }))
+    hasMore = true
     await page.getByRole('button', { name: '刷新状态', exact: true }).click()
     const history = page.getByRole('region', { name: '生成记录', exact: true })
     for (const label of ['进行中', '已完成', '失败', '已停止']) {
@@ -148,6 +189,31 @@ for (const codeGenType of ['html', 'multi_file']) {
     await history.getByText('查看生成内容', { exact: true }).first().click()
     await expect(history.locator('pre').first()).toHaveText('<h1>摄影作品集</h1>')
     await expect(history.getByRole('heading', { name: '摄影作品集', exact: true })).toHaveCount(0)
+    await history.getByRole('button', { name: '加载更早消息', exact: true }).click()
+    await expect(history).toContainText('更早消息暂时不可用')
+    await expect(history.getByRole('listitem')).toHaveCount(4)
+    await history.getByRole('button', { name: '重试', exact: true }).click()
+    await expect(history.getByRole('listitem')).toHaveCount(5)
+    await expect(history.getByRole('listitem').first()).toContainText('更早的需求：保留导航栏。')
+    await expect(history).toContainText('已全部加载')
+    await expect(history.getByRole('button', { name: '加载更早消息', exact: true })).toHaveCount(0)
+    expect(olderQueries).toEqual(['101', '101'])
+    await expect(frame.getByRole('button', { name: '查看照片 1' })).toBeVisible()
+    // 刷新回到最新一页；随后用延迟分页响应确认旧结果不会混入刷新后的列表。
+    await history.getByRole('button', { name: '刷新状态', exact: true }).click()
+    await expect(history.getByRole('listitem')).toHaveCount(4)
+    await history.getByRole('button', { name: '加载更早消息', exact: true }).click()
+    await expect.poll(() => olderQueries.length).toBe(3)
+    await expect(history.getByRole('button', { name: /加载更早消息/ })).toBeDisabled()
+    await history.getByRole('button', { name: '刷新状态', exact: true }).click()
+    await expect(history.getByRole('listitem')).toHaveCount(4)
+    const lateResponse = page.waitForResponse((response) => response.url().includes('beforeId=101'))
+    finishOlder()
+    await (await lateResponse).finished()
+    await page.evaluate(
+      () => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())),
+    )
+    await expect(history.getByText('更早的需求：保留导航栏。', { exact: true })).toHaveCount(0)
     await page.reload()
     await expect(page.getByRole('heading', { name: app.appName, exact: true })).toBeVisible()
     await expect(history.getByText('已完成', { exact: true })).toBeVisible()

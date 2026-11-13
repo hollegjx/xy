@@ -4,29 +4,35 @@ import { RouterLink, useRoute } from 'vue-router'
 import {
   Alert as AAlert,
   Button as AButton,
-  Empty as AEmpty,
   RadioButton as ARadioButton,
   RadioGroup as ARadioGroup,
   Skeleton as ASkeleton,
 } from 'ant-design-vue'
 import PageHeading from '@/components/PageHeading.vue'
 import ChatHistoryPanel from '@/pages/app/components/ChatHistoryPanel.vue'
+import AppPreviewPanel from '@/pages/app/components/AppPreviewPanel.vue'
 import { ApiError, errorMessage } from '@/request'
 import { getApp } from '@/service/api/app'
 import { useLoginUserStore } from '@/stores/useLoginUserStore'
+import { useAppDraftStore } from '@/stores/useAppDraftStore'
 import type { AppVO } from '@/types/api'
 
 const route = useRoute()
 const loginUserStore = useLoginUserStore()
+const draftStore = useAppDraftStore()
 const app = ref<AppVO | null>(null)
 const loading = ref(false)
 const error = ref('')
 const panel = ref('prompt')
+const autoGenerate = ref(false)
+const previewVersion = ref<string | null>(null)
 let revision = 0
 
 async function load(): Promise<void> {
   const currentRevision = ++revision
   const id = String(route.params.id)
+  autoGenerate.value = draftStore.consumeFirstGeneration(id)
+  previewVersion.value = null
   app.value = null
   loading.value = true
   error.value = ''
@@ -85,18 +91,19 @@ onBeforeUnmount(() => {
             </div>
           </dl>
           <p class="prompt-content">{{ app.initPrompt }}</p>
-          <ChatHistoryPanel :key="app.id" :app-id="app.id" :init-prompt="app.initPrompt" />
+          <ChatHistoryPanel
+            :key="app.id"
+            :app-id="app.id"
+            :init-prompt="app.initPrompt"
+            :auto-generate="autoGenerate"
+            @completed="previewVersion = $event"
+          />
         </section>
         <section
           class="workspace-panel preview-panel"
           :class="{ 'mobile-hidden': panel !== 'preview' }"
         >
-          <h2>网站预览</h2>
-          <div class="preview-empty">
-            <AEmpty description="预览将在这里展示">
-              <p>可先在生成记录中查看已保存的内容。</p>
-            </AEmpty>
-          </div>
+          <AppPreviewPanel :key="app.id" :app-id="app.id" :version="previewVersion" />
         </section>
       </div>
     </template>
@@ -156,18 +163,6 @@ dd {
   display: flex;
   flex-direction: column;
   background: var(--surface-soft);
-}
-.preview-empty {
-  display: grid;
-  flex: 1;
-  min-height: 320px;
-  padding: 32px 0;
-  place-items: center;
-  color: var(--muted);
-}
-.preview-empty p {
-  margin: 0;
-  font-size: 12px;
 }
 .panel-switch {
   display: none;

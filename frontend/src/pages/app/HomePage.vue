@@ -46,6 +46,7 @@ async function submit(): Promise<void> {
     const id = await createApp({ ...form })
     if (!active) return
     draftStore.clear()
+    draftStore.prepareFirstGeneration(id)
     await router.push({ name: 'app-workbench', params: { id } })
   } catch (cause) {
     if (!active) return

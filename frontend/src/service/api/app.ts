@@ -1,4 +1,4 @@
-import request from '@/request'
+import request, { ApiError, requestHtml } from '@/request'
 import type { AppAddRequest, AppVO } from '@/types/api'
 
 export const createApp = (data: AppAddRequest): Promise<string> =>
@@ -6,3 +6,16 @@ export const createApp = (data: AppAddRequest): Promise<string> =>
 
 export const getApp = (id: string): Promise<AppVO> =>
   request<AppVO>(`/api/apps/${encodeURIComponent(id)}`)
+
+export const getAppPreviewUrl = (id: string): string =>
+  `/api/apps/${encodeURIComponent(id)}/preview`
+
+export async function hasAppPreview(id: string): Promise<boolean> {
+  try {
+    await requestHtml(getAppPreviewUrl(id))
+    return true
+  } catch (cause) {
+    if (cause instanceof ApiError && cause.status === 409) return false
+    throw cause
+  }
+}

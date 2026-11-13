@@ -16,7 +16,8 @@ import { cancelGeneration, generateApp } from '@/service/api/generation'
 import { useLoginUserStore } from '@/stores/useLoginUserStore'
 import type { ChatHistoryPageVO, GenerationEventVO, GenerationStatus } from '@/types/api'
 
-const props = defineProps<{ appId: string; initPrompt: string }>()
+const props = defineProps<{ appId: string; initPrompt: string; autoGenerate?: boolean }>()
+const emit = defineEmits<{ completed: [generationId: string] }>()
 const loginUserStore = useLoginUserStore()
 const history = ref<ChatHistoryPageVO | null>(null)
 const loading = ref(false)
@@ -70,6 +71,10 @@ async function load(): Promise<void> {
     const result = await getAppMessages(props.appId)
     if (currentRevision !== revision) return
     history.value = result
+    const completed = [...result.records]
+      .reverse()
+      .find((item) => item.messageRole === 'assistant' && item.status === 'completed')
+    if (completed) emit('completed', completed.id)
     const saved = result.records.find((item) => item.id === live.value?.generationId)
     if (saved && saved.status !== 'running') {
       live.value = {
@@ -114,6 +119,7 @@ async function generate(): Promise<void> {
       if (!active || currentController.signal.aborted) return
       live.value = event
       output.value += event.text ?? ''
+      if (event.status === 'completed') emit('completed', event.generationId)
     })
   } catch (cause) {
     if (active && !currentController.signal.aborted) showGenerationError(cause)
@@ -148,7 +154,14 @@ async function stop(): Promise<void> {
   }
 }
 
-watch(() => props.appId, load, { immediate: true })
+watch(
+  () => props.appId,
+  async () => {
+    await load()
+    if (active && props.autoGenerate && history.value?.records.length === 0) void generate()
+  },
+  { immediate: true },
+)
 onBeforeUnmount(() => {
   active = false
   controller?.abort()

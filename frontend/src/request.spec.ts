@@ -1,6 +1,7 @@
 import { AxiosError } from 'axios'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import request, { httpClient, requestStream } from '@/request'
+import request, { httpClient, requestHtml, requestStream } from '@/request'
+import { hasAppPreview } from '@/service/api/app'
 import { generateApp } from '@/service/api/generation'
 import type { GenerationEventVO } from '@/types/api'
 
@@ -106,6 +107,7 @@ describe('请求客户端', () => {
     }
     await expect(request('/api/health')).rejects.toMatchObject({
       code: 50000,
+      status: 503,
       message: '数据库连接失败，请检查本地配置',
     })
   })
@@ -126,5 +128,33 @@ describe('请求客户端', () => {
       throw new AxiosError('Network Error', AxiosError.ERR_NETWORK)
     }
     await expect(request('/api/health')).rejects.toThrow('无法连接后端服务，请确认服务已启动')
+  })
+
+  it('读取 HTML 预览，并拒绝把其他响应当成预览', async () => {
+    let contentType = 'text/html;charset=UTF-8'
+    httpClient.defaults.adapter = async (config) => ({
+      data: '<!doctype html><html><body>星云</body></html>',
+      status: 200,
+      statusText: 'OK',
+      headers: { 'content-type': contentType },
+      config,
+    })
+    await expect(requestHtml('/api/apps/55/preview')).resolves.toContain('星云')
+    contentType = 'text/plain'
+    await expect(hasAppPreview('55')).rejects.toThrow('预览返回格式不正确')
+  })
+
+  it.each([409, 500])('预览 HTTP %s 区分暂无成功版本和读取失败', async (status) => {
+    httpClient.defaults.adapter = async (config) => {
+      throw new AxiosError('preview error', AxiosError.ERR_BAD_RESPONSE, config, undefined, {
+        data: { code: 50001, data: null, message: '预览不可用' },
+        status,
+        statusText: 'Error',
+        headers: {},
+        config,
+      })
+    }
+    if (status === 409) await expect(hasAppPreview('55')).resolves.toBe(false)
+    else await expect(hasAppPreview('55')).rejects.toMatchObject({ status: 500, code: 50001 })
   })
 })

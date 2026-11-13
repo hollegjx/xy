@@ -24,7 +24,7 @@ const loading = ref(false)
 const error = ref('')
 const loadingMore = ref(false)
 const moreError = ref('')
-const form = reactive({ prompt: props.initPrompt })
+const form = reactive({ prompt: '' })
 const generating = ref(false)
 const stopping = ref(false)
 const generationError = ref('')
@@ -33,6 +33,8 @@ const output = ref('')
 let controller: globalThis.AbortController | null = null
 let active = true
 let revision = 0
+let promptInitialized = false
+let submittedPrompt: string | null = null
 
 const runningId = computed(() =>
   generating.value && live.value?.status === 'running'
@@ -50,6 +52,12 @@ const canGenerate = computed(
     !runningId.value &&
     loginUserStore.authAction === null,
 )
+const submitLabel = computed(() => {
+  if (generating.value) return '生成中'
+  const status = live.value?.status ?? history.value?.records.at(-1)?.status
+  if (generationError.value || status === 'failed' || status === 'cancelled') return '重试生成'
+  return history.value?.records.length ? '提交需求' : '开始生成'
+})
 
 const statusLabels: Record<GenerationStatus, string> = {
   running: '进行中',
@@ -75,6 +83,20 @@ async function load(): Promise<void> {
     const result = await getAppMessages(props.appId)
     if (currentRevision !== revision) return
     history.value = result
+    if (!promptInitialized) {
+      const latest = result.records.at(-1)
+      const previous = result.records.at(-2)
+      if (!latest) form.prompt = props.initPrompt
+      else if (
+        latest.messageRole === 'assistant' &&
+        (latest.status === 'failed' || latest.status === 'cancelled') &&
+        previous?.messageRole === 'user'
+      ) {
+        form.prompt = previous.content
+      }
+      // 只在首次成功读取历史时恢复输入，刷新状态和翻页不能覆盖正在编辑的需求。
+      promptInitialized = true
+    }
     const completed = [...result.records]
       .reverse()
       .find((item) => item.messageRole === 'assistant' && item.status === 'completed')
@@ -88,6 +110,7 @@ async function load(): Promise<void> {
       }
       output.value = saved.content
       generationError.value = ''
+      if (saved.status === 'completed') clearCompletedPrompt()
     }
   } catch (cause) {
     if (currentRevision !== revision) return
@@ -138,6 +161,11 @@ function showGenerationError(cause: unknown): void {
   else generationError.value = errorMessage(cause)
 }
 
+function clearCompletedPrompt(): void {
+  if (form.prompt === submittedPrompt) form.prompt = ''
+  submittedPrompt = null
+}
+
 async function generate(): Promise<void> {
   if (!canGenerate.value) return
   const currentController = new globalThis.AbortController()
@@ -146,12 +174,16 @@ async function generate(): Promise<void> {
   generationError.value = ''
   live.value = null
   output.value = ''
+  submittedPrompt = form.prompt
   try {
-    await generateApp(props.appId, form.prompt, currentController.signal, (event) => {
+    await generateApp(props.appId, submittedPrompt, currentController.signal, (event) => {
       if (!active || currentController.signal.aborted) return
       live.value = event
       output.value += event.text ?? ''
-      if (event.status === 'completed') emit('completed', event.generationId)
+      if (event.status === 'completed') {
+        clearCompletedPrompt()
+        emit('completed', event.generationId)
+      }
     })
   } catch (cause) {
     if (active && !currentController.signal.aborted) showGenerationError(cause)
@@ -212,9 +244,14 @@ onBeforeUnmount(() => {
           { validator: validatePromptLength },
         ]"
       >
-        <ATextarea v-model:value="form.prompt" :rows="4" :disabled="generating || stopping" />
+        <ATextarea
+          v-model:value="form.prompt"
+          :rows="4"
+          :disabled="loading || !history || generating || stopping"
+          placeholder="描述本次需求，例如：把背景改为黑色，保留原有内容和按钮。"
+        />
       </AFormItem>
-      <p class="history-hint">每次根据本次需求重新生成完整网站。</p>
+      <p class="history-hint">已有网站会基于最近成功版本修改，只需描述这次想调整的内容。</p>
       <div class="generation-actions">
         <AButton
           type="primary"
@@ -223,13 +260,7 @@ onBeforeUnmount(() => {
           :loading="generating"
           :disabled="!canGenerate"
         >
-          {{
-            generating
-              ? '生成中'
-              : generationError || live?.status === 'failed'
-                ? '重试生成'
-                : '开始生成'
-          }}
+          {{ submitLabel }}
         </AButton>
         <AButton v-if="runningId" :loading="stopping" :disabled="stopping" @click="stop"
           >停止生成</AButton

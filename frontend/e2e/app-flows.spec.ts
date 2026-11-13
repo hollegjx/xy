@@ -477,12 +477,14 @@ test('工作台逐段生成，停止或失败保留成功预览，预览读取�
   const frame = page.frameLocator('iframe[title="应用网站预览"]')
   await frame.getByRole('button', { name: '查看照片 0' }).click()
   await expect(frame.getByRole('button', { name: '查看照片 1' })).toBeVisible()
-  await page.getByRole('button', { name: '开始生成', exact: true }).click()
+  await page.getByLabel('本次需求', { exact: true }).fill(app.initPrompt)
+  await page.getByRole('button', { name: '提交需求', exact: true }).click()
   await page.getByRole('button', { name: '停止生成', exact: true }).click()
   await expect(live).toContainText('已停止')
   expect(cancels).toBe(1)
   await expect(frame.getByRole('button', { name: '查看照片 1' })).toBeVisible()
-  await page.getByRole('button', { name: '开始生成', exact: true }).click()
+  await expect(page.getByLabel('本次需求', { exact: true })).toHaveValue(app.initPrompt)
+  await page.getByRole('button', { name: '重试生成', exact: true }).click()
   await expect(page.getByRole('button', { name: '停止生成', exact: true })).toBeEnabled()
   records.push({ ...records[0]!, id: '103', status: 'failed', errorMessage: '模型返回文件不完整' })
   await page.evaluate(() =>
@@ -506,5 +508,124 @@ test('工作台逐段生成，停止或失败保留成功预览，预览读取�
   await page.reload()
   await expect(page.getByRole('region', { name: '生成记录', exact: true })).toContainText('已停止')
   await expect(live).toHaveCount(0)
-  await expect(page.getByRole('button', { name: '开始生成', exact: true })).toBeEnabled()
+  await expect(page.getByRole('button', { name: '重试生成', exact: true })).toBeEnabled()
+})
+
+test('工作台首次生成、失败后恢复需求重试，刷新后可以继续修改', async ({ page }) => {
+  const change = '把背景改为黑色，保留原有照片和按钮。'
+  const nextChange = '把按钮文字改成浏览作品，保留黑色背景。'
+  const expectedPrompts = [app.initPrompt, change, change, nextChange]
+  const sent: string[] = []
+  const records: ChatHistoryVO[] = []
+  let currentPreview = ''
+  await page.route(
+    (url) => url.pathname.startsWith('/api/'),
+    async (route) => {
+      const request = route.request()
+      const path = new URL(request.url()).pathname
+      if (path === '/api/users/me') {
+        await route.fulfill({ json: { code: 0, data: user, message: 'ok' } })
+      } else if (path === `/api/apps/${app.id}`) {
+        await route.fulfill({ json: { code: 0, data: app, message: 'ok' } })
+      } else if (path === `/api/apps/${app.id}/messages`) {
+        await route.fulfill({
+          json: { code: 0, data: { records, hasMore: false, nextCursor: null }, message: 'ok' },
+        })
+      } else if (path === `/api/apps/${app.id}/generations`) {
+        expect(request.method()).toBe('POST')
+        const prompt = expectedPrompts[sent.length]!
+        expect(request.postDataJSON()).toEqual({ prompt })
+        sent.push(prompt)
+        const generationId = String(100 + sent.length * 2)
+        const status = sent.length === 2 ? 'failed' : 'completed'
+        const message = status === 'failed' ? '模型返回文件不完整，请重试' : null
+        if (status === 'completed') {
+          currentPreview =
+            sent.length === 1
+              ? previewHtml
+              : previewHtml.replace('<body>', '<body style="background: black; color: white">')
+          if (sent.length === 4) currentPreview = currentPreview.replace('查看照片 0', '浏览作品')
+        }
+        const base = { errorMessage: null, createTime: app.createTime, updateTime: app.updateTime }
+        records.push(
+          {
+            ...base,
+            id: String(Number(generationId) - 1),
+            messageRole: 'user',
+            content: prompt,
+            status: 'completed',
+          },
+          {
+            ...base,
+            id: generationId,
+            messageRole: 'assistant',
+            content: status === 'failed' ? '部分内容' : currentPreview,
+            status,
+            errorMessage: message,
+          },
+        )
+        await route.fulfill({
+          contentType: 'text/event-stream',
+          body: ['started', status]
+            .map(
+              (event) =>
+                `event:${event}\ndata:${JSON.stringify({ generationId, status: event === 'started' ? 'running' : status, message: message ?? undefined })}\n\n`,
+            )
+            .join(''),
+        })
+      } else if (path === `/api/apps/${app.id}/preview`) {
+        await route.fulfill(
+          currentPreview
+            ? {
+                contentType: 'text/html;charset=UTF-8',
+                headers: previewHeaders,
+                body: currentPreview,
+              }
+            : { status: 409, json: { code: 50001, data: null, message: '尚无成功版本' } },
+        )
+      } else {
+        await route.abort()
+        throw new Error(`意外的 API 请求：${path}`)
+      }
+    },
+  )
+
+  await page.goto(`/apps/${app.id}`)
+  const prompt = page.getByLabel('本次需求', { exact: true })
+  const live = page.getByLabel('本次生成', { exact: true })
+  const frame = page.frameLocator('iframe[title="应用网站预览"]')
+  await expect(prompt).toHaveValue(app.initPrompt)
+  await page.getByRole('button', { name: '开始生成', exact: true }).click()
+  await expect(prompt).toHaveValue('')
+  await frame.getByRole('button', { name: '查看照片 0' }).click()
+  await expect(frame.getByRole('button', { name: '查看照片 1' })).toBeVisible()
+
+  await prompt.fill(change)
+  await page.getByRole('button', { name: '提交需求', exact: true }).click()
+  await expect(live).toContainText('模型返回文件不完整，请重试')
+  await expect(prompt).toHaveValue(change)
+  await expect(frame.getByRole('button', { name: '查看照片 1' })).toBeVisible()
+  await prompt.fill('我正在编辑下一条需求')
+  await page.getByRole('button', { name: '刷新状态', exact: true }).click()
+  await expect(prompt).toBeEnabled()
+  await expect(prompt).toHaveValue('我正在编辑下一条需求')
+
+  await page.reload()
+  await expect(prompt).toHaveValue(change)
+  expect(sent).toHaveLength(2)
+  await page.getByRole('button', { name: '重试生成', exact: true }).click()
+  await expect(prompt).toHaveValue('')
+  await expect(frame.locator('body')).toHaveCSS('background-color', 'rgb(0, 0, 0)')
+  await expect(frame.getByRole('heading', { name: '摄影作品集' })).toBeVisible()
+
+  await page.reload()
+  await expect(page.getByRole('button', { name: '提交需求', exact: true })).toBeEnabled()
+  await expect(prompt).toHaveValue('')
+  expect(sent).toHaveLength(3)
+  await prompt.fill(nextChange)
+  await page.getByRole('button', { name: '提交需求', exact: true }).click()
+  await expect(prompt).toHaveValue('')
+  await expect(frame.getByRole('button', { name: '浏览作品', exact: true })).toBeVisible()
+  await expect(frame.locator('body')).toHaveCSS('background-color', 'rgb(0, 0, 0)')
+  expect(sent).toEqual(expectedPrompts)
 })

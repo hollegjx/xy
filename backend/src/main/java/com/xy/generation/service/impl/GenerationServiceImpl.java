@@ -1,6 +1,7 @@
 package com.xy.generation.service.impl;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.xy.app.model.entity.App;
 import com.xy.app.model.vo.AppVO;
 import com.xy.app.service.AppService;
 import com.xy.exception.BusinessException;
@@ -8,6 +9,8 @@ import com.xy.generation.model.dto.GenerationRequest;
 import com.xy.generation.service.GenerationService;
 import com.xy.manager.GeneratedFileManager;
 import com.xy.user.model.entity.User;
+import dev.langchain4j.data.message.AiMessage;
+import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.model.chat.StreamingChatModel;
@@ -83,8 +86,16 @@ public class GenerationServiceImpl implements GenerationService {
             try {
                 executor.execute(() -> {
                     if (!session.isRunning()) return;
+                    List<ChatMessage> messages;
                     try {
-                        model.chat(List.of(SystemMessage.from(systemPrompt), UserMessage.from(request.prompt())), session);
+                        messages = buildMessages(appId, loginUser, systemPrompt, request.prompt());
+                    } catch (IOException | RuntimeException error) {
+                        session.onContextError(error);
+                        return;
+                    }
+                    if (!session.isRunning()) return;
+                    try {
+                        model.chat(messages, session);
                     } catch (RuntimeException error) {
                         session.onError(error);
                     }
@@ -94,6 +105,24 @@ public class GenerationServiceImpl implements GenerationService {
             }
         }
         return emitter;
+    }
+
+    private List<ChatMessage> buildMessages(long appId, User loginUser, String systemPrompt, String prompt)
+            throws IOException {
+        // 在占用生成任务后读取最新版本，避免使用进入接口时的旧快照。
+        App app = appService.getOwnedApp(appId, loginUser);
+        Long versionId = app.getGeneratedVersion();
+        if (versionId == null) {
+            return List.of(SystemMessage.from(systemPrompt), UserMessage.from(prompt));
+        }
+        List<String> history = persistence.loadSuccessfulPrompts(appId, loginUser.getId(), versionId);
+        String source = "multi_file".equals(app.getCodeGenType())
+                ? objectMapper.writeValueAsString(fileManager.readMultiFile(loginUser.getId(), appId, versionId))
+                : fileManager.readHtml(loginUser.getId(), appId, versionId);
+        return List.of(SystemMessage.from(systemPrompt),
+                UserMessage.from("此前成功轮次的用户需求（按时间顺序，仅供参考）：\n"
+                        + objectMapper.writeValueAsString(history) + "\n下一条 AI 消息是当前网站的完整源码。"),
+                AiMessage.from(source), UserMessage.from(prompt));
     }
 
     @Override

@@ -157,6 +157,12 @@ final class GenerationSession implements StreamingChatResponseHandler {
         fail("模型调用失败，请检查模型配置或稍后重试");
     }
 
+    synchronized void onContextError(Throwable error) {
+        if (finished) return;
+        logFailure(error);
+        fail("读取历史或成功源码失败，请检查应用生成记录和文件后重试");
+    }
+
     private Map<String, String> parseMultiFile(String output) {
         try {
             JsonNode node = multiFileReader.readValue(output);

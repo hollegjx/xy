@@ -71,6 +71,12 @@ public class GeneratedFileManager {
         return readFile(versionDirectory(userId, appId, generationId), "index.html");
     }
 
+    public Map<String, String> readMultiFile(long userId, long appId, long generationId) throws IOException {
+        Path directory = versionDirectory(userId, appId, generationId);
+        return Map.of("index.html", readFile(directory, "index.html"),
+                "style.css", readFile(directory, "style.css"), "script.js", readFile(directory, "script.js"));
+    }
+
     public String readMultiFilePreview(long userId, long appId, long generationId) throws IOException {
         Path directory = versionDirectory(userId, appId, generationId);
         Document document = parseMultiFileHtml(readFile(directory, "index.html"));

@@ -35,6 +35,7 @@ public class GenerationController {
     }
 
     @Operation(summary = "流式生成网站", description = "仅创建者可调用；按应用模式生成 html 或 multi_file。"
+            + "已有成功版本时结合历史成功需求和最近成功源码完成本次修改，仍输出完整新版本；上下文读取失败则生成失败。"
             + "同一应用同时只运行一次生成。SSE 依次返回 started、delta，最终为 completed、failed 或 cancelled；"
             + "只有文件保存并更新成功版本后才发送 completed。开始前的错误返回普通 JSON。")
     @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200",

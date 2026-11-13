@@ -1,8 +1,11 @@
 package com.xy.generation.service.impl;
 
+import com.mybatisflex.core.query.QueryWrapper;
 import com.xy.app.mapper.AppMapper;
 import com.xy.chat.mapper.ChatHistoryMapper;
 import com.xy.chat.model.entity.ChatHistory;
+import com.xy.exception.BusinessException;
+import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
@@ -28,6 +31,39 @@ class GenerationPersistenceTest {
     private final ChatHistoryMapper messages = mock(ChatHistoryMapper.class);
     private final AppMapper apps = mock(AppMapper.class);
     private final GenerationPersistence persistence = new GenerationPersistence(messages, apps);
+
+    @Test
+    void restoresSuccessfulPromptsInOrderFromABoundedOwnedHistoryWindow() {
+        when(messages.selectListByQuery(any(QueryWrapper.class))).thenReturn(List.of(
+                history(180, "assistant", "completed", "latest source"),
+                history(170, "user", "completed", "改为蓝色"),
+                history(160, "assistant", "cancelled", "cancelled partial source"),
+                history(140, "user", "completed", "取消的需求"),
+                history(130, "assistant", "failed", "failed partial source"),
+                history(115, "user", "completed", "失败的需求"),
+                history(110, "assistant", "completed", "old source"),
+                history(100, "user", "completed", "摄影作品集"),
+                history(90, "assistant", "completed", "outside window")));
+
+        assertThat(persistence.loadSuccessfulPrompts(55, 42, 180)).containsExactly("摄影作品集", "改为蓝色");
+        ArgumentCaptor<QueryWrapper> query = ArgumentCaptor.forClass(QueryWrapper.class);
+        verify(messages).selectListByQuery(query.capture());
+        assertThat(query.getValue().toSQL())
+                .contains("`appId` = 55", "`userId` = 42", "`id` <= 180", "`id` DESC", "LIMIT 20");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"missing", "other_version", "failed", "cancelled", "user"})
+    void rejectsUnavailableOrUnsuccessfulBaselineRecords(String invalid) {
+        ChatHistory version = history(invalid.equals("other_version") ? 179 : 180,
+                invalid.equals("user") ? "user" : "assistant",
+                List.of("failed", "cancelled").contains(invalid) ? invalid : "completed", "source");
+        when(messages.selectListByQuery(any(QueryWrapper.class)))
+                .thenReturn(invalid.equals("missing") ? List.of() : List.of(version));
+
+        assertThatThrownBy(() -> persistence.loadSuccessfulPrompts(55, 42, 180))
+                .isInstanceOf(BusinessException.class).hasMessage("应用成功版本记录不可用");
+    }
 
     @Test
     void savesTheUserPromptThenTheRunningAssistantMessage() {
@@ -125,5 +161,16 @@ class GenerationPersistenceTest {
         verify(messages).failInterruptedGenerations();
         assertThat(stored.getStatus()).isEqualTo(status);
         verifyNoInteractions(apps);
+    }
+
+    private ChatHistory history(long id, String role, String status, String content) {
+        ChatHistory message = new ChatHistory();
+        message.setId(id);
+        message.setAppId(55L);
+        message.setUserId(42L);
+        message.setMessageRole(role);
+        message.setStatus(status);
+        message.setContent(content);
+        return message;
     }
 }

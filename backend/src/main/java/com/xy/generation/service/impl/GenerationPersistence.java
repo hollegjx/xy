@@ -1,10 +1,13 @@
 package com.xy.generation.service.impl;
 
+import com.mybatisflex.core.query.QueryWrapper;
 import com.xy.app.mapper.AppMapper;
 import com.xy.chat.mapper.ChatHistoryMapper;
 import com.xy.chat.model.entity.ChatHistory;
 import com.xy.exception.BusinessException;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -42,6 +45,31 @@ public class GenerationPersistence {
     public long start(long appId, long userId, String prompt) {
         saveMessage(appId, userId, "user", prompt, "completed");
         return saveMessage(appId, userId, "assistant", "", "running");
+    }
+
+    public List<String> loadSuccessfulPrompts(long appId, long userId, long versionId) {
+        List<ChatHistory> recent = chatHistoryMapper.selectListByQuery(QueryWrapper.create()
+                .eq(ChatHistory::getAppId, appId)
+                .eq(ChatHistory::getUserId, userId)
+                .le(ChatHistory::getId, versionId)
+                .orderBy(ChatHistory::getId, false)
+                .limit(20));
+        if (recent.isEmpty() || recent.getFirst().getId() != versionId
+                || !"assistant".equals(recent.getFirst().getMessageRole())
+                || !"completed".equals(recent.getFirst().getStatus())) {
+            throw new BusinessException(HttpStatus.CONFLICT, 50001, "应用成功版本记录不可用");
+        }
+        List<String> prompts = new ArrayList<>();
+        // 同一应用串行生成，每轮事务内先存用户消息再存 AI 消息；不假定自增 ID 连续。
+        for (int i = recent.size() - 1; i > 0; i--) {
+            ChatHistory request = recent.get(i);
+            ChatHistory reply = recent.get(i - 1);
+            if ("user".equals(request.getMessageRole()) && "completed".equals(request.getStatus())
+                    && "assistant".equals(reply.getMessageRole()) && "completed".equals(reply.getStatus())) {
+                prompts.add(request.getContent());
+            }
+        }
+        return prompts;
     }
 
     @Transactional

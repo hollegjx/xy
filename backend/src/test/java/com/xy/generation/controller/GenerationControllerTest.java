@@ -5,6 +5,7 @@ import com.xy.app.mapper.AppMapper;
 import com.xy.app.model.entity.App;
 import com.xy.common.UserConstant;
 import com.xy.generation.service.impl.GenerationPersistence;
+import com.xy.manager.GeneratedFileManager;
 import com.xy.user.mapper.UserMapper;
 import com.xy.user.model.entity.User;
 import dev.langchain4j.data.message.AiMessage;
@@ -84,6 +85,8 @@ class GenerationControllerTest {
     MockMvc mockMvc;
     @Autowired
     ObjectMapper objectMapper;
+    @Autowired
+    GeneratedFileManager fileManager;
     @MockitoBean
     StreamingChatModel model;
     @MockitoBean
@@ -162,6 +165,96 @@ class GenerationControllerTest {
         assertThat(events).containsSubsequence("event:started", "event:delta", "event:completed").doesNotContain("event:failed");
         verify(persistence).complete(55L, 42L, generationId, json);
         verify(persistence, never()).fail(eq(generationId), any(), any());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"html", "multi_file"})
+    void restoresTheLatestSavedSourceAndHistoryBeforeApplyingANewRequest(String mode) throws Exception {
+        long versionId = generationId - 1000;
+        App restored = app(42L, mode);
+        restored.setGeneratedVersion(versionId);
+        // 入口快照尚无成功版本；取得生成占用后必须重新读取数据库。
+        when(appMapper.selectOneById(55L)).thenReturn(app(42L, mode), restored);
+        when(persistence.loadSuccessfulPrompts(55, 42, versionId)).thenReturn(List.of("建立作品集", "保留联系按钮"));
+        String source = mode.equals("html") ? HTML : objectMapper.writeValueAsString(multiFiles());
+        if (mode.equals("html")) fileManager.saveHtml(42, 55, versionId, source);
+        else fileManager.saveMultiFile(42, 55, versionId, multiFiles());
+        String prompt = "把背景改为黑色，保留其他内容";
+        when(persistence.start(55, 42, prompt)).thenReturn(generationId);
+        AtomicReference<List<ChatMessage>> sent = new AtomicReference<>();
+        doAnswer(invocation -> {
+            sent.set(invocation.getArgument(0));
+            ((StreamingChatResponseHandler) invocation.getArgument(1)).onCompleteResponse(response(source, FinishReason.STOP));
+            return null;
+        }).when(model).chat(anyList(), any(StreamingChatResponseHandler.class));
+
+        String events = finish(mockMvc.perform(generate().session(session())
+                .content(objectMapper.writeValueAsString(Map.of("prompt", prompt)))).andReturn());
+
+        assertThat(events).contains("event:completed").doesNotContain("event:failed");
+        assertThat(sent.get()).hasSize(4);
+        assertThat(((UserMessage) sent.get().get(1)).singleText()).contains("建立作品集", "保留联系按钮")
+                .doesNotContain(prompt);
+        String baseline = ((AiMessage) sent.get().get(2)).text();
+        if (mode.equals("html")) assertThat(baseline).isEqualTo(HTML);
+        else assertThat(objectMapper.readTree(baseline)).isEqualTo(objectMapper.valueToTree(multiFiles()));
+        assertThat(((UserMessage) sent.get().getLast()).singleText()).isEqualTo(prompt);
+        verify(persistence).complete(55, 42, generationId, source);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"missing_html", "missing_css", "history_error"})
+    void contextReadFailureDoesNotCallTheModelOrReplaceTheSuccessfulVersion(String failure) throws Exception {
+        long versionId = generationId - 1000;
+        App restored = app(42L, failure.equals("missing_css") ? "multi_file" : "html");
+        restored.setGeneratedVersion(versionId);
+        when(appMapper.selectOneById(55L)).thenReturn(restored);
+        when(persistence.loadSuccessfulPrompts(55, 42, versionId)).thenReturn(List.of("建立作品集"));
+        if (failure.equals("missing_css")) {
+            fileManager.saveMultiFile(42, 55, versionId, multiFiles());
+            Files.delete(directory.resolve("42/55/" + versionId + "/style.css"));
+        } else if (failure.equals("history_error")) {
+            when(persistence.loadSuccessfulPrompts(55, 42, versionId))
+                    .thenThrow(new DataAccessResourceFailureException("private storage detail"));
+        }
+
+        String events = finish(mockMvc.perform(generate().session(session())).andReturn());
+
+        assertThat(events).contains("event:failed", "读取历史或成功源码失败")
+                .doesNotContain("event:completed", directory.toString(), "private storage detail");
+        verifyNoInteractions(model);
+        verify(persistence).fail(generationId, "", "读取历史或成功源码失败，请检查应用生成记录和文件后重试");
+        verify(persistence, never()).complete(eq(55L), eq(42L), eq(generationId), any());
+        assertThat(restored.getGeneratedVersion()).isEqualTo(versionId);
+    }
+
+    @Test
+    void cancellationDuringContextLoadingPreventsTheModelCall() throws Exception {
+        App restored = app(42L, "html");
+        long versionId = generationId - 1000;
+        restored.setGeneratedVersion(versionId);
+        when(appMapper.selectOneById(55L)).thenReturn(restored);
+        fileManager.saveHtml(42, 55, versionId, HTML);
+        CountDownLatch reading = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        AtomicReference<Thread> worker = new AtomicReference<>();
+        when(persistence.loadSuccessfulPrompts(55, 42, versionId)).thenAnswer(invocation -> {
+            worker.set(Thread.currentThread());
+            reading.countDown();
+            if (!release.await(3, TimeUnit.SECONDS)) throw new IllegalStateException("test timeout");
+            return List.of("建立作品集");
+        });
+        MvcResult result = mockMvc.perform(generate().session(session())).andReturn();
+        try {
+            assertThat(reading.await(3, TimeUnit.SECONDS)).isTrue();
+            mockMvc.perform(cancel(generationId).session(session())).andExpect(status().isOk());
+        } finally {
+            release.countDown();
+        }
+        assertThat(finish(result)).contains("event:cancelled").doesNotContain("event:completed", "event:failed");
+        worker.get().join(3000);
+        assertThat(worker.get().isAlive()).isFalse();
+        verifyNoInteractions(model);
     }
 
     @ParameterizedTest

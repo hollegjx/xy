@@ -10,6 +10,7 @@ import {
   Skeleton as ASkeleton,
 } from 'ant-design-vue'
 import PageHeading from '@/components/PageHeading.vue'
+import ChatHistoryPanel from '@/pages/app/components/ChatHistoryPanel.vue'
 import { ApiError, errorMessage } from '@/request'
 import { getApp } from '@/service/api/app'
 import { useLoginUserStore } from '@/stores/useLoginUserStore'
@@ -84,6 +85,7 @@ onBeforeUnmount(() => {
             </div>
           </dl>
           <p class="prompt-content">{{ app.initPrompt }}</p>
+          <ChatHistoryPanel :app-id="app.id" />
         </section>
         <section
           class="workspace-panel preview-panel"
@@ -91,8 +93,8 @@ onBeforeUnmount(() => {
         >
           <h2>网站预览</h2>
           <div class="preview-empty">
-            <AEmpty description="还没有生成结果">
-              <p>初始需求已保存，AI 生成尚未接入。</p>
+            <AEmpty description="预览将在这里展示">
+              <p>可先在生成记录中查看已保存的内容。</p>
             </AEmpty>
           </div>
         </section>

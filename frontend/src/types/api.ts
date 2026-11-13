@@ -43,3 +43,21 @@ export interface AppVO {
   createTime: string
   updateTime: string
 }
+
+export type GenerationStatus = 'running' | 'completed' | 'failed' | 'cancelled'
+
+export interface ChatHistoryVO {
+  id: string
+  messageRole: 'user' | 'assistant'
+  content: string
+  status: GenerationStatus
+  errorMessage: string | null
+  createTime: string
+  updateTime: string
+}
+
+export interface ChatHistoryPageVO {
+  records: ChatHistoryVO[]
+  hasMore: boolean
+  nextCursor: string | null
+}

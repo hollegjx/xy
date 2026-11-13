@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test'
+import type { ChatHistoryVO } from '../src/types/api'
 
 const user = { id: '42', userAccount: 'xy_e2e', userName: '星云用户', userRole: 'user' }
 const app = {
@@ -15,6 +16,7 @@ test('首页需求在登录后保留，创建后进入工作台，刷新只读�
   let signedIn = false
   let creates = 0
   let reads = 0
+  let records: ChatHistoryVO[] = []
   await page.route(
     (url) => url.pathname.startsWith('/api/'),
     async (route) => {
@@ -43,6 +45,11 @@ test('首页需求在登录后保留，创建后进入工作台，刷新只读�
         expect(request.method()).toBe('GET')
         reads += 1
         await route.fulfill({ json: { code: 0, data: app, message: 'ok' } })
+      } else if (path === `/api/apps/${app.id}/messages`) {
+        expect(request.method()).toBe('GET')
+        await route.fulfill({
+          json: { code: 0, data: { records, hasMore: false, nextCursor: null }, message: 'ok' },
+        })
       } else {
         await route.abort()
         throw new Error(`意外的 API 请求：${path}`)
@@ -66,9 +73,28 @@ test('首页需求在登录后保留，创建后进入工作台，刷新只读�
   await expect(page).toHaveURL(`/apps/${app.id}`)
   await expect(page.getByRole('heading', { name: app.appName, exact: true })).toBeVisible()
   await expect(page.getByText(app.initPrompt, { exact: true })).toBeVisible()
-  await expect(page.getByText('还没有生成结果', { exact: true })).toBeVisible()
+  await expect(page.getByText('还没有生成记录', { exact: true })).toBeVisible()
+  records = ['running', 'completed', 'failed', 'cancelled'].map((status, index) => ({
+    id: String(101 + index),
+    messageRole: 'assistant',
+    content: status === 'running' ? '' : '<h1>摄影作品集</h1>',
+    status: status as ChatHistoryVO['status'],
+    errorMessage: status === 'failed' ? '模型返回的文件不完整，请重试' : null,
+    createTime: '2026-11-13T10:00:00',
+    updateTime: '2026-11-13T10:01:00',
+  }))
+  await page.getByRole('button', { name: '刷新状态', exact: true }).click()
+  const history = page.getByRole('region', { name: '生成记录', exact: true })
+  for (const label of ['进行中', '已完成', '失败', '已停止']) {
+    await expect(history.getByText(label, { exact: true })).toBeVisible()
+  }
+  await expect(history).toContainText('模型返回的文件不完整，请重试')
+  await history.getByText('查看生成内容', { exact: true }).first().click()
+  await expect(history.locator('pre').first()).toHaveText('<h1>摄影作品集</h1>')
+  await expect(history.getByRole('heading', { name: '摄影作品集', exact: true })).toHaveCount(0)
   await page.reload()
   await expect(page.getByRole('heading', { name: app.appName, exact: true })).toBeVisible()
+  await expect(history.getByText('已完成', { exact: true })).toBeVisible()
   expect(creates).toBe(1)
   expect(reads).toBe(2)
   await page.getByRole('link', { name: '返回首页', exact: true }).click()
@@ -110,6 +136,10 @@ test('单 HTML 创建失败保留输入，重试期间阻止重复提交，详�
             reads === 1
               ? { code: 50000, data: null, message: '应用读取失败，请重试' }
               : { code: 0, data: { ...app, codeGenType: 'html' }, message: 'ok' },
+        })
+      } else if (path === `/api/apps/${app.id}/messages`) {
+        await route.fulfill({
+          json: { code: 0, data: { records: [], hasMore: false, nextCursor: null }, message: 'ok' },
         })
       } else {
         await route.abort()

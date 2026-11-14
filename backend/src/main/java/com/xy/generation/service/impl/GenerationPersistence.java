@@ -4,6 +4,7 @@ import com.mybatisflex.core.query.QueryWrapper;
 import com.xy.app.mapper.AppMapper;
 import com.xy.chat.mapper.ChatHistoryMapper;
 import com.xy.chat.model.entity.ChatHistory;
+import com.xy.chat.model.enums.MessageRoleEnum;
 import com.xy.common.ErrorCode;
 import com.xy.exception.BusinessException;
 import java.util.ArrayList;
@@ -43,8 +44,8 @@ public class GenerationPersistence {
 
     @Transactional
     public long start(long appId, long userId, String prompt) {
-        saveMessage(appId, userId, "user", prompt, "completed");
-        return saveMessage(appId, userId, "assistant", "", "running");
+        saveMessage(appId, userId, MessageRoleEnum.USER, prompt, "completed");
+        return saveMessage(appId, userId, MessageRoleEnum.ASSISTANT, "", "running");
     }
 
     public List<String> loadSuccessfulPrompts(long appId, long userId, long versionId) {
@@ -55,7 +56,7 @@ public class GenerationPersistence {
                 .orderBy(ChatHistory::getId, false)
                 .limit(20));
         if (recent.isEmpty() || recent.getFirst().getId() != versionId
-                || !"assistant".equals(recent.getFirst().getMessageRole())
+                || !MessageRoleEnum.ASSISTANT.getValue().equals(recent.getFirst().getMessageRole())
                 || !"completed".equals(recent.getFirst().getStatus())) {
             throw new BusinessException(ErrorCode.OPERATION_ERROR, "应用成功版本记录不可用");
         }
@@ -64,8 +65,9 @@ public class GenerationPersistence {
         for (int i = recent.size() - 1; i > 0; i--) {
             ChatHistory request = recent.get(i);
             ChatHistory reply = recent.get(i - 1);
-            if ("user".equals(request.getMessageRole()) && "completed".equals(request.getStatus())
-                    && "assistant".equals(reply.getMessageRole()) && "completed".equals(reply.getStatus())) {
+            if (MessageRoleEnum.USER.getValue().equals(request.getMessageRole()) && "completed".equals(request.getStatus())
+                    && MessageRoleEnum.ASSISTANT.getValue().equals(reply.getMessageRole())
+                    && "completed".equals(reply.getStatus())) {
                 prompts.add(request.getContent());
             }
         }
@@ -106,11 +108,11 @@ public class GenerationPersistence {
     private record PendingFailure(String content, String message) {
     }
 
-    private long saveMessage(long appId, long userId, String role, String content, String status) {
+    private long saveMessage(long appId, long userId, MessageRoleEnum role, String content, String status) {
         ChatHistory message = new ChatHistory();
         message.setAppId(appId);
         message.setUserId(userId);
-        message.setMessageRole(role);
+        message.setMessageRole(role.getValue());
         message.setContent(content);
         message.setStatus(status);
         checkSaved(chatHistoryMapper.insert(message));

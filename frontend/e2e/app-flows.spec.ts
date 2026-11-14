@@ -10,6 +10,7 @@ const app = {
   codeGenType: 'multi_file',
   createTime: '2026-11-10T10:00:00',
   updateTime: '2026-11-10T10:00:00',
+  deployment: null,
 }
 
 const previewHtml = `<!doctype html><html><body>

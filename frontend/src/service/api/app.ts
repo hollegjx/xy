@@ -1,5 +1,5 @@
 import request, { ApiError, requestHtml, requestZip } from '@/request'
-import type { AppAddRequest, AppVO } from '@/types/api'
+import type { AppAddRequest, AppDeployVO, AppVO } from '@/types/api'
 
 export const createApp = (data: AppAddRequest): Promise<string> =>
   request<string>('/api/apps', { method: 'POST', data })
@@ -9,6 +9,9 @@ export const getApp = (id: string): Promise<AppVO> =>
 
 export const getAppSource = (id: string): Promise<Blob> =>
   requestZip(`/api/apps/${encodeURIComponent(id)}/source`)
+
+export const deployApp = (id: string): Promise<AppDeployVO> =>
+  request<AppDeployVO>(`/api/apps/${encodeURIComponent(id)}/deploy`, { method: 'POST' })
 
 export const getAppPreviewUrl = (id: string): string =>
   `/api/apps/${encodeURIComponent(id)}/preview`

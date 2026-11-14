@@ -13,7 +13,7 @@ import PageHeading from '@/components/PageHeading.vue'
 import ChatHistoryPanel from '@/pages/app/components/ChatHistoryPanel.vue'
 import AppPreviewPanel from '@/pages/app/components/AppPreviewPanel.vue'
 import { ApiError, errorMessage } from '@/request'
-import { getApp, getAppSource } from '@/service/api/app'
+import { deployApp, getApp, getAppSource } from '@/service/api/app'
 import { useLoginUserStore } from '@/stores/useLoginUserStore'
 import { useAppDraftStore } from '@/stores/useAppDraftStore'
 import type { AppVO } from '@/types/api'
@@ -29,6 +29,10 @@ const autoGenerate = ref(false)
 const previewVersion = ref<string | null>(null)
 const downloading = ref(false)
 const downloadError = ref('')
+const publishing = ref(false)
+const publishError = ref('')
+const copying = ref(false)
+const copyError = ref('')
 let revision = 0
 
 async function load(): Promise<void> {
@@ -41,6 +45,10 @@ async function load(): Promise<void> {
   error.value = ''
   downloading.value = false
   downloadError.value = ''
+  publishing.value = false
+  publishError.value = ''
+  copying.value = false
+  copyError.value = ''
   try {
     const result = await getApp(id)
     if (currentRevision === revision) app.value = result
@@ -84,6 +92,43 @@ async function downloadSource(): Promise<void> {
   }
 }
 
+async function publish(): Promise<void> {
+  if (!app.value || publishing.value || loginUserStore.authAction !== null) return
+  const currentRevision = revision
+  const id = app.value.id
+  publishing.value = true
+  publishError.value = ''
+  try {
+    const result = await deployApp(id)
+    if (currentRevision !== revision || !app.value) return
+    app.value.deployment = result
+    copyError.value = ''
+    void message.success('发布成功')
+  } catch (cause) {
+    if (currentRevision !== revision) return
+    if (cause instanceof ApiError && cause.code === 40100) loginUserStore.setUser(null)
+    else publishError.value = errorMessage(cause)
+  } finally {
+    if (currentRevision === revision) publishing.value = false
+  }
+}
+
+async function copyLink(): Promise<void> {
+  const url = app.value?.deployment?.deployUrl
+  if (!url || copying.value) return
+  const currentRevision = revision
+  copying.value = true
+  copyError.value = ''
+  try {
+    await globalThis.navigator.clipboard.writeText(url)
+    if (currentRevision === revision) void message.success('链接已复制')
+  } catch {
+    if (currentRevision === revision) copyError.value = '无法自动复制，请手动选择下方链接复制。'
+  } finally {
+    if (currentRevision === revision) copying.value = false
+  }
+}
+
 watch(() => route.params.id, load, { immediate: true })
 onBeforeUnmount(() => {
   revision += 1
@@ -93,7 +138,7 @@ onBeforeUnmount(() => {
 <template>
   <div class="workbench">
     <RouterLink to="/" class="back-link">返回首页</RouterLink>
-    <PageHeading :title="app?.appName ?? '应用工作台'" description="查看应用需求与网站预览。" />
+    <PageHeading :title="app?.appName ?? '应用工作台'" description="生成、预览并分享你的应用。" />
     <ASkeleton v-if="loading" active :paragraph="{ rows: 6 }" aria-label="正在读取应用" />
     <AAlert
       v-else-if="error"
@@ -106,17 +151,61 @@ onBeforeUnmount(() => {
       <template #action><AButton @click="load">重试</AButton></template>
     </AAlert>
     <template v-else-if="app">
-      <div class="source-actions" role="region" aria-label="应用源码">
-        <div class="source-download">
-          <AButton
-            :loading="downloading"
-            :disabled="downloading || loginUserStore.authAction !== null"
-            @click="downloadSource"
-          >
-            {{ downloading ? '下载中' : downloadError ? '重试下载' : '下载源码' }}
-          </AButton>
-          <span class="source-hint">下载最近成功版本的源码 ZIP。</span>
+      <div class="source-actions" role="region" aria-label="发布与下载">
+        <div class="delivery-heading">
+          <div>
+            <h2>发布与分享</h2>
+            <p v-if="app.deployment" class="source-hint">
+              上次发布 {{ app.deployment.deployedAt.replace('T', ' ') }}，新修改需重新发布。
+            </p>
+            <p v-else class="source-hint">尚未发布。将最近成功生成的网站分享给别人。</p>
+          </div>
+          <div class="source-download">
+            <AButton
+              type="primary"
+              shape="round"
+              :loading="publishing"
+              :disabled="publishing || loginUserStore.authAction !== null"
+              @click="publish"
+            >
+              {{
+                publishing
+                  ? '发布中'
+                  : publishError
+                    ? '重试发布'
+                    : app.deployment
+                      ? '重新发布'
+                      : '发布应用'
+              }}
+            </AButton>
+            <AButton
+              :loading="downloading"
+              :disabled="downloading || loginUserStore.authAction !== null"
+              @click="downloadSource"
+            >
+              {{ downloading ? '下载中' : downloadError ? '重试下载' : '下载源码' }}
+            </AButton>
+          </div>
         </div>
+        <AAlert
+          v-if="publishError"
+          type="error"
+          message="应用发布失败"
+          :description="publishError"
+          show-icon
+          role="alert"
+        />
+        <AAlert v-if="copyError" type="warning" :message="copyError" show-icon role="alert" />
+        <div v-if="app.deployment?.deployUrl" class="published-link">
+          <span class="share-url">{{ app.deployment.deployUrl }}</span>
+          <div class="source-download">
+            <AButton :href="app.deployment.deployUrl" target="_blank" rel="noopener noreferrer">
+              查看作品
+            </AButton>
+            <AButton :loading="copying" :disabled="copying" @click="copyLink">复制链接</AButton>
+          </div>
+        </div>
+        <p v-else-if="app.deployment" class="source-hint">已保存发布记录，当前暂无访问地址。</p>
         <AAlert
           v-if="downloadError"
           type="error"
@@ -178,6 +267,18 @@ onBeforeUnmount(() => {
   flex-direction: column;
   gap: 12px;
   margin-bottom: 24px;
+  padding-bottom: 24px;
+  border-bottom: 1px solid var(--border);
+}
+.delivery-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.delivery-heading h2 {
+  margin-bottom: 8px;
 }
 .source-download {
   display: flex;
@@ -186,8 +287,21 @@ onBeforeUnmount(() => {
   gap: 8px;
 }
 .source-hint {
+  margin: 0;
   color: var(--muted);
   font-size: 12px;
+}
+.published-link {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+}
+.share-url {
+  flex: 1 1 240px;
+  min-width: 0;
+  font-size: 14px;
+  user-select: text;
 }
 .workspace {
   display: grid;

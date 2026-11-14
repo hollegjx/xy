@@ -42,6 +42,13 @@ export interface AppVO {
   codeGenType: CodeGenType
   createTime: string
   updateTime: string
+  deployment: AppDeployVO | null
+}
+
+export interface AppDeployVO {
+  deployUrl: string | null
+  publishedVersion: string
+  deployedAt: string
 }
 
 export type GenerationStatus = 'running' | 'completed' | 'failed' | 'cancelled'

@@ -1,14 +1,17 @@
 package com.xy.user.service.impl;
 
+import com.mybatisflex.core.paginate.Page;
 import com.mybatisflex.core.query.QueryWrapper;
 import com.xy.common.ErrorCode;
 import com.xy.common.UserConstant;
 import com.xy.exception.BusinessException;
 import com.xy.user.mapper.UserMapper;
 import com.xy.user.model.dto.UserLoginRequest;
+import com.xy.user.model.dto.UserQueryRequest;
 import com.xy.user.model.dto.UserRegisterRequest;
 import com.xy.user.model.entity.User;
 import com.xy.user.model.enums.UserRoleEnum;
+import com.xy.user.model.vo.UserPageVO;
 import com.xy.user.model.vo.UserVO;
 import com.xy.user.service.UserService;
 import jakarta.servlet.http.HttpServletRequest;
@@ -26,6 +29,25 @@ public class UserServiceImpl implements UserService {
     public UserServiceImpl(UserMapper userMapper, PasswordEncoder passwordEncoder) {
         this.userMapper = userMapper;
         this.passwordEncoder = passwordEncoder;
+    }
+
+    @Override
+    public UserPageVO listUsers(UserQueryRequest request, HttpServletRequest servletRequest) {
+        User loginUser = getLoginUser(servletRequest);
+        if (!UserRoleEnum.ADMIN.getValue().equals(loginUser.getUserRole())) {
+            throw new BusinessException(ErrorCode.NO_AUTH_ERROR, "仅管理员可查询用户");
+        }
+
+        Page<User> page = userMapper.paginate(request.current(), request.pageSize(), getQueryWrapper(request));
+        return new UserPageVO(page.getRecords().stream().map(this::getUserVO).toList(),
+                page.getTotalRow(), page.getPageNumber(), page.getPageSize());
+    }
+
+    private QueryWrapper getQueryWrapper(UserQueryRequest request) {
+        return QueryWrapper.create()
+                .like(User::getUserAccount, request.userAccount(), !request.userAccount().isEmpty())
+                .orderBy(User::getCreateTime, false)
+                .orderBy(User::getId, false);
     }
 
     @Override

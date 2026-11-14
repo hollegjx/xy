@@ -1,12 +1,16 @@
 package com.xy.user.service;
 
 import com.xy.user.model.dto.UserLoginRequest;
+import com.xy.user.model.dto.UserQueryRequest;
 import com.xy.user.model.dto.UserRegisterRequest;
 import com.xy.user.model.entity.User;
+import com.xy.user.model.vo.UserPageVO;
 import com.xy.user.model.vo.UserVO;
 import jakarta.servlet.http.HttpServletRequest;
 
 public interface UserService {
+
+    UserPageVO listUsers(UserQueryRequest request, HttpServletRequest servletRequest);
 
     long register(UserRegisterRequest request);
 

@@ -4,6 +4,7 @@ import { RouterLink, RouterView, useRoute, useRouter } from 'vue-router'
 import {
   Alert as AAlert,
   Button as AButton,
+  Result as AResult,
   Skeleton as ASkeleton,
   SkeletonButton as ASkeletonButton,
   Tag as ATag,
@@ -16,6 +17,12 @@ const router = useRouter()
 const loginUserStore = useLoginUserStore()
 const logoutError = ref('')
 const logoutBusy = computed(() => loginUserStore.authAction === 'logout')
+const canAccessPage = computed(
+  () =>
+    (!route.meta.requiresAuth || Boolean(loginUserStore.user)) &&
+    (!route.meta.adminOnly ||
+      (loginUserStore.status === 'ready' && loginUserStore.user?.userRole === 'admin')),
+)
 
 async function handleLogout(): Promise<void> {
   if (loginUserStore.authAction !== null) return
@@ -44,6 +51,17 @@ watchEffect(() => {
       <span>星云<span class="brand-subtitle">让灵感在此成形</span></span>
     </RouterLink>
     <nav class="site-nav" aria-label="主导航">
+      <RouterLink
+        v-if="
+          loginUserStore.status === 'ready' &&
+          loginUserStore.user?.userRole === 'admin' &&
+          route.name !== 'admin-users'
+        "
+        to="/admin/users"
+        class="nav-link"
+      >
+        用户管理
+      </RouterLink>
       <RouterLink v-if="route.name !== 'system-status'" to="/system/status" class="nav-link">
         系统状态
       </RouterLink>
@@ -110,9 +128,19 @@ watchEffect(() => {
       </template>
     </AAlert>
     <RouterView
-      v-if="!route.meta.requiresAuth || loginUserStore.user"
+      v-if="canAccessPage"
       :key="route.meta.requiresAuth ? loginUserStore.user?.id : undefined"
     />
+    <AResult
+      v-else-if="route.meta.adminOnly && loginUserStore.status === 'ready' && loginUserStore.user"
+      status="403"
+      sub-title="此页面仅管理员可访问。"
+    >
+      <template #title><h1 class="access-title">无权访问</h1></template>
+      <template #extra>
+        <AButton type="primary" shape="round" @click="router.replace('/')">返回首页</AButton>
+      </template>
+    </AResult>
     <ASkeleton
       v-else-if="loginUserStore.status !== 'error'"
       active
@@ -158,6 +186,10 @@ watchEffect(() => {
 }
 .session-error {
   margin-bottom: 24px;
+}
+.access-title {
+  margin: 0;
+  font-size: 28px;
 }
 @media (max-width: 600px) {
   .site-header {

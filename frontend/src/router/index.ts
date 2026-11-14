@@ -21,6 +21,12 @@ const router = createRouter({
           meta: { title: '应用工作台', requiresAuth: true },
         },
         {
+          path: 'admin/users',
+          name: 'admin-users',
+          component: () => import('@/pages/user/UserListPage.vue'),
+          meta: { title: '用户管理', requiresAuth: true, adminOnly: true },
+        },
+        {
           path: 'system/status',
           name: 'system-status',
           component: () => import('@/pages/system/StatusPage.vue'),

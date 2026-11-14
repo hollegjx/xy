@@ -1,0 +1,99 @@
+import { expect, test } from '@playwright/test'
+import type { UserVO } from '../src/types/api'
+
+test('管理员登录后查询和翻页，普通用户不能进入用户管理', async ({ page }) => {
+  const admin: UserVO = { id: '42', userAccount: 'admin', userName: '管理员', userRole: 'admin' }
+  const users: UserVO[] = Array.from({ length: 12 }, (_, index) => ({
+    id: String(9007199254740993n + BigInt(index)),
+    userAccount: `xy_user_${index + 1}`,
+    userName: `星云用户 ${index + 1}`,
+    userRole: 'user',
+  }))
+  let currentUser: UserVO | null = null
+  let listRequests = 0
+  await page.route(
+    (url) => url.pathname.startsWith('/api/'),
+    async (route) => {
+      const request = route.request()
+      const url = new URL(request.url())
+      if (url.pathname === '/api/users/login') {
+        currentUser = request.postDataJSON().userAccount === 'admin' ? admin : users[0]!
+        await route.fulfill({ json: { code: 0, data: currentUser, message: 'ok' } })
+      } else if (url.pathname === '/api/users/me') {
+        await route.fulfill({
+          status: currentUser ? 200 : 401,
+          json: currentUser
+            ? { code: 0, data: currentUser, message: 'ok' }
+            : { code: 40100, data: null, message: '请先登录' },
+        })
+      } else if (url.pathname === '/api/users/logout') {
+        currentUser = null
+        await route.fulfill({ json: { code: 0, data: true, message: 'ok' } })
+      } else if (url.pathname === '/api/users') {
+        expect(request.method()).toBe('GET')
+        expect(currentUser?.userRole).toBe('admin')
+        listRequests += 1
+        const current = Number(url.searchParams.get('current'))
+        expect(url.searchParams.get('pageSize')).toBe('10')
+        const matching = users.filter((user) =>
+          user.userAccount.includes(url.searchParams.get('userAccount') ?? ''),
+        )
+        await route.fulfill({
+          json: {
+            code: 0,
+            data: {
+              records: matching.slice((current - 1) * 10, current * 10),
+              total: matching.length,
+              current,
+              pageSize: 10,
+            },
+            message: 'ok',
+          },
+        })
+      } else if (url.pathname === '/api/apps/mine') {
+        await route.fulfill({
+          json: {
+            code: 0,
+            data: { records: [], total: 0, current: 1, pageSize: 10 },
+            message: 'ok',
+          },
+        })
+      } else {
+        await route.abort()
+        throw new Error(`意外的 API 请求：${url.pathname}`)
+      }
+    },
+  )
+
+  await page.goto('/admin/users')
+  await expect(page).toHaveURL('/user/login?redirect=/admin/users')
+  await page.getByLabel('账号', { exact: true }).fill('admin')
+  await page.getByLabel('密码', { exact: true }).fill('Demo123456!')
+  await page.getByRole('button', { name: '登录', exact: true }).click()
+  await expect(page).toHaveURL('/admin/users')
+  const panel = page.getByRole('region', { name: '用户管理', exact: true })
+  await expect(panel.getByText(users[0]!.id, { exact: true })).toBeVisible()
+  await expect(panel.getByText('共 12 个用户')).toBeVisible()
+  await panel.getByTitle('下一页').click()
+  await expect(panel.getByText('xy_user_11', { exact: true })).toBeVisible()
+  await panel.getByLabel('登录账号', { exact: true }).fill('xy_user_12')
+  await panel.getByRole('button', { name: '查询', exact: true }).click()
+  await expect(panel.getByText('共 1 个用户')).toBeVisible()
+  await expect(panel.getByText('xy_user_12', { exact: true })).toBeVisible()
+  await panel.getByRole('button', { name: '重置', exact: true }).click()
+  await expect(panel.getByText('xy_user_1', { exact: true })).toBeVisible()
+  await page.getByRole('link', { name: '星云首页', exact: true }).click()
+  await page.getByRole('link', { name: '用户管理', exact: true }).click()
+  await expect(panel.getByText('共 12 个用户')).toBeVisible()
+  await page.getByRole('button', { name: '退出登录', exact: true }).click()
+  await expect(page).toHaveURL('/user/login')
+  await page.getByLabel('账号', { exact: true }).fill('xy_user_1')
+  await page.getByLabel('密码', { exact: true }).fill('Demo123456!')
+  await page.getByRole('button', { name: '登录', exact: true }).click()
+  await expect(page).toHaveURL('/')
+  await expect(page.getByRole('link', { name: '用户管理', exact: true })).toHaveCount(0)
+  const requestsBeforeDeniedVisit = listRequests
+  await page.goto('/admin/users')
+  await expect(page.getByRole('heading', { name: '无权访问', exact: true })).toBeVisible()
+  expect(listRequests).toBe(requestsBeforeDeniedVisit)
+})

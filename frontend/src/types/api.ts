@@ -27,6 +27,19 @@ export interface UserVO {
   userRole: 'user' | 'admin'
 }
 
+export interface UserQueryRequest {
+  userAccount?: string
+  current: number
+  pageSize: number
+}
+
+export interface UserPageVO {
+  records: UserVO[]
+  total: number
+  current: number
+  pageSize: number
+}
+
 export type CodeGenType = 'html' | 'multi_file'
 
 export interface AppAddRequest {

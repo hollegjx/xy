@@ -1,5 +1,14 @@
 import request from '@/request'
-import type { UserLoginRequest, UserRegisterRequest, UserVO } from '@/types/api'
+import type {
+  UserLoginRequest,
+  UserPageVO,
+  UserQueryRequest,
+  UserRegisterRequest,
+  UserVO,
+} from '@/types/api'
+
+export const listUsers = (params: UserQueryRequest): Promise<UserPageVO> =>
+  request<UserPageVO>('/api/users', { params })
 
 export const registerUser = (data: UserRegisterRequest): Promise<string> =>
   request<string>('/api/users/register', { method: 'POST', data })

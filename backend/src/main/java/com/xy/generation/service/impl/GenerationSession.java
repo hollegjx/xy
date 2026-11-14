@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.ObjectReader;
+import com.xy.chat.model.enums.MessageStatusEnum;
 import com.xy.common.ErrorCode;
 import com.xy.exception.BusinessException;
 import com.xy.generation.model.vo.GenerationEventVO;
@@ -65,7 +66,7 @@ final class GenerationSession implements StreamingChatResponseHandler {
     synchronized boolean start() {
         if (finished) return false;
         try {
-            send("started", "running", null, null);
+            send("started", MessageStatusEnum.RUNNING, null, null);
             return true;
         } catch (IOException | IllegalStateException error) {
             fail("生成连接中断，请重试");
@@ -90,7 +91,7 @@ final class GenerationSession implements StreamingChatResponseHandler {
         finished = true;
         stopModel();
         release.run();
-        finishStream("cancelled", "cancelled", "生成已停止");
+        finishStream("cancelled", MessageStatusEnum.CANCELLED, "生成已停止");
     }
 
     @Override
@@ -114,7 +115,7 @@ final class GenerationSession implements StreamingChatResponseHandler {
         if (finished) return;
         content.append(text);
         try {
-            send("delta", "running", text, null);
+            send("delta", MessageStatusEnum.RUNNING, text, null);
         } catch (IOException | IllegalStateException error) {
             fail("生成连接中断，请重试");
         }
@@ -147,7 +148,7 @@ final class GenerationSession implements StreamingChatResponseHandler {
         // 数据已经提交。即使最终通知无法送达，也不能把成功版本改成失败。
         finished = true;
         release.run();
-        finishStream("completed", "completed", null);
+        finishStream("completed", MessageStatusEnum.COMPLETED, null);
     }
 
     @Override
@@ -190,7 +191,7 @@ final class GenerationSession implements StreamingChatResponseHandler {
         } finally {
             release.run();
         }
-        finishStream("failed", "failed", message);
+        finishStream("failed", MessageStatusEnum.FAILED, message);
     }
 
     private void stopModel() {
@@ -202,12 +203,12 @@ final class GenerationSession implements StreamingChatResponseHandler {
         }
     }
 
-    private void send(String event, String status, String text, String message) throws IOException {
+    private void send(String event, MessageStatusEnum status, String text, String message) throws IOException {
         emitter.send(SseEmitter.event().name(event).data(
-                new GenerationEventVO(Long.toString(generationId), status, text, message), MediaType.APPLICATION_JSON));
+                new GenerationEventVO(Long.toString(generationId), status.getValue(), text, message), MediaType.APPLICATION_JSON));
     }
 
-    private void finishStream(String event, String status, String message) {
+    private void finishStream(String event, MessageStatusEnum status, String message) {
         try {
             send(event, status, null, message);
         } catch (IOException | IllegalStateException error) {

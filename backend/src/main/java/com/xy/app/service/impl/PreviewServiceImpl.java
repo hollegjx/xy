@@ -6,6 +6,7 @@ import com.xy.app.service.PreviewService;
 import com.xy.chat.mapper.ChatHistoryMapper;
 import com.xy.chat.model.entity.ChatHistory;
 import com.xy.chat.model.enums.MessageRoleEnum;
+import com.xy.chat.model.enums.MessageStatusEnum;
 import com.xy.common.ErrorCode;
 import com.xy.exception.BusinessException;
 import com.xy.manager.GeneratedFileManager;
@@ -40,7 +41,7 @@ public class PreviewServiceImpl implements PreviewService {
         ChatHistory version = chatHistoryMapper.selectOneById(versionId);
         if (version == null || !app.getId().equals(version.getAppId()) || !app.getUserId().equals(version.getUserId())
                 || !MessageRoleEnum.ASSISTANT.getValue().equals(version.getMessageRole())
-                || !"completed".equals(version.getStatus())) {
+                || !MessageStatusEnum.COMPLETED.getValue().equals(version.getStatus())) {
             throw new BusinessException(ErrorCode.OPERATION_ERROR, "应用没有可预览的成功版本");
         }
         if (!"html".equals(app.getCodeGenType()) && !"multi_file".equals(app.getCodeGenType())) {

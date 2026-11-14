@@ -247,6 +247,10 @@
 
 - 消息业务赋值与判断统一使用 MessageRoleEnum，覆盖生成记录、历史上下文和成功版本校验；user / assistant 表示消息发送方，与账号权限角色分开定义。
 
+## 2026-11-15：生成状态枚举迁移
+
+- 四种状态定义在 chat 的 MessageStatusEnum，消息落库、SSE 状态输出及成功版本判断共用；状态属于消息记录，用户消息直接为 completed，AI 消息按生成结果流转。
+
 ## 第三方文件与依赖来源
 
 - [jsoup 1.24.1 官方发布说明](https://jsoup.org/news/release-1.24.1)：用 HTML 解析器定位和替换 CSS/JS 引用，避免用正则改写 HTML 标签。

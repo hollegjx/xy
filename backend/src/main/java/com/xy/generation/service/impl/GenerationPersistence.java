@@ -5,6 +5,7 @@ import com.xy.app.mapper.AppMapper;
 import com.xy.chat.mapper.ChatHistoryMapper;
 import com.xy.chat.model.entity.ChatHistory;
 import com.xy.chat.model.enums.MessageRoleEnum;
+import com.xy.chat.model.enums.MessageStatusEnum;
 import com.xy.common.ErrorCode;
 import com.xy.exception.BusinessException;
 import java.util.ArrayList;
@@ -44,8 +45,8 @@ public class GenerationPersistence {
 
     @Transactional
     public long start(long appId, long userId, String prompt) {
-        saveMessage(appId, userId, MessageRoleEnum.USER, prompt, "completed");
-        return saveMessage(appId, userId, MessageRoleEnum.ASSISTANT, "", "running");
+        saveMessage(appId, userId, MessageRoleEnum.USER, prompt, MessageStatusEnum.COMPLETED);
+        return saveMessage(appId, userId, MessageRoleEnum.ASSISTANT, "", MessageStatusEnum.RUNNING);
     }
 
     public List<String> loadSuccessfulPrompts(long appId, long userId, long versionId) {
@@ -57,7 +58,7 @@ public class GenerationPersistence {
                 .limit(20));
         if (recent.isEmpty() || recent.getFirst().getId() != versionId
                 || !MessageRoleEnum.ASSISTANT.getValue().equals(recent.getFirst().getMessageRole())
-                || !"completed".equals(recent.getFirst().getStatus())) {
+                || !MessageStatusEnum.COMPLETED.getValue().equals(recent.getFirst().getStatus())) {
             throw new BusinessException(ErrorCode.OPERATION_ERROR, "应用成功版本记录不可用");
         }
         List<String> prompts = new ArrayList<>();
@@ -65,9 +66,10 @@ public class GenerationPersistence {
         for (int i = recent.size() - 1; i > 0; i--) {
             ChatHistory request = recent.get(i);
             ChatHistory reply = recent.get(i - 1);
-            if (MessageRoleEnum.USER.getValue().equals(request.getMessageRole()) && "completed".equals(request.getStatus())
+            if (MessageRoleEnum.USER.getValue().equals(request.getMessageRole())
+                    && MessageStatusEnum.COMPLETED.getValue().equals(request.getStatus())
                     && MessageRoleEnum.ASSISTANT.getValue().equals(reply.getMessageRole())
-                    && "completed".equals(reply.getStatus())) {
+                    && MessageStatusEnum.COMPLETED.getValue().equals(reply.getStatus())) {
                 prompts.add(request.getContent());
             }
         }
@@ -76,7 +78,7 @@ public class GenerationPersistence {
 
     @Transactional
     public void complete(long appId, long userId, long generationId, String content) {
-        checkSaved(chatHistoryMapper.finishGeneration(generationId, "completed", content, null));
+        checkSaved(chatHistoryMapper.finishGeneration(generationId, MessageStatusEnum.COMPLETED.getValue(), content, null));
         checkSaved(appMapper.updateGeneratedVersion(appId, userId, generationId));
     }
 
@@ -89,16 +91,18 @@ public class GenerationPersistence {
     }
 
     public void cancel(long generationId, String content) {
-        checkSaved(chatHistoryMapper.finishGeneration(generationId, "cancelled", content, null));
+        checkSaved(chatHistoryMapper.finishGeneration(generationId, MessageStatusEnum.CANCELLED.getValue(), content, null));
     }
 
     private void saveFailure(long generationId, PendingFailure failure) {
-        int rows = chatHistoryMapper.finishGeneration(generationId, "failed", failure.content(), failure.message());
+        int rows = chatHistoryMapper.finishGeneration(generationId, MessageStatusEnum.FAILED.getValue(),
+                failure.content(), failure.message());
         if (rows == 0) {
             // 写入可能已提交但响应丢失；确认已有终态或已删除后结束补写，绝不覆盖其他终态。
             ChatHistory stored = chatHistoryMapper.selectOneById(generationId);
-            if (stored == null || "completed".equals(stored.getStatus()) || "failed".equals(stored.getStatus())
-                    || "cancelled".equals(stored.getStatus())) {
+            if (stored == null || MessageStatusEnum.COMPLETED.getValue().equals(stored.getStatus())
+                    || MessageStatusEnum.FAILED.getValue().equals(stored.getStatus())
+                    || MessageStatusEnum.CANCELLED.getValue().equals(stored.getStatus())) {
                 return;
             }
         }
@@ -108,13 +112,13 @@ public class GenerationPersistence {
     private record PendingFailure(String content, String message) {
     }
 
-    private long saveMessage(long appId, long userId, MessageRoleEnum role, String content, String status) {
+    private long saveMessage(long appId, long userId, MessageRoleEnum role, String content, MessageStatusEnum status) {
         ChatHistory message = new ChatHistory();
         message.setAppId(appId);
         message.setUserId(userId);
         message.setMessageRole(role.getValue());
         message.setContent(content);
-        message.setStatus(status);
+        message.setStatus(status.getValue());
         checkSaved(chatHistoryMapper.insert(message));
         return message.getId();
     }

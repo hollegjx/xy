@@ -2,6 +2,7 @@ package com.xy.app.controller;
 
 import com.xy.app.model.dto.AppAddRequest;
 import com.xy.app.model.dto.AppQueryRequest;
+import com.xy.app.model.dto.AppUpdateRequest;
 import com.xy.app.model.vo.AppDeployVO;
 import com.xy.app.model.vo.AppPageVO;
 import com.xy.app.model.vo.AppVO;
@@ -24,6 +25,7 @@ import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.ModelAttribute;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -68,6 +70,17 @@ public class AppController {
             @Parameter(description = "应用 ID，必须大于 0", example = "55")
             @Positive @PathVariable long id, HttpServletRequest servletRequest) {
         return ApiResponse.success(appService.getAppById(id, userService.getLoginUser(servletRequest)));
+    }
+
+    @Operation(summary = "修改应用名称", description = "仅创建者可修改，管理员不能修改他人的应用。"
+            + "名称不能为空且最多 128 个字符；只修改名称，不改变初始需求、生成模式或发布信息。"
+            + "保存成功或名称未变化时返回 true。")
+    @PatchMapping("/{id}")
+    public ApiResponse<Boolean> updateApp(
+            @Parameter(description = "应用 ID，必须大于 0", example = "55")
+            @Positive @PathVariable long id, @Valid @RequestBody AppUpdateRequest request,
+            HttpServletRequest servletRequest) {
+        return ApiResponse.success(appService.updateApp(id, request, userService.getLoginUser(servletRequest)));
     }
 
     @Operation(summary = "发布应用", description = "仅创建者可发布最近成功版本，无需请求体。"

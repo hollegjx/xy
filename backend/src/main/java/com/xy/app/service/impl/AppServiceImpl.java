@@ -5,6 +5,7 @@ import com.mybatisflex.core.query.QueryWrapper;
 import com.xy.app.mapper.AppMapper;
 import com.xy.app.model.dto.AppAddRequest;
 import com.xy.app.model.dto.AppQueryRequest;
+import com.xy.app.model.dto.AppUpdateRequest;
 import com.xy.app.model.entity.App;
 import com.xy.app.model.enums.CodeGenTypeEnum;
 import com.xy.app.model.vo.AppDeployVO;
@@ -77,6 +78,18 @@ public class AppServiceImpl implements AppService {
         Page<App> page = appMapper.paginate(request.current(), request.pageSize(), query);
         return new AppPageVO(page.getRecords().stream().map(this::getAppVO).toList(),
                 page.getTotalRow(), page.getPageNumber(), page.getPageSize());
+    }
+
+    @Override
+    public boolean updateApp(long id, AppUpdateRequest request, User loginUser) {
+        App app = getOwnedApp(id, loginUser);
+        if (app.getAppName().equals(request.appName())) {
+            return true;
+        }
+        if (appMapper.updateAppName(id, loginUser.getId(), request.appName()) != 1) {
+            throw new BusinessException(ErrorCode.SYSTEM_ERROR, "应用名称保存失败，请重试");
+        }
+        return true;
     }
 
     @Override

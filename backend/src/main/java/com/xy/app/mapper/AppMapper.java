@@ -10,6 +10,11 @@ import org.apache.ibatis.annotations.Update;
 @Mapper
 public interface AppMapper extends BaseMapper<App> {
 
+    @Update("UPDATE app SET appName = #{appName} "
+            + "WHERE id = #{appId} AND userId = #{userId} AND isDelete = 0")
+    int updateAppName(@Param("appId") long appId, @Param("userId") long userId,
+            @Param("appName") String appName);
+
     @Update("UPDATE app SET generatedVersion = #{generationId} "
             + "WHERE id = #{appId} AND userId = #{userId} AND isDelete = 0")
     int updateGeneratedVersion(@Param("appId") long appId, @Param("userId") long userId,

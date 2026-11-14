@@ -1,7 +1,9 @@
 package com.xy.app.controller;
 
 import com.xy.app.model.dto.AppAddRequest;
+import com.xy.app.model.dto.AppQueryRequest;
 import com.xy.app.model.vo.AppDeployVO;
+import com.xy.app.model.vo.AppPageVO;
 import com.xy.app.model.vo.AppVO;
 import com.xy.app.service.AppService;
 import com.xy.common.ApiResponse;
@@ -14,12 +16,14 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Positive;
+import org.springdoc.core.annotations.ParameterObject;
 import org.springframework.http.CacheControl;
 import org.springframework.http.ContentDisposition;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.ModelAttribute;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -45,6 +49,16 @@ public class AppController {
     public ApiResponse<String> createApp(@Valid @RequestBody AppAddRequest request,
             HttpServletRequest servletRequest) {
         return ApiResponse.success(Long.toString(appService.createApp(request, userService.getLoginUser(servletRequest))));
+    }
+
+    @Operation(summary = "查询我的应用", description = "需要登录；仅查询当前账号创建且未删除的应用，管理员也不例外。"
+            + "支持名称模糊查询，默认第 1 页、每页 10 个，最多 20 个；按创建时间和 ID 倒序排列。"
+            + "返回应用列表、总数和分页参数；已有发布信息随列表返回。")
+    @GetMapping("/mine")
+    public ApiResponse<AppPageVO> listMyApps(
+            @Valid @ModelAttribute @ParameterObject AppQueryRequest request,
+            HttpServletRequest servletRequest) {
+        return ApiResponse.success(appService.listMyApps(request, userService.getLoginUser(servletRequest)));
     }
 
     @Operation(summary = "获取应用详情", description = "需要登录且为应用创建者；返回名称、初始需求、生成模式、时间和发布信息。"

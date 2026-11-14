@@ -1,10 +1,14 @@
 package com.xy.app.service.impl;
 
+import com.mybatisflex.core.paginate.Page;
+import com.mybatisflex.core.query.QueryWrapper;
 import com.xy.app.mapper.AppMapper;
 import com.xy.app.model.dto.AppAddRequest;
+import com.xy.app.model.dto.AppQueryRequest;
 import com.xy.app.model.entity.App;
 import com.xy.app.model.enums.CodeGenTypeEnum;
 import com.xy.app.model.vo.AppDeployVO;
+import com.xy.app.model.vo.AppPageVO;
 import com.xy.app.model.vo.AppVO;
 import com.xy.app.service.AppService;
 import com.xy.chat.mapper.ChatHistoryMapper;
@@ -61,6 +65,18 @@ public class AppServiceImpl implements AppService {
     @Override
     public AppVO getAppById(long id, User loginUser) {
         return getAppVO(getOwnedApp(id, loginUser));
+    }
+
+    @Override
+    public AppPageVO listMyApps(AppQueryRequest request, User loginUser) {
+        QueryWrapper query = QueryWrapper.create()
+                .eq(App::getUserId, loginUser.getId())
+                .like(App::getAppName, request.appName(), !request.appName().isEmpty())
+                .orderBy(App::getCreateTime, false)
+                .orderBy(App::getId, false);
+        Page<App> page = appMapper.paginate(request.current(), request.pageSize(), query);
+        return new AppPageVO(page.getRecords().stream().map(this::getAppVO).toList(),
+                page.getTotalRow(), page.getPageNumber(), page.getPageSize());
     }
 
     @Override

@@ -128,7 +128,8 @@ public class AppServiceImpl implements AppService {
         App app = getOwnedApp(id, loginUser);
         long versionId = getSuccessfulVersion(app);
         try {
-            return fileManager.readSourceZip(app.getUserId(), id, versionId, "multi_file".equals(app.getCodeGenType()));
+            return fileManager.readSourceZip(app.getUserId(), id, versionId,
+                    CodeGenTypeEnum.MULTI_FILE.getValue().equals(app.getCodeGenType()));
         } catch (NoSuchFileException error) {
             throw new BusinessException(ErrorCode.NOT_FOUND_ERROR, "生成文件不存在，请重新生成");
         } catch (IOException error) {
@@ -178,7 +179,8 @@ public class AppServiceImpl implements AppService {
                 || !MessageStatusEnum.COMPLETED.getValue().equals(version.getStatus())) {
             throw new BusinessException(ErrorCode.OPERATION_ERROR, "应用没有可交付的成功版本");
         }
-        if (!"html".equals(app.getCodeGenType()) && !"multi_file".equals(app.getCodeGenType())) {
+        if (!CodeGenTypeEnum.HTML.getValue().equals(app.getCodeGenType())
+                && !CodeGenTypeEnum.MULTI_FILE.getValue().equals(app.getCodeGenType())) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "当前交付仅支持 html 或 multi_file 模式");
         }
         return versionId;

@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.ObjectReader;
+import com.xy.app.model.enums.CodeGenTypeEnum;
 import com.xy.chat.model.enums.MessageStatusEnum;
 import com.xy.common.ErrorCode;
 import com.xy.exception.BusinessException;
@@ -130,14 +131,14 @@ final class GenerationSession implements StreamingChatResponseHandler {
         }
         try {
             String output = response.aiMessage().text();
-            if ("multi_file".equals(codeGenType)) {
+            if (CodeGenTypeEnum.MULTI_FILE.getValue().equals(codeGenType)) {
                 fileManager.saveMultiFile(userId, appId, generationId, parseMultiFile(output));
             } else {
                 fileManager.saveHtml(userId, appId, generationId, output);
             }
             persistence.complete(appId, userId, generationId, output);
         } catch (IllegalArgumentException error) {
-            fail("multi_file".equals(codeGenType)
+            fail(CodeGenTypeEnum.MULTI_FILE.getValue().equals(codeGenType)
                     ? "模型未返回完整的 HTML/CSS/JS 文件，请重试" : "模型未返回完整的 HTML 文档，请重试");
             return;
         } catch (Exception error) {

@@ -2,6 +2,7 @@ package com.xy.generation.service.impl;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.xy.app.model.entity.App;
+import com.xy.app.model.enums.CodeGenTypeEnum;
 import com.xy.app.model.vo.AppVO;
 import com.xy.app.service.AppService;
 import com.xy.common.ErrorCode;
@@ -54,8 +55,8 @@ public class GenerationServiceImpl implements GenerationService {
         this.fileManager = fileManager;
         this.modelProvider = modelProvider;
         this.executor = executor;
-        this.systemPrompts = Map.of("html", htmlPrompt.getContentAsString(StandardCharsets.UTF_8),
-                "multi_file", multiFilePrompt.getContentAsString(StandardCharsets.UTF_8));
+        this.systemPrompts = Map.of(CodeGenTypeEnum.HTML.getValue(), htmlPrompt.getContentAsString(StandardCharsets.UTF_8),
+                CodeGenTypeEnum.MULTI_FILE.getValue(), multiFilePrompt.getContentAsString(StandardCharsets.UTF_8));
         this.objectMapper = objectMapper;
         this.timeoutMillis = Math.multiplyExact(timeoutSeconds, 1000);
     }
@@ -116,7 +117,7 @@ public class GenerationServiceImpl implements GenerationService {
             return List.of(SystemMessage.from(systemPrompt), UserMessage.from(prompt));
         }
         List<String> history = persistence.loadSuccessfulPrompts(appId, loginUser.getId(), versionId);
-        String source = "multi_file".equals(app.getCodeGenType())
+        String source = CodeGenTypeEnum.MULTI_FILE.getValue().equals(app.getCodeGenType())
                 ? objectMapper.writeValueAsString(fileManager.readMultiFile(loginUser.getId(), appId, versionId))
                 : fileManager.readHtml(loginUser.getId(), appId, versionId);
         return List.of(SystemMessage.from(systemPrompt),

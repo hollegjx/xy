@@ -1,6 +1,7 @@
 package com.xy.app.service.impl;
 
 import com.xy.app.model.entity.App;
+import com.xy.app.model.enums.CodeGenTypeEnum;
 import com.xy.app.service.AppService;
 import com.xy.app.service.PreviewService;
 import com.xy.chat.mapper.ChatHistoryMapper;
@@ -44,11 +45,12 @@ public class PreviewServiceImpl implements PreviewService {
                 || !MessageStatusEnum.COMPLETED.getValue().equals(version.getStatus())) {
             throw new BusinessException(ErrorCode.OPERATION_ERROR, "应用没有可预览的成功版本");
         }
-        if (!"html".equals(app.getCodeGenType()) && !"multi_file".equals(app.getCodeGenType())) {
+        if (!CodeGenTypeEnum.HTML.getValue().equals(app.getCodeGenType())
+                && !CodeGenTypeEnum.MULTI_FILE.getValue().equals(app.getCodeGenType())) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "当前预览仅支持 html 或 multi_file 模式");
         }
         try {
-            return "multi_file".equals(app.getCodeGenType())
+            return CodeGenTypeEnum.MULTI_FILE.getValue().equals(app.getCodeGenType())
                     ? fileManager.readMultiFilePreview(app.getUserId(), appId, versionId)
                     : fileManager.readHtml(app.getUserId(), appId, versionId);
         } catch (NoSuchFileException error) {

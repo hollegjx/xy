@@ -251,6 +251,10 @@
 
 - 四种状态定义在 chat 的 MessageStatusEnum，消息落库、SSE 状态输出及成功版本判断共用；状态属于消息记录，用户消息直接为 completed，AI 消息按生成结果流转。
 
+## 2026-11-15：生成模式枚举迁移
+
+- 提示词选择、历史源码读取、产物保存、预览和源码下载统一使用 CodeGenTypeEnum，避免模式判断散落字符串；沿用 html / multi_file 的接口与存储值。
+
 ## 第三方文件与依赖来源
 
 - [jsoup 1.24.1 官方发布说明](https://jsoup.org/news/release-1.24.1)：用 HTML 解析器定位和替换 CSS/JS 引用，避免用正则改写 HTML 标签。

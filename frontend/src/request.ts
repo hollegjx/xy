@@ -65,6 +65,33 @@ export async function requestHtml(url: string): Promise<string> {
   return data
 }
 
+export async function requestZip(url: string): Promise<Blob> {
+  const { data, headers, status } = await sendRequest<unknown>(url, {
+    responseType: 'arraybuffer',
+    headers: { Accept: 'application/zip, application/json' },
+    transformResponse: [
+      (body: ArrayBuffer, responseHeaders) => {
+        // 下载失败仍返回 JSON，先解码，交给已有的错误处理保留业务码和提示。
+        if (!String(responseHeaders['content-type']).includes('application/json')) return body
+        try {
+          return JSON.parse(new TextDecoder().decode(body)) as unknown
+        } catch {
+          return null
+        }
+      },
+    ],
+  })
+  if (isApiResponse(data)) throw new ApiError(data.message || '下载失败，请重试', data.code, status)
+  if (
+    !(data instanceof ArrayBuffer) ||
+    data.byteLength === 0 ||
+    !String(headers['content-type']).includes('application/zip')
+  ) {
+    throw new ApiError('源码返回格式不正确，请稍后重试')
+  }
+  return new Blob([data], { type: 'application/zip' })
+}
+
 export function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : '请求失败，请稍后重试'
 }

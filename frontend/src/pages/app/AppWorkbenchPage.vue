@@ -7,12 +7,13 @@ import {
   RadioButton as ARadioButton,
   RadioGroup as ARadioGroup,
   Skeleton as ASkeleton,
+  message,
 } from 'ant-design-vue'
 import PageHeading from '@/components/PageHeading.vue'
 import ChatHistoryPanel from '@/pages/app/components/ChatHistoryPanel.vue'
 import AppPreviewPanel from '@/pages/app/components/AppPreviewPanel.vue'
 import { ApiError, errorMessage } from '@/request'
-import { getApp } from '@/service/api/app'
+import { getApp, getAppSource } from '@/service/api/app'
 import { useLoginUserStore } from '@/stores/useLoginUserStore'
 import { useAppDraftStore } from '@/stores/useAppDraftStore'
 import type { AppVO } from '@/types/api'
@@ -26,6 +27,8 @@ const error = ref('')
 const panel = ref('prompt')
 const autoGenerate = ref(false)
 const previewVersion = ref<string | null>(null)
+const downloading = ref(false)
+const downloadError = ref('')
 let revision = 0
 
 async function load(): Promise<void> {
@@ -36,6 +39,8 @@ async function load(): Promise<void> {
   app.value = null
   loading.value = true
   error.value = ''
+  downloading.value = false
+  downloadError.value = ''
   try {
     const result = await getApp(id)
     if (currentRevision === revision) app.value = result
@@ -48,6 +53,34 @@ async function load(): Promise<void> {
     }
   } finally {
     if (currentRevision === revision) loading.value = false
+  }
+}
+
+async function downloadSource(): Promise<void> {
+  if (!app.value || downloading.value || loginUserStore.authAction !== null) return
+  const id = app.value.id
+  const currentRevision = revision
+  downloading.value = true
+  downloadError.value = ''
+  try {
+    const source = await getAppSource(id)
+    if (currentRevision !== revision) return
+    const url = globalThis.URL.createObjectURL(source)
+    const link = globalThis.document.createElement('a')
+    link.href = url
+    link.download = `xy-app-${id}.zip`
+    globalThis.document.body.append(link)
+    link.click()
+    link.remove()
+    // 给浏览器处理下载的时间，再释放临时文件地址。
+    globalThis.setTimeout(() => globalThis.URL.revokeObjectURL(url), 1000)
+    void message.success('已开始下载')
+  } catch (cause) {
+    if (currentRevision !== revision) return
+    if (cause instanceof ApiError && cause.code === 40100) loginUserStore.setUser(null)
+    else downloadError.value = errorMessage(cause)
+  } finally {
+    if (currentRevision === revision) downloading.value = false
   }
 }
 
@@ -73,6 +106,26 @@ onBeforeUnmount(() => {
       <template #action><AButton @click="load">重试</AButton></template>
     </AAlert>
     <template v-else-if="app">
+      <div class="source-actions" role="region" aria-label="应用源码">
+        <div class="source-download">
+          <AButton
+            :loading="downloading"
+            :disabled="downloading || loginUserStore.authAction !== null"
+            @click="downloadSource"
+          >
+            {{ downloading ? '下载中' : downloadError ? '重试下载' : '下载源码' }}
+          </AButton>
+          <span class="source-hint">下载最近成功版本的源码 ZIP。</span>
+        </div>
+        <AAlert
+          v-if="downloadError"
+          type="error"
+          message="源码下载失败"
+          :description="downloadError"
+          show-icon
+          role="alert"
+        />
+      </div>
       <ARadioGroup v-model:value="panel" class="panel-switch" aria-label="工作台视图">
         <ARadioButton value="prompt">应用需求</ARadioButton>
         <ARadioButton value="preview">网站预览</ARadioButton>
@@ -119,6 +172,22 @@ onBeforeUnmount(() => {
   margin-bottom: 24px;
   color: var(--accent);
   text-underline-offset: 4px;
+}
+.source-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: 24px;
+}
+.source-download {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.source-hint {
+  color: var(--muted);
+  font-size: 12px;
 }
 .workspace {
   display: grid;

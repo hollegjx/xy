@@ -1,7 +1,7 @@
 import { AxiosError } from 'axios'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import request, { httpClient, requestHtml, requestStream } from '@/request'
-import { hasAppPreview } from '@/service/api/app'
+import { getAppSource, hasAppPreview } from '@/service/api/app'
 import { getAppMessages } from '@/service/api/chat'
 import { generateApp } from '@/service/api/generation'
 import type { GenerationEventVO } from '@/types/api'
@@ -10,6 +10,63 @@ const originalAdapter = httpClient.defaults.adapter
 afterEach(() => {
   httpClient.defaults.adapter = originalAdapter
   vi.unstubAllGlobals()
+})
+
+describe('源码下载', () => {
+  it('携带凭证请求字符串应用 ID，并完整保留下载字节', async () => {
+    const bytes = new Uint8Array([80, 75, 3, 4, 0, 255]).buffer
+    httpClient.defaults.adapter = async (config) => {
+      expect(config.url).toBe('/api/apps/9007199254740993/source')
+      expect(config.withCredentials).toBe(true)
+      expect(config.responseType).toBe('arraybuffer')
+      return {
+        data: bytes,
+        status: 200,
+        statusText: 'OK',
+        headers: { 'content-type': 'application/zip' },
+        config,
+      }
+    }
+    const source = await getAppSource('9007199254740993')
+    expect(source.type).toBe('application/zip')
+    expect(await source.arrayBuffer()).toEqual(bytes)
+  })
+
+  it.each([
+    [401, 40100, '请先登录'],
+    [403, 40300, '无权访问该应用'],
+    [409, 50001, '应用还没有成功生成的版本'],
+  ])('下载 HTTP %s 时解码 JSON 并保留业务错误', async (status, code, message) => {
+    httpClient.defaults.adapter = async (config) => {
+      throw new AxiosError('download error', AxiosError.ERR_BAD_RESPONSE, config, undefined, {
+        data: new TextEncoder().encode(JSON.stringify({ code, data: null, message })).buffer,
+        status: Number(status),
+        statusText: 'Error',
+        headers: { 'content-type': 'application/json' },
+        config,
+      })
+    }
+    await expect(getAppSource('55')).rejects.toMatchObject({ status, code, message })
+  })
+
+  it('拒绝将 JSON 业务错误或 HTML 页面保存为 ZIP', async () => {
+    for (const contentType of ['application/json', 'text/html']) {
+      const body =
+        contentType === 'application/json'
+          ? JSON.stringify({ code: 50001, data: null, message: '源码暂时不可用' })
+          : '<html>代理错误页面</html>'
+      httpClient.defaults.adapter = async (config) => ({
+        data: new TextEncoder().encode(body).buffer,
+        status: 200,
+        statusText: 'OK',
+        headers: { 'content-type': contentType },
+        config,
+      })
+      await expect(getAppSource('55')).rejects.toThrow(
+        contentType === 'application/json' ? '源码暂时不可用' : '源码返回格式不正确',
+      )
+    }
+  })
 })
 
 describe('生成请求', () => {

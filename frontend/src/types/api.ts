@@ -34,6 +34,10 @@ export interface AppAddRequest {
   codeGenType?: CodeGenType
 }
 
+export interface AppUpdateRequest {
+  appName: string
+}
+
 export interface AppVO {
   id: string
   userId: string

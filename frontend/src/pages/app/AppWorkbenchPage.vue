@@ -12,6 +12,7 @@ import {
 import PageHeading from '@/components/PageHeading.vue'
 import ChatHistoryPanel from '@/pages/app/components/ChatHistoryPanel.vue'
 import AppPreviewPanel from '@/pages/app/components/AppPreviewPanel.vue'
+import AppRenameModal from '@/pages/app/components/AppRenameModal.vue'
 import { ApiError, errorMessage } from '@/request'
 import { deployApp, getApp, getAppSource } from '@/service/api/app'
 import { useLoginUserStore } from '@/stores/useLoginUserStore'
@@ -24,6 +25,7 @@ const draftStore = useAppDraftStore()
 const app = ref<AppVO | null>(null)
 const loading = ref(false)
 const error = ref('')
+const renameOpen = ref(false)
 const panel = ref('prompt')
 const autoGenerate = ref(false)
 const previewVersion = ref<string | null>(null)
@@ -43,6 +45,7 @@ async function load(): Promise<void> {
   app.value = null
   loading.value = true
   error.value = ''
+  renameOpen.value = false
   downloading.value = false
   downloadError.value = ''
   publishing.value = false
@@ -62,6 +65,11 @@ async function load(): Promise<void> {
   } finally {
     if (currentRevision === revision) loading.value = false
   }
+}
+
+function handleRenamed(appName: string): void {
+  if (app.value) app.value.appName = appName
+  renameOpen.value = false
 }
 
 async function downloadSource(): Promise<void> {
@@ -137,7 +145,16 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="workbench">
-    <RouterLink to="/" class="back-link">返回首页</RouterLink>
+    <div class="workbench-navigation">
+      <RouterLink to="/" class="back-link">返回首页</RouterLink>
+      <AButton
+        v-if="app && !loading && !error"
+        :disabled="loginUserStore.authAction !== null"
+        @click="renameOpen = true"
+      >
+        修改名称
+      </AButton>
+    </div>
     <PageHeading :title="app?.appName ?? '应用工作台'" description="生成、预览并分享你的应用。" />
     <ASkeleton v-if="loading" active :paragraph="{ rows: 6 }" aria-label="正在读取应用" />
     <AAlert
@@ -151,6 +168,13 @@ onBeforeUnmount(() => {
       <template #action><AButton @click="load">重试</AButton></template>
     </AAlert>
     <template v-else-if="app">
+      <AppRenameModal
+        :key="app.id"
+        :open="renameOpen"
+        :app="app"
+        @close="renameOpen = false"
+        @saved="handleRenamed"
+      />
       <div class="source-actions" role="region" aria-label="发布与下载">
         <div class="delivery-heading">
           <div>
@@ -256,9 +280,15 @@ onBeforeUnmount(() => {
 .workbench {
   overflow-wrap: anywhere;
 }
-.back-link {
-  display: inline-block;
+.workbench-navigation {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
   margin-bottom: 24px;
+}
+.back-link {
   color: var(--accent);
   text-underline-offset: 4px;
 }

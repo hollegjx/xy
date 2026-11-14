@@ -1,11 +1,21 @@
 import request, { ApiError, requestHtml, requestZip } from '@/request'
-import type { AppAddRequest, AppDeployVO, AppPageVO, AppQueryRequest, AppVO } from '@/types/api'
+import type {
+  AppAddRequest,
+  AppDeployVO,
+  AppPageVO,
+  AppQueryRequest,
+  AppUpdateRequest,
+  AppVO,
+} from '@/types/api'
 
 export const createApp = (data: AppAddRequest): Promise<string> =>
   request<string>('/api/apps', { method: 'POST', data })
 
 export const getApp = (id: string): Promise<AppVO> =>
   request<AppVO>(`/api/apps/${encodeURIComponent(id)}`)
+
+export const updateApp = (id: string, data: AppUpdateRequest): Promise<boolean> =>
+  request<boolean>(`/api/apps/${encodeURIComponent(id)}`, { method: 'PATCH', data })
 
 export const listMyApps = (params: AppQueryRequest): Promise<AppPageVO> =>
   request<AppPageVO>('/api/apps/mine', { params })

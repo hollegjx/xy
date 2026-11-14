@@ -8,6 +8,7 @@ import com.xy.user.mapper.UserMapper;
 import com.xy.user.model.dto.UserLoginRequest;
 import com.xy.user.model.dto.UserRegisterRequest;
 import com.xy.user.model.entity.User;
+import com.xy.user.model.enums.UserRoleEnum;
 import com.xy.user.model.vo.UserVO;
 import com.xy.user.service.UserService;
 import jakarta.servlet.http.HttpServletRequest;
@@ -37,7 +38,7 @@ public class UserServiceImpl implements UserService {
         user.setUserAccount(request.userAccount());
         user.setUserPassword(passwordEncoder.encode(request.userPassword()));
         user.setUserName(request.userAccount());
-        user.setUserRole("user");
+        user.setUserRole(UserRoleEnum.USER.getValue());
 
         try {
             if (userMapper.insert(user) != 1) {

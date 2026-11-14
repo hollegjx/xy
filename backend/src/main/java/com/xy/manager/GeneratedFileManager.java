@@ -110,7 +110,7 @@ public class GeneratedFileManager {
     }
 
     public void publishHtml(Path publishRoot, String deployKey, String html) throws IOException {
-        Path directory = publicationDirectory(publishRoot, deployKey);
+        Path directory = publicationDirectory(publishRoot, deployKey, true);
         Path temporary = directory.resolve(".publish-" + UUID.randomUUID() + ".tmp");
         try {
             Files.writeString(temporary, html, StandardCharsets.UTF_8,
@@ -123,7 +123,16 @@ public class GeneratedFileManager {
         }
     }
 
-    private Path publicationDirectory(Path publishRoot, String deployKey) throws IOException {
+    public void removePublishedHtml(Path publishRoot, String deployKey) throws IOException {
+        Path file = publicationDirectory(publishRoot, deployKey, false).resolve("index.html");
+        if (!Files.notExists(file, LinkOption.NOFOLLOW_LINKS)
+                && !Files.isRegularFile(file, LinkOption.NOFOLLOW_LINKS)) {
+            throw new IOException("发布入口不是普通文件");
+        }
+        Files.deleteIfExists(file);
+    }
+
+    private Path publicationDirectory(Path publishRoot, String deployKey, boolean create) throws IOException {
         if (deployKey == null || !deployKey.matches("[a-f0-9]{32}")) {
             throw new IOException("无效的发布标识");
         }
@@ -131,19 +140,29 @@ public class GeneratedFileManager {
         if (requestedRoot.startsWith(root) || root.startsWith(requestedRoot)) {
             throw new IOException("发布目录不能与私有生成目录重叠");
         }
-        Files.createDirectories(requestedRoot);
-        Path publicDirectory = requestedRoot.toRealPath();
-        Path generatedDirectory = root.toRealPath();
+        if (create) Files.createDirectories(requestedRoot);
+        Path publicDirectory;
+        try {
+            publicDirectory = requestedRoot.toRealPath();
+        } catch (NoSuchFileException missing) {
+            if (create) throw missing;
+            return requestedRoot.resolve(deployKey);
+        }
+        Path generatedDirectory = create || !Files.notExists(root) ? root.toRealPath() : root;
         if (publicDirectory.startsWith(generatedDirectory) || generatedDirectory.startsWith(publicDirectory)) {
             throw new IOException("发布目录不能与私有生成目录重叠");
         }
         Path directory = publicDirectory.resolve(deployKey);
-        try {
-            Files.createDirectory(directory);
-        } catch (FileAlreadyExistsException existing) {
-            // 重新发布复用此目录，随后验证它不是链接或普通文件。
+        if (create) {
+            try {
+                Files.createDirectory(directory);
+            } catch (FileAlreadyExistsException existing) {
+                // 重新发布复用此目录，随后验证它不是链接或普通文件。
+            }
         }
-        if (Files.isSymbolicLink(directory) || !Files.isDirectory(directory, LinkOption.NOFOLLOW_LINKS)
+        if (Files.isSymbolicLink(directory)
+                || (!Files.notExists(directory, LinkOption.NOFOLLOW_LINKS)
+                    && !Files.isDirectory(directory, LinkOption.NOFOLLOW_LINKS))
                 || Files.isSymbolicLink(directory.resolve("index.html"))) {
             throw new IOException("发布目录或文件不可使用符号链接");
         }

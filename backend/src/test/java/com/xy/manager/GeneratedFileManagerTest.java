@@ -147,6 +147,21 @@ class GeneratedFileManagerTest {
     }
 
     @Test
+    void removingAMissingPublicationDoesNotCreateDirectories() throws Exception {
+        Path generated = directory.resolve("generated");
+        Path published = directory.resolve("published");
+        GeneratedFileManager manager = new GeneratedFileManager(generated);
+        manager.removePublishedHtml(published, "a".repeat(32));
+        assertThat(generated).doesNotExist();
+        assertThat(published).doesNotExist();
+
+        Files.createDirectory(published);
+        manager.removePublishedHtml(published, "a".repeat(32));
+        assertThat(published.resolve("a".repeat(32))).doesNotExist();
+        assertThat(generated).doesNotExist();
+    }
+
+    @Test
     void publishingRejectsOverlappingPrivateDirectoriesAndLinkedPublicEntries() throws Exception {
         Path generated = Files.createDirectory(directory.resolve("generated"));
         Path published = Files.createDirectory(directory.resolve("published"));

@@ -23,6 +23,7 @@ import org.springframework.http.ContentDisposition;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.ModelAttribute;
 import org.springframework.web.bind.annotation.PatchMapping;
@@ -81,6 +82,16 @@ public class AppController {
             @Positive @PathVariable long id, @Valid @RequestBody AppUpdateRequest request,
             HttpServletRequest servletRequest) {
         return ApiResponse.success(appService.updateApp(id, request, userService.getLoginUser(servletRequest)));
+    }
+
+    @Operation(summary = "删除应用", description = "仅创建者可删除，管理员不能删除他人的应用；无需请求体。"
+            + "先移除已发布页面，再逻辑删除应用，成功返回 true。"
+            + "删除后应用不再出现在列表中，详情、对话、预览和源码不可访问；不存在或已删除返回 404。")
+    @DeleteMapping("/{id}")
+    public ApiResponse<Boolean> deleteApp(
+            @Parameter(description = "应用 ID，必须大于 0", example = "55")
+            @Positive @PathVariable long id, HttpServletRequest servletRequest) {
+        return ApiResponse.success(appService.deleteApp(id, userService.getLoginUser(servletRequest)));
     }
 
     @Operation(summary = "发布应用", description = "仅创建者可发布最近成功版本，无需请求体。"

@@ -93,6 +93,24 @@ public class AppServiceImpl implements AppService {
     }
 
     @Override
+    public boolean deleteApp(long id, User loginUser) {
+        App app = getOwnedApp(id, loginUser);
+        if (app.getDeployKey() != null) {
+            try {
+                // 先关闭公开入口；移除失败时保留应用，创建者可以再次删除。
+                fileManager.removePublishedHtml(deployment.directory(), app.getDeployKey());
+            } catch (IOException error) {
+                log.error("应用 {} 发布页面移除失败，异常类型 {}", id, error.getClass().getSimpleName());
+                throw new BusinessException(ErrorCode.SYSTEM_ERROR, "移除发布页面失败，应用尚未删除，请重试");
+            }
+        }
+        if (appMapper.markDeleted(id, loginUser.getId()) != 1) {
+            throw new BusinessException(ErrorCode.SYSTEM_ERROR, "应用删除失败，请重试");
+        }
+        return true;
+    }
+
+    @Override
     public App getOwnedApp(long id, User loginUser) {
         App app = appMapper.selectOneById(id);
         if (app == null) {

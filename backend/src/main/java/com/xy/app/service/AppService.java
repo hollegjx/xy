@@ -19,6 +19,8 @@ public interface AppService {
 
     boolean updateApp(long id, AppUpdateRequest request, User loginUser);
 
+    boolean deleteApp(long id, User loginUser);
+
     App getOwnedApp(long id, User loginUser);
 
     byte[] downloadSource(long id, User loginUser);

@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.xy.app.model.entity.App;
 import com.xy.app.model.vo.AppVO;
 import com.xy.app.service.AppService;
+import com.xy.common.ErrorCode;
 import com.xy.exception.BusinessException;
 import com.xy.generation.model.dto.GenerationRequest;
 import com.xy.generation.service.GenerationService;
@@ -24,7 +25,6 @@ import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.Resource;
-import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
@@ -65,17 +65,17 @@ public class GenerationServiceImpl implements GenerationService {
         AppVO app = appService.getAppById(appId, loginUser);
         String systemPrompt = systemPrompts.get(app.codeGenType());
         if (systemPrompt == null) {
-            throw new BusinessException(HttpStatus.BAD_REQUEST, 40000, "当前生成仅支持 html 或 multi_file 模式");
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "当前生成仅支持 html 或 multi_file 模式");
         }
         StreamingChatModel model = modelProvider.getIfAvailable();
         if (model == null) {
-            throw new BusinessException(HttpStatus.SERVICE_UNAVAILABLE, 50001, "请先配置并启用模型服务");
+            throw new BusinessException(ErrorCode.SERVICE_UNAVAILABLE, "请先配置并启用模型服务");
         }
         persistence.recoverInterruptedGenerations();
         SseEmitter emitter = new SseEmitter(timeoutMillis);
         GenerationSession session = runningSessions.compute(appId, (id, current) -> {
             if (current != null) {
-                throw new BusinessException(HttpStatus.CONFLICT, 50001, "该应用正在生成，请等待本次结束");
+                throw new BusinessException(ErrorCode.OPERATION_ERROR, "该应用正在生成，请等待本次结束");
             }
             long generationId = persistence.start(appId, loginUser.getId(), request.prompt());
             return new GenerationSession(appId, loginUser.getId(), generationId,
@@ -131,7 +131,7 @@ public class GenerationServiceImpl implements GenerationService {
         persistence.recoverInterruptedGenerations();
         GenerationSession session = runningSessions.get(appId);
         if (session == null || session.getGenerationId() != generationId) {
-            throw new BusinessException(HttpStatus.CONFLICT, 50001, "该生成不在运行中，请刷新消息状态");
+            throw new BusinessException(ErrorCode.OPERATION_ERROR, "该生成不在运行中，请刷新消息状态");
         }
         session.cancel();
     }

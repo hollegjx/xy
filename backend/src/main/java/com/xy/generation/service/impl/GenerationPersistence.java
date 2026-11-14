@@ -4,12 +4,12 @@ import com.mybatisflex.core.query.QueryWrapper;
 import com.xy.app.mapper.AppMapper;
 import com.xy.chat.mapper.ChatHistoryMapper;
 import com.xy.chat.model.entity.ChatHistory;
+import com.xy.common.ErrorCode;
 import com.xy.exception.BusinessException;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -57,7 +57,7 @@ public class GenerationPersistence {
         if (recent.isEmpty() || recent.getFirst().getId() != versionId
                 || !"assistant".equals(recent.getFirst().getMessageRole())
                 || !"completed".equals(recent.getFirst().getStatus())) {
-            throw new BusinessException(HttpStatus.CONFLICT, 50001, "应用成功版本记录不可用");
+            throw new BusinessException(ErrorCode.OPERATION_ERROR, "应用成功版本记录不可用");
         }
         List<String> prompts = new ArrayList<>();
         // 同一应用串行生成，每轮事务内先存用户消息再存 AI 消息；不假定自增 ID 连续。
@@ -119,7 +119,7 @@ public class GenerationPersistence {
 
     private void checkSaved(int rows) {
         if (rows != 1) {
-            throw new BusinessException(HttpStatus.INTERNAL_SERVER_ERROR, 50001, "保存生成记录失败");
+            throw new BusinessException(ErrorCode.SYSTEM_ERROR, "保存生成记录失败");
         }
     }
 }

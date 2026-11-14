@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.ObjectReader;
+import com.xy.common.ErrorCode;
 import com.xy.exception.BusinessException;
 import com.xy.generation.model.vo.GenerationEventVO;
 import com.xy.manager.GeneratedFileManager;
@@ -22,7 +23,6 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
@@ -83,7 +83,7 @@ final class GenerationSession implements StreamingChatResponseHandler {
 
     synchronized void cancel() {
         if (finished) {
-            throw new BusinessException(HttpStatus.CONFLICT, 50001, "该生成不在运行中，请刷新消息状态");
+            throw new BusinessException(ErrorCode.OPERATION_ERROR, "该生成不在运行中，请刷新消息状态");
         }
         // 与完成回调共用锁：取消先保存成功才能报告成功；保存失败时保留任务，允许重试。
         persistence.cancel(generationId, content.toString());

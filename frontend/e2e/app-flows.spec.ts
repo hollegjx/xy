@@ -55,6 +55,14 @@ for (const codeGenType of ['html', 'multi_file']) {
         } else if (path === '/api/users/login') {
           signedIn = true
           await route.fulfill({ json: { code: 0, data: user, message: 'ok' } })
+        } else if (path === '/api/apps/mine') {
+          await route.fulfill({
+            json: {
+              code: 0,
+              data: { records: [], total: 0, current: 1, pageSize: 10 },
+              message: 'ok',
+            },
+          })
         } else if (path === '/api/apps') {
           expect(signedIn).toBe(true)
           expect(request.method()).toBe('POST')
@@ -244,6 +252,14 @@ test('单 HTML 创建失败保留输入，重试期间阻止重复提交，详�
       const path = new URL(route.request().url()).pathname
       if (path === '/api/users/me') {
         await route.fulfill({ json: { code: 0, data: user, message: 'ok' } })
+      } else if (path === '/api/apps/mine') {
+        await route.fulfill({
+          json: {
+            code: 0,
+            data: { records: [], total: 0, current: 1, pageSize: 10 },
+            message: 'ok',
+          },
+        })
       } else if (path === '/api/apps') {
         expect(route.request().postDataJSON()).toEqual({
           initPrompt: app.initPrompt,

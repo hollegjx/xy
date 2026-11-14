@@ -51,6 +51,19 @@ export interface AppDeployVO {
   deployedAt: string
 }
 
+export interface AppQueryRequest {
+  appName?: string
+  current: number
+  pageSize: number
+}
+
+export interface AppPageVO {
+  records: AppVO[]
+  total: number
+  current: number
+  pageSize: number
+}
+
 export type GenerationStatus = 'running' | 'completed' | 'failed' | 'cancelled'
 
 export interface GenerationEventVO {

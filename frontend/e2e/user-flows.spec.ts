@@ -47,6 +47,14 @@ test('注册后登录并刷新恢复账号，退出期间禁止重新登录', as
         // 服务端已退出，但响应仍在途中。
         await logoutResponse
         await route.fulfill({ json: { code: 0, data: true, message: 'ok' } })
+      } else if (path === '/api/apps/mine') {
+        await route.fulfill({
+          json: {
+            code: 0,
+            data: { records: [], total: 0, current: 1, pageSize: 10 },
+            message: 'ok',
+          },
+        })
       } else if (path === '/api/health') {
         await route.fulfill({
           json: { code: 0, data: { status: 'UP', database: 'xy_e2e' }, message: 'ok' },

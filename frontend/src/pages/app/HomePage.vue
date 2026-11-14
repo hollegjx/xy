@@ -11,6 +11,7 @@ import {
   Textarea as ATextarea,
 } from 'ant-design-vue'
 import { ApiError, errorMessage } from '@/request'
+import MyAppsPanel from '@/pages/app/components/MyAppsPanel.vue'
 import { createApp } from '@/service/api/app'
 import { useAppDraftStore } from '@/stores/useAppDraftStore'
 import { useLoginUserStore } from '@/stores/useLoginUserStore'
@@ -74,6 +75,7 @@ onBeforeUnmount(() => {
       <p class="introduction">描述你想做的网站，为它创建一个专属工作台。</p>
     </header>
     <AForm
+      id="create-app"
       class="creation-form"
       name="create-app"
       :model="form"
@@ -133,6 +135,10 @@ onBeforeUnmount(() => {
         登录后即可创建，已填写的需求会在登录跳转时保留。
       </p>
     </AForm>
+    <MyAppsPanel
+      v-if="loginUserStore.status === 'ready' && loginUserStore.user"
+      :key="loginUserStore.user.id"
+    />
   </section>
 </template>
 

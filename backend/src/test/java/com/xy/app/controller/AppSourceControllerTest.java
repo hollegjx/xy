@@ -130,7 +130,8 @@ class AppSourceControllerTest {
     @Test
     void requiresASuccessfulAssistantVersionBelongingToTheAppAndOwner() throws Exception {
         app.setGeneratedVersion(null);
-        mockMvc.perform(source().session(session())).andExpect(status().isConflict());
+        mockMvc.perform(source().session(session())).andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value(50001));
         app.setGeneratedVersion(101L);
         when(messages.selectOneById(101L)).thenReturn(null);
         mockMvc.perform(source().session(session())).andExpect(status().isConflict());
@@ -159,11 +160,13 @@ class AppSourceControllerTest {
         Files.delete(css);
         mockMvc.perform(source().session(session())).andExpect(status().isNotFound())
                 .andExpect(content().contentType("application/json"))
+                .andExpect(jsonPath("$.code").value(40400))
                 .andExpect(jsonPath("$.message").value("生成文件不存在，请重新生成"));
         Path outside = Files.writeString(directory.resolve("unrelated.css"), "其他文件");
         Files.createSymbolicLink(css, outside);
         mockMvc.perform(source().session(session())).andExpect(status().isInternalServerError())
                 .andExpect(content().contentType("application/json"))
+                .andExpect(jsonPath("$.code").value(50000))
                 .andExpect(jsonPath("$.message").value("读取源码失败，请检查生成文件"));
     }
 

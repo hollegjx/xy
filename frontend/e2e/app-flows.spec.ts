@@ -391,7 +391,7 @@ test('工作台逐段生成，停止或失败保留成功预览，预览读取�
         if (previewError) {
           await route.fulfill({
             status: 500,
-            json: { code: 50001, data: null, message: '预览读取失败，请重试' },
+            json: { code: 50000, data: null, message: '预览读取失败，请重试' },
           })
         } else if (records.length === 0) {
           await route.fulfill({

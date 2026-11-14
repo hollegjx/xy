@@ -138,7 +138,13 @@ class PreviewControllerTest {
         writeBrowserFixture(response, "preview-multi-file-browser-fixture.json");
         Files.delete(directory.resolve("42/55/201/style.css"));
         mockMvc.perform(preview().session(session())).andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value(40400))
                 .andExpect(jsonPath("$.message").value("生成文件不存在，请重新生成"));
+        Path outside = Files.writeString(directory.resolve("unrelated.css"), "其他文件");
+        Files.createSymbolicLink(directory.resolve("42/55/201/style.css"), outside);
+        mockMvc.perform(preview().session(session())).andExpect(status().isInternalServerError())
+                .andExpect(jsonPath("$.code").value(50000))
+                .andExpect(jsonPath("$.message").value("读取预览失败，请检查生成文件"));
     }
 
     @Test
@@ -156,7 +162,8 @@ class PreviewControllerTest {
     @Test
     void rejectsMissingUnsuccessfulOrMismatchedVersionsAndReportsMissingFiles() throws Exception {
         app.setGeneratedVersion(null);
-        mockMvc.perform(preview().session(session())).andExpect(status().isConflict());
+        mockMvc.perform(preview().session(session())).andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value(50001));
         app.setGeneratedVersion(101L);
         for (String state : List.of("running", "failed", "cancelled")) {
             version.setStatus(state);

@@ -37,7 +37,7 @@ export async function hasAppPreview(id: string): Promise<boolean> {
     await requestHtml(getAppPreviewUrl(id))
     return true
   } catch (cause) {
-    if (cause instanceof ApiError && cause.status === 409) return false
+    if (cause instanceof ApiError && cause.code === 50001) return false
     throw cause
   }
 }

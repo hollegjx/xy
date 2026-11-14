@@ -25,7 +25,6 @@ import java.time.LocalDateTime;
 import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 
 @Service
@@ -58,7 +57,7 @@ public class AppServiceImpl implements AppService {
         app.setInitPrompt(prompt);
         app.setCodeGenType(codeGenType.getValue());
         if (appMapper.insert(app) != 1) {
-            throw new BusinessException(HttpStatus.INTERNAL_SERVER_ERROR, 50001, "创建应用失败，请稍后重试");
+            throw new BusinessException(ErrorCode.SYSTEM_ERROR, "创建应用失败，请稍后重试");
         }
         return app.getId();
     }
@@ -114,10 +113,10 @@ public class AppServiceImpl implements AppService {
     public App getOwnedApp(long id, User loginUser) {
         App app = appMapper.selectOneById(id);
         if (app == null) {
-            throw new BusinessException(HttpStatus.NOT_FOUND, 40400, "应用不存在");
+            throw new BusinessException(ErrorCode.NOT_FOUND_ERROR, "应用不存在");
         }
         if (!app.getUserId().equals(loginUser.getId())) {
-            throw new BusinessException(HttpStatus.FORBIDDEN, 40300, "无权访问该应用");
+            throw new BusinessException(ErrorCode.NO_AUTH_ERROR, "无权访问该应用");
         }
         return app;
     }
@@ -129,10 +128,10 @@ public class AppServiceImpl implements AppService {
         try {
             return fileManager.readSourceZip(app.getUserId(), id, versionId, "multi_file".equals(app.getCodeGenType()));
         } catch (NoSuchFileException error) {
-            throw new BusinessException(HttpStatus.NOT_FOUND, 40400, "生成文件不存在，请重新生成");
+            throw new BusinessException(ErrorCode.NOT_FOUND_ERROR, "生成文件不存在，请重新生成");
         } catch (IOException error) {
             log.error("应用 {} 版本 {} 源码下载失败，异常类型 {}", id, versionId, error.getClass().getSimpleName());
-            throw new BusinessException(HttpStatus.INTERNAL_SERVER_ERROR, 50001, "读取源码失败，请检查生成文件");
+            throw new BusinessException(ErrorCode.SYSTEM_ERROR, "读取源码失败，请检查生成文件");
         }
     }
 
@@ -169,15 +168,15 @@ public class AppServiceImpl implements AppService {
     private long getSuccessfulVersion(App app) {
         Long versionId = app.getGeneratedVersion();
         if (versionId == null) {
-            throw new BusinessException(HttpStatus.CONFLICT, 50001, "应用还没有成功生成的版本");
+            throw new BusinessException(ErrorCode.OPERATION_ERROR, "应用还没有成功生成的版本");
         }
         ChatHistory version = chatHistoryMapper.selectOneById(versionId);
         if (version == null || !app.getId().equals(version.getAppId()) || !app.getUserId().equals(version.getUserId())
                 || !"assistant".equals(version.getMessageRole()) || !"completed".equals(version.getStatus())) {
-            throw new BusinessException(HttpStatus.CONFLICT, 50001, "应用没有可交付的成功版本");
+            throw new BusinessException(ErrorCode.OPERATION_ERROR, "应用没有可交付的成功版本");
         }
         if (!"html".equals(app.getCodeGenType()) && !"multi_file".equals(app.getCodeGenType())) {
-            throw new BusinessException(HttpStatus.BAD_REQUEST, 40000, "当前交付仅支持 html 或 multi_file 模式");
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "当前交付仅支持 html 或 multi_file 模式");
         }
         return versionId;
     }

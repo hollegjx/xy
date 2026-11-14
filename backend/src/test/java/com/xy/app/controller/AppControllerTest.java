@@ -137,7 +137,7 @@ class AppControllerTest {
         mockMvc.perform(post("/api/apps").contextPath("/api").session(loggedInSession())
                         .contentType(MediaType.APPLICATION_JSON).content("{\"initPrompt\":\"博客\"}"))
                 .andExpect(status().isInternalServerError())
-                .andExpect(jsonPath("$.code").value(50001))
+                .andExpect(jsonPath("$.code").value(50000))
                 .andExpect(jsonPath("$.data").doesNotExist());
     }
 

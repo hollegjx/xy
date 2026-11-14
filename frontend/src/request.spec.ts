@@ -36,6 +36,7 @@ describe('源码下载', () => {
     [401, 40100, '请先登录'],
     [403, 40300, '无权访问该应用'],
     [409, 50001, '应用还没有成功生成的版本'],
+    [500, 50000, '读取源码失败，请检查生成文件'],
   ])('下载 HTTP %s 时解码 JSON 并保留业务错误', async (status, code, message) => {
     httpClient.defaults.adapter = async (config) => {
       throw new AxiosError('download error', AxiosError.ERR_BAD_RESPONSE, config, undefined, {
@@ -220,10 +221,13 @@ describe('请求客户端', () => {
     await expect(hasAppPreview('55')).rejects.toThrow('预览返回格式不正确')
   })
 
-  it.each([409, 500])('预览 HTTP %s 区分暂无成功版本和读取失败', async (status) => {
+  it.each([
+    [409, 50001],
+    [500, 50000],
+  ])('预览 HTTP %s 区分暂无成功版本和读取失败', async (status, code) => {
     httpClient.defaults.adapter = async (config) => {
       throw new AxiosError('preview error', AxiosError.ERR_BAD_RESPONSE, config, undefined, {
-        data: { code: 50001, data: null, message: '预览不可用' },
+        data: { code, data: null, message: '预览不可用' },
         status,
         statusText: 'Error',
         headers: {},
@@ -231,6 +235,6 @@ describe('请求客户端', () => {
       })
     }
     if (status === 409) await expect(hasAppPreview('55')).resolves.toBe(false)
-    else await expect(hasAppPreview('55')).rejects.toMatchObject({ status: 500, code: 50001 })
+    else await expect(hasAppPreview('55')).rejects.toMatchObject({ status: 500, code: 50000 })
   })
 })

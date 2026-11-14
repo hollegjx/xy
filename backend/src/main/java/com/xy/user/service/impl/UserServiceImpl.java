@@ -1,6 +1,7 @@
 package com.xy.user.service.impl;
 
 import com.mybatisflex.core.query.QueryWrapper;
+import com.xy.common.ErrorCode;
 import com.xy.common.UserConstant;
 import com.xy.exception.BusinessException;
 import com.xy.user.mapper.UserMapper;
@@ -12,7 +13,6 @@ import com.xy.user.service.UserService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpSession;
 import org.springframework.dao.DuplicateKeyException;
-import org.springframework.http.HttpStatus;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 
@@ -30,7 +30,7 @@ public class UserServiceImpl implements UserService {
     @Override
     public long register(UserRegisterRequest request) {
         if (!request.userPassword().equals(request.checkPassword())) {
-            throw new BusinessException(HttpStatus.BAD_REQUEST, 40000, "两次输入的密码不一致");
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "两次输入的密码不一致");
         }
 
         User user = new User();
@@ -41,10 +41,10 @@ public class UserServiceImpl implements UserService {
 
         try {
             if (userMapper.insert(user) != 1) {
-                throw new BusinessException(HttpStatus.INTERNAL_SERVER_ERROR, 50001, "注册失败，请稍后重试");
+                throw new BusinessException(ErrorCode.SYSTEM_ERROR, "注册失败，请稍后重试");
             }
         } catch (DuplicateKeyException exception) {
-            throw new BusinessException(HttpStatus.CONFLICT, 40000, "账号已存在");
+            throw new BusinessException(ErrorCode.OPERATION_ERROR, "账号已存在");
         }
         return user.getId();
     }
@@ -54,7 +54,7 @@ public class UserServiceImpl implements UserService {
         QueryWrapper query = QueryWrapper.create().eq(User::getUserAccount, request.userAccount());
         User user = userMapper.selectOneByQuery(query);
         if (user == null || !passwordEncoder.matches(request.userPassword(), user.getUserPassword())) {
-            throw new BusinessException(HttpStatus.BAD_REQUEST, 40000, "账号或密码错误");
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "账号或密码错误");
         }
 
         HttpSession session = servletRequest.getSession();
@@ -76,13 +76,13 @@ public class UserServiceImpl implements UserService {
         HttpSession session = request.getSession(false);
         Object loginUserId = session == null ? null : session.getAttribute(UserConstant.LOGIN_USER_ID);
         if (!(loginUserId instanceof Long userId)) {
-            throw new BusinessException(HttpStatus.UNAUTHORIZED, 40100, "请先登录");
+            throw new BusinessException(ErrorCode.NOT_LOGIN_ERROR, "请先登录");
         }
 
         User user = userMapper.selectOneById(userId);
         if (user == null) {
             session.removeAttribute(UserConstant.LOGIN_USER_ID);
-            throw new BusinessException(HttpStatus.UNAUTHORIZED, 40100, "请先登录");
+            throw new BusinessException(ErrorCode.NOT_LOGIN_ERROR, "请先登录");
         }
         return user;
     }

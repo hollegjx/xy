@@ -152,7 +152,7 @@ class UserControllerTest {
         mockMvc.perform(post("/api/users/register").contextPath("/api")
                         .contentType(MediaType.APPLICATION_JSON).content(body))
                 .andExpect(status().isConflict())
-                .andExpect(jsonPath("$.code").value(40000))
+                .andExpect(jsonPath("$.code").value(50001))
                 .andExpect(jsonPath("$.message").value("账号已存在"))
                 .andExpect(jsonPath("$.data").doesNotExist());
     }

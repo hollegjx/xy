@@ -26,7 +26,7 @@ public class UserController {
         this.userService = userService;
     }
 
-    @Operation(summary = "注册用户", description = "无需登录；两次密码须一致，账号不能重复。仅创建普通用户，返回字符串形式的用户 ID。")
+    @Operation(summary = "注册用户", description = "无需登录；两次密码须一致，账号重复时返回 HTTP 409 / 业务码 50001。仅创建普通用户，返回字符串形式的用户 ID。")
     @PostMapping("/register")
     public ApiResponse<String> register(@Valid @RequestBody UserRegisterRequest request) {
         return ApiResponse.success(Long.toString(userService.register(request)));

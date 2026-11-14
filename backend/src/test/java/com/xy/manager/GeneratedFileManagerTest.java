@@ -145,4 +145,18 @@ class GeneratedFileManagerTest {
                         .replace("</body>", "<script src=\"./script.js\"></script></body>"),
                 "style.css", "body { color: red; } /* </style> */", "script.js", "window.closingTag = '</script>';");
     }
+
+    @Test
+    void publishingRejectsOverlappingPrivateDirectoriesAndLinkedPublicEntries() throws Exception {
+        Path generated = Files.createDirectory(directory.resolve("generated"));
+        Path published = Files.createDirectory(directory.resolve("published"));
+        String key = "a".repeat(32);
+        GeneratedFileManager manager = new GeneratedFileManager(generated);
+        assertThatThrownBy(() -> manager.publishHtml(generated, key, HTML)).isInstanceOf(IOException.class);
+        assertThatThrownBy(() -> manager.publishHtml(directory, key, HTML)).isInstanceOf(IOException.class);
+        assertThatThrownBy(() -> manager.publishHtml(published, "../generated", HTML)).isInstanceOf(IOException.class);
+        Files.createSymbolicLink(published.resolve(key), generated);
+        assertThatThrownBy(() -> manager.publishHtml(published, key, HTML)).isInstanceOf(IOException.class);
+        assertThat(generated.resolve("index.html")).doesNotExist();
+    }
 }

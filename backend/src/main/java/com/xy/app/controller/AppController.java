@@ -1,6 +1,7 @@
 package com.xy.app.controller;
 
 import com.xy.app.model.dto.AppAddRequest;
+import com.xy.app.model.vo.AppDeployVO;
 import com.xy.app.model.vo.AppVO;
 import com.xy.app.service.AppService;
 import com.xy.common.ApiResponse;
@@ -46,13 +47,23 @@ public class AppController {
         return ApiResponse.success(Long.toString(appService.createApp(request, userService.getLoginUser(servletRequest))));
     }
 
-    @Operation(summary = "获取应用详情", description = "需要登录且为应用创建者；返回名称、初始需求、生成模式和时间。"
+    @Operation(summary = "获取应用详情", description = "需要登录且为应用创建者；返回名称、初始需求、生成模式、时间和发布信息。"
             + "其他账号（包括管理员）返回 HTTP 403，应用不存在或已删除时返回 HTTP 404。")
     @GetMapping("/{id}")
     public ApiResponse<AppVO> getAppById(
             @Parameter(description = "应用 ID，必须大于 0", example = "55")
             @Positive @PathVariable long id, HttpServletRequest servletRequest) {
         return ApiResponse.success(appService.getAppById(id, userService.getLoginUser(servletRequest)));
+    }
+
+    @Operation(summary = "发布应用", description = "仅创建者可发布最近成功版本，无需请求体。"
+            + "返回独立静态站点地址，重新发布沿用原地址；新生成不会自动更新已发布页面。"
+            + "无成功版本返回 409，文件缺失返回 404，未配置静态站点返回 503。")
+    @PostMapping("/{id}/deploy")
+    public ApiResponse<AppDeployVO> deployApp(
+            @Parameter(description = "应用 ID，必须大于 0", example = "55")
+            @Positive @PathVariable long id, HttpServletRequest servletRequest) {
+        return ApiResponse.success(appService.deployApp(id, userService.getLoginUser(servletRequest)));
     }
 
     @Operation(summary = "下载应用源码", description = "仅创建者可下载最近成功版本；返回 ZIP 附件，错误返回统一 JSON。"

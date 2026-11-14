@@ -4,15 +4,20 @@ import com.xy.app.mapper.AppMapper;
 import com.xy.app.model.dto.AppAddRequest;
 import com.xy.app.model.entity.App;
 import com.xy.app.model.enums.CodeGenTypeEnum;
+import com.xy.app.model.vo.AppDeployVO;
 import com.xy.app.model.vo.AppVO;
 import com.xy.app.service.AppService;
 import com.xy.chat.mapper.ChatHistoryMapper;
 import com.xy.chat.model.entity.ChatHistory;
+import com.xy.common.ErrorCode;
+import com.xy.config.DeploymentConfiguration;
 import com.xy.exception.BusinessException;
 import com.xy.manager.GeneratedFileManager;
 import com.xy.user.model.entity.User;
 import java.io.IOException;
 import java.nio.file.NoSuchFileException;
+import java.time.LocalDateTime;
+import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
@@ -25,11 +30,14 @@ public class AppServiceImpl implements AppService {
     private final AppMapper appMapper;
     private final ChatHistoryMapper chatHistoryMapper;
     private final GeneratedFileManager fileManager;
+    private final DeploymentConfiguration deployment;
 
-    public AppServiceImpl(AppMapper appMapper, ChatHistoryMapper chatHistoryMapper, GeneratedFileManager fileManager) {
+    public AppServiceImpl(AppMapper appMapper, ChatHistoryMapper chatHistoryMapper, GeneratedFileManager fileManager,
+            DeploymentConfiguration deployment) {
         this.appMapper = appMapper;
         this.chatHistoryMapper = chatHistoryMapper;
         this.fileManager = fileManager;
+        this.deployment = deployment;
     }
 
     @Override
@@ -70,18 +78,7 @@ public class AppServiceImpl implements AppService {
     @Override
     public byte[] downloadSource(long id, User loginUser) {
         App app = getOwnedApp(id, loginUser);
-        Long versionId = app.getGeneratedVersion();
-        if (versionId == null) {
-            throw new BusinessException(HttpStatus.CONFLICT, 50001, "应用还没有成功生成的版本");
-        }
-        ChatHistory version = chatHistoryMapper.selectOneById(versionId);
-        if (version == null || !app.getId().equals(version.getAppId()) || !app.getUserId().equals(version.getUserId())
-                || !"assistant".equals(version.getMessageRole()) || !"completed".equals(version.getStatus())) {
-            throw new BusinessException(HttpStatus.CONFLICT, 50001, "应用没有可下载的成功版本");
-        }
-        if (!"html".equals(app.getCodeGenType()) && !"multi_file".equals(app.getCodeGenType())) {
-            throw new BusinessException(HttpStatus.BAD_REQUEST, 40000, "当前下载仅支持 html 或 multi_file 模式");
-        }
+        long versionId = getSuccessfulVersion(app);
         try {
             return fileManager.readSourceZip(app.getUserId(), id, versionId, "multi_file".equals(app.getCodeGenType()));
         } catch (NoSuchFileException error) {
@@ -92,8 +89,56 @@ public class AppServiceImpl implements AppService {
         }
     }
 
+    @Override
+    public AppDeployVO deployApp(long id, User loginUser) {
+        App app = getOwnedApp(id, loginUser);
+        long versionId = getSuccessfulVersion(app);
+        deployment.requireConfigured();
+        String key = app.getDeployKey();
+        try {
+            String html = CodeGenTypeEnum.MULTI_FILE.getValue().equals(app.getCodeGenType())
+                    ? fileManager.readMultiFilePreview(app.getUserId(), id, versionId)
+                    : fileManager.readHtml(app.getUserId(), id, versionId);
+            if (key == null) {
+                key = UUID.randomUUID().toString().replace("-", "");
+                if (appMapper.assignDeployKey(id, app.getUserId(), key) != 1) {
+                    throw new BusinessException(ErrorCode.SYSTEM_ERROR, "发布地址分配失败，请重试");
+                }
+            }
+            fileManager.publishHtml(deployment.directory(), key, html);
+            LocalDateTime deployedAt = LocalDateTime.now().withNano(0);
+            if (appMapper.updateDeployment(id, app.getUserId(), key, versionId, deployedAt) != 1) {
+                throw new BusinessException(ErrorCode.SYSTEM_ERROR, "发布记录保存失败，请重试发布");
+            }
+            return new AppDeployVO(deployment.siteUrl(key), Long.toString(versionId), deployedAt);
+        } catch (NoSuchFileException error) {
+            throw new BusinessException(ErrorCode.NOT_FOUND_ERROR, "生成文件不存在，请重新生成");
+        } catch (IOException error) {
+            log.error("应用 {} 版本 {} 发布文件失败，异常类型 {}", id, versionId, error.getClass().getSimpleName());
+            throw new BusinessException(ErrorCode.SYSTEM_ERROR, "发布文件失败，请检查发布目录");
+        }
+    }
+
+    private long getSuccessfulVersion(App app) {
+        Long versionId = app.getGeneratedVersion();
+        if (versionId == null) {
+            throw new BusinessException(HttpStatus.CONFLICT, 50001, "应用还没有成功生成的版本");
+        }
+        ChatHistory version = chatHistoryMapper.selectOneById(versionId);
+        if (version == null || !app.getId().equals(version.getAppId()) || !app.getUserId().equals(version.getUserId())
+                || !"assistant".equals(version.getMessageRole()) || !"completed".equals(version.getStatus())) {
+            throw new BusinessException(HttpStatus.CONFLICT, 50001, "应用没有可交付的成功版本");
+        }
+        if (!"html".equals(app.getCodeGenType()) && !"multi_file".equals(app.getCodeGenType())) {
+            throw new BusinessException(HttpStatus.BAD_REQUEST, 40000, "当前交付仅支持 html 或 multi_file 模式");
+        }
+        return versionId;
+    }
+
     private AppVO getAppVO(App app) {
         return new AppVO(Long.toString(app.getId()), Long.toString(app.getUserId()), app.getAppName(),
-                app.getInitPrompt(), app.getCodeGenType(), app.getCreateTime(), app.getUpdateTime());
+                app.getInitPrompt(), app.getCodeGenType(), app.getCreateTime(), app.getUpdateTime(),
+                app.getPublishedVersion() == null ? null : new AppDeployVO(deployment.siteUrl(app.getDeployKey()),
+                        Long.toString(app.getPublishedVersion()), app.getDeployedAt()));
     }
 }

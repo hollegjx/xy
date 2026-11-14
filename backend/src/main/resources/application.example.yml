@@ -31,3 +31,9 @@ xy:
     max-completion-tokens: 16384
   generation:
     output-directory: ./generated
+  deployment:
+    directory: ./published
+    # 静态站点实际运行后填写，例如 http://127.0.0.1:8102；空值禁用发布。
+    public-url: ''
+    # 用户访问平台时的来源；不要只换端口复用同一主机名。
+    platform-origin: http://localhost:5173

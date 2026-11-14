@@ -8,11 +8,13 @@ import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 import java.util.Base64;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
 import java.util.regex.Pattern;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
@@ -105,6 +107,47 @@ public class GeneratedFileManager {
         document.select("link[rel=stylesheet][href]").attr("href", dataUrl("text/css", css));
         document.select("script[src]").attr("src", dataUrl("text/javascript", js));
         return document.outerHtml();
+    }
+
+    public void publishHtml(Path publishRoot, String deployKey, String html) throws IOException {
+        Path directory = publicationDirectory(publishRoot, deployKey);
+        Path temporary = directory.resolve(".publish-" + UUID.randomUUID() + ".tmp");
+        try {
+            Files.writeString(temporary, html, StandardCharsets.UTF_8,
+                    StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE);
+            // 单文件快照完整写入后才切换；文件系统不支持原子替换时直接报错，保留旧页面。
+            Files.move(temporary, directory.resolve("index.html"),
+                    StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+        } finally {
+            Files.deleteIfExists(temporary);
+        }
+    }
+
+    private Path publicationDirectory(Path publishRoot, String deployKey) throws IOException {
+        if (deployKey == null || !deployKey.matches("[a-f0-9]{32}")) {
+            throw new IOException("无效的发布标识");
+        }
+        Path requestedRoot = publishRoot.toAbsolutePath().normalize();
+        if (requestedRoot.startsWith(root) || root.startsWith(requestedRoot)) {
+            throw new IOException("发布目录不能与私有生成目录重叠");
+        }
+        Files.createDirectories(requestedRoot);
+        Path publicDirectory = requestedRoot.toRealPath();
+        Path generatedDirectory = root.toRealPath();
+        if (publicDirectory.startsWith(generatedDirectory) || generatedDirectory.startsWith(publicDirectory)) {
+            throw new IOException("发布目录不能与私有生成目录重叠");
+        }
+        Path directory = publicDirectory.resolve(deployKey);
+        try {
+            Files.createDirectory(directory);
+        } catch (FileAlreadyExistsException existing) {
+            // 重新发布复用此目录，随后验证它不是链接或普通文件。
+        }
+        if (Files.isSymbolicLink(directory) || !Files.isDirectory(directory, LinkOption.NOFOLLOW_LINKS)
+                || Files.isSymbolicLink(directory.resolve("index.html"))) {
+            throw new IOException("发布目录或文件不可使用符号链接");
+        }
+        return directory;
     }
 
     private Document parseMultiFileHtml(String html) {

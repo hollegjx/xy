@@ -10,6 +10,8 @@
 
 工作台支持下载最近成功版本的源码 ZIP，并显示下载中与失败重试状态；仅应用创建者可访问，单 HTML 下载 `index.html`，多文件下载原始 HTML、CSS 和 JS。
 
+后端提供 `POST /api/apps/{id}/deploy`，将最近成功版本保存为发布快照，返回稳定分享地址。实际访问依赖独立静态站点的配置与启动；工作台发布按钮仍待接入。
+
 ## 项目结构
 
 ```text
@@ -27,8 +29,8 @@ xy/
 ```text
 com.xy/
 ├── common/、exception/  全局响应、共享常量与异常
-├── config/              AI 模型、密码编码配置
-├── manager/             GeneratedFileManager，生成文件存取
+├── config/              AI 模型、密码编码与发布配置
+├── manager/             GeneratedFileManager，生成文件存取与发布快照
 ├── health/              controller、service/impl、model/vo
 ├── user/                用户业务
 ├── app/                 应用业务，包含 PreviewController 与 PreviewService
@@ -55,7 +57,7 @@ com.xy/
 ## 本地配置与启动
 
 1. 在 IDEA 打开 `backend/pom.xml`，选择已有且受支持的 JDK，等待 Maven 导入完成。
-2. 在已有 MySQL 连接中依次执行 [backend/sql/001_create_database.sql](backend/sql/001_create_database.sql)、[backend/sql/002_create_user.sql](backend/sql/002_create_user.sql)、[backend/sql/003_create_app.sql](backend/sql/003_create_app.sql) 和 [backend/sql/004_add_generation.sql](backend/sql/004_add_generation.sql)，创建数据库、用户表、应用表、消息表，并为应用增加最近成功版本字段。不删除已有数据；已执行过的文件无需重复执行，`004` 中的 ALTER 只能执行一次。如已有同名表或字段，先核对结构。
+2. 在已有 MySQL 连接中依次执行 [backend/sql/001_create_database.sql](backend/sql/001_create_database.sql)、[backend/sql/002_create_user.sql](backend/sql/002_create_user.sql)、[backend/sql/003_create_app.sql](backend/sql/003_create_app.sql)、[backend/sql/004_add_generation.sql](backend/sql/004_add_generation.sql) 和 [backend/sql/005_add_app_deployment.sql](backend/sql/005_add_app_deployment.sql)，创建数据库和业务表，并为应用增加生成及发布字段。不删除已有数据；已执行过的文件无需重复执行，`004`、`005` 中的 ALTER 只能执行一次。如已有同名表或字段，先核对结构。
 3. 将 `backend/src/main/resources/application.example.yml` 复制为同目录的 `application.yml`，填写实际数据库地址、库名、账号、密码。本工作区若已存在该文件，直接编辑，勿覆盖已有配置。密码建议使用 YAML 单引号字符串，密码本身含单引号时写成两个单引号。
 4. 在 IDEA 运行 `com.xy.MainApplication`，打开 `http://localhost:8101/api/doc.html`，在「健康检查」中调用 `GET /health`。
 
@@ -76,6 +78,16 @@ com.xy/
 ```
 
 也可在浏览器打开 `http://localhost:8101/api/health`。数据库不可连接或未选择库时，接口返回 HTTP 503 和可读错误；数据库原始异常记录在服务端，不返回给页面。OpenAPI 文档地址为 `http://localhost:8101/api/v3/api-docs`。
+
+### 独立静态站点配置
+
+在本地 `application.yml` 的 `xy.deployment` 中配置 `directory`（默认 `./published`）、`public-url`（静态站点来源，不含路径）和 `platform-origin`（浏览器访问平台的来源，默认 `http://localhost:5173`）。`public-url` 留空时发布返回 503，其他业务正常使用。
+
+静态服务器需要与后端共享发布目录，且此目录不能与私有 `generated` 目录重叠。已有 Nginx 可参考 [backend/nginx.example.conf](backend/nginx.example.conf)：将示例 `root` 改为发布目录的绝对路径，并保留文件白名单和响应头配置；先验证并启动实际站点，再填写 `public-url`。本机示例使用 `http://127.0.0.1:8102`，平台通过 `localhost` 打开。仅换端口不能隔离 Cookie；线上作品使用与平台隔离的域名，不共享平台会话 Cookie，不代理平台 `/api`。
+
+发布文件为 `published/{deployKey}/index.html`。`deployKey` 由服务端首次发布时生成并保存；重新发布只更新此快照，分享地址保持不变。多文件模式复用已有合并逻辑，将 CSS/JS 编码进 HTML，因此发布快照只有一个文件，源码下载仍保留原始三文件。页面保持现有沙箱限制：允许本地样式与脚本交互，不支持联网资源、表单提交或模块导入。静态服务器仅公开快照，不提供目录浏览、对话或源码下载接口。
+
+本机地址只能用于本机验收。公网分享需要配置真实静态站点与 HTTPS 地址，并另外验证匿名访问；当前示例配置不代表已部署站点。
 
 ## 用户注册验收
 

@@ -30,6 +30,7 @@ coverage/
 test-results/
 playwright-report/
 generated/
+published/
 /frontend/e2e/_shots.spec.ts
 
 # Logs and temporary files

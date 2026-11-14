@@ -16,6 +16,9 @@ public class App {
     private String initPrompt;
     private String codeGenType;
     private Long generatedVersion;
+    private Long publishedVersion;
+    private String deployKey;
+    private LocalDateTime deployedAt;
     @Column(insertable = false, updatable = false)
     private LocalDateTime createTime;
     @Column(insertable = false, updatable = false)
@@ -65,6 +68,30 @@ public class App {
 
     public void setGeneratedVersion(Long generatedVersion) {
         this.generatedVersion = generatedVersion;
+    }
+
+    public Long getPublishedVersion() {
+        return publishedVersion;
+    }
+
+    public void setPublishedVersion(Long publishedVersion) {
+        this.publishedVersion = publishedVersion;
+    }
+
+    public String getDeployKey() {
+        return deployKey;
+    }
+
+    public void setDeployKey(String deployKey) {
+        this.deployKey = deployKey;
+    }
+
+    public LocalDateTime getDeployedAt() {
+        return deployedAt;
+    }
+
+    public void setDeployedAt(LocalDateTime deployedAt) {
+        this.deployedAt = deployedAt;
     }
 
     public void setCodeGenType(String codeGenType) {

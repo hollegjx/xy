@@ -12,4 +12,6 @@ public interface AppService {
     AppVO getAppById(long id, User loginUser);
 
     App getOwnedApp(long id, User loginUser);
+
+    byte[] downloadSource(long id, User loginUser);
 }

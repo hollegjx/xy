@@ -1,5 +1,6 @@
 package com.xy.manager;
 
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.FileAlreadyExistsException;
@@ -13,6 +14,8 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.regex.Pattern;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipOutputStream;
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
 import org.springframework.beans.factory.annotation.Value;
@@ -75,6 +78,21 @@ public class GeneratedFileManager {
         Path directory = versionDirectory(userId, appId, generationId);
         return Map.of("index.html", readFile(directory, "index.html"),
                 "style.css", readFile(directory, "style.css"), "script.js", readFile(directory, "script.js"));
+    }
+
+    public byte[] readSourceZip(long userId, long appId, long generationId, boolean multiFile) throws IOException {
+        // 只读取固定生成文件，全部打包成功后才返回，避免缺文件时下载到残缺 ZIP。
+        Map<String, String> files = multiFile ? readMultiFile(userId, appId, generationId)
+                : Map.of("index.html", readHtml(userId, appId, generationId));
+        ByteArrayOutputStream output = new ByteArrayOutputStream();
+        try (ZipOutputStream zip = new ZipOutputStream(output, StandardCharsets.UTF_8)) {
+            for (var file : files.entrySet()) {
+                zip.putNextEntry(new ZipEntry(file.getKey()));
+                zip.write(file.getValue().getBytes(StandardCharsets.UTF_8));
+                zip.closeEntry();
+            }
+        }
+        return output.toByteArray();
     }
 
     public String readMultiFilePreview(long userId, long appId, long generationId) throws IOException {

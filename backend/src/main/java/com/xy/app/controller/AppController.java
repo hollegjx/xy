@@ -7,10 +7,17 @@ import com.xy.common.ApiResponse;
 import com.xy.user.service.UserService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Positive;
+import org.springframework.http.CacheControl;
+import org.springframework.http.ContentDisposition;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -46,5 +53,25 @@ public class AppController {
             @Parameter(description = "应用 ID，必须大于 0", example = "55")
             @Positive @PathVariable long id, HttpServletRequest servletRequest) {
         return ApiResponse.success(appService.getAppById(id, userService.getLoginUser(servletRequest)));
+    }
+
+    @Operation(summary = "下载应用源码", description = "仅创建者可下载最近成功版本；返回 ZIP 附件，错误返回统一 JSON。"
+            + "html 模式只含 index.html，multi_file 模式包含原始 index.html、style.css、script.js。"
+            + "不接受指定版本或文件路径；无成功版本返回 409，生成文件缺失返回 404。")
+    @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "最近成功版本的源码 ZIP",
+            content = @Content(mediaType = "application/zip", schema = @Schema(type = "string", format = "binary")))
+    @GetMapping("/{id}/source")
+    public ResponseEntity<byte[]> downloadSource(
+            @Parameter(description = "应用 ID，必须大于 0", example = "55")
+            @Positive @PathVariable long id, HttpServletRequest servletRequest) {
+        byte[] source = appService.downloadSource(id, userService.getLoginUser(servletRequest));
+        return ResponseEntity.ok()
+                .contentType(MediaType.parseMediaType("application/zip"))
+                .contentLength(source.length)
+                .cacheControl(CacheControl.noStore())
+                .header(HttpHeaders.CONTENT_DISPOSITION,
+                        ContentDisposition.attachment().filename("xy-app-" + id + ".zip").build().toString())
+                .header("X-Content-Type-Options", "nosniff")
+                .body(source);
     }
 }

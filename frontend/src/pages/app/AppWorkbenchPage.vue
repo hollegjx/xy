@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { onBeforeUnmount, ref, watch } from 'vue'
-import { RouterLink, useRoute } from 'vue-router'
+import { RouterLink, useRoute, useRouter } from 'vue-router'
 import {
   Alert as AAlert,
   Button as AButton,
+  Popconfirm as APopconfirm,
   RadioButton as ARadioButton,
   RadioGroup as ARadioGroup,
   Skeleton as ASkeleton,
@@ -14,18 +15,22 @@ import ChatHistoryPanel from '@/pages/app/components/ChatHistoryPanel.vue'
 import AppPreviewPanel from '@/pages/app/components/AppPreviewPanel.vue'
 import AppRenameModal from '@/pages/app/components/AppRenameModal.vue'
 import { ApiError, errorMessage } from '@/request'
-import { deployApp, getApp, getAppSource } from '@/service/api/app'
+import { deleteApp, deployApp, getApp, getAppSource } from '@/service/api/app'
 import { useLoginUserStore } from '@/stores/useLoginUserStore'
 import { useAppDraftStore } from '@/stores/useAppDraftStore'
 import type { AppVO } from '@/types/api'
 
 const route = useRoute()
+const router = useRouter()
 const loginUserStore = useLoginUserStore()
 const draftStore = useAppDraftStore()
 const app = ref<AppVO | null>(null)
 const loading = ref(false)
 const error = ref('')
 const renameOpen = ref(false)
+const deleteOpen = ref(false)
+const deleting = ref(false)
+const deleteError = ref('')
 const panel = ref('prompt')
 const autoGenerate = ref(false)
 const previewVersion = ref<string | null>(null)
@@ -46,6 +51,9 @@ async function load(): Promise<void> {
   loading.value = true
   error.value = ''
   renameOpen.value = false
+  deleteOpen.value = false
+  deleting.value = false
+  deleteError.value = ''
   downloading.value = false
   downloadError.value = ''
   publishing.value = false
@@ -70,6 +78,32 @@ async function load(): Promise<void> {
 function handleRenamed(appName: string): void {
   if (app.value) app.value.appName = appName
   renameOpen.value = false
+}
+
+function changeDeleteOpen(open: boolean): void {
+  if (!deleting.value) deleteOpen.value = open
+}
+
+async function removeApp(): Promise<void> {
+  if (!app.value || deleting.value || loginUserStore.authAction !== null) return
+  const currentRevision = revision
+  deleting.value = true
+  deleteError.value = ''
+  try {
+    await deleteApp(app.value.id)
+    if (currentRevision !== revision) return
+    void message.success('应用已删除')
+    await router.replace('/')
+  } catch (cause) {
+    if (currentRevision !== revision) return
+    if (cause instanceof ApiError && cause.code === 40100) loginUserStore.setUser(null)
+    else deleteError.value = errorMessage(cause)
+  } finally {
+    if (currentRevision === revision) {
+      deleting.value = false
+      deleteOpen.value = false
+    }
+  }
 }
 
 async function downloadSource(): Promise<void> {
@@ -147,13 +181,37 @@ onBeforeUnmount(() => {
   <div class="workbench">
     <div class="workbench-navigation">
       <RouterLink to="/" class="back-link">返回首页</RouterLink>
-      <AButton
-        v-if="app && !loading && !error"
-        :disabled="loginUserStore.authAction !== null"
-        @click="renameOpen = true"
-      >
-        修改名称
-      </AButton>
+      <div v-if="app && !loading && !error" class="app-actions">
+        <AButton
+          :disabled="deleting || loginUserStore.authAction !== null"
+          @click="renameOpen = true"
+        >
+          修改名称
+        </AButton>
+        <APopconfirm
+          :open="deleteOpen"
+          title="确认删除这个应用？"
+          placement="bottomRight"
+          :ok-text="deleting ? '删除中' : '确认删除'"
+          cancel-text="取消"
+          :ok-button-props="{
+            danger: true,
+            loading: deleting,
+            disabled: loginUserStore.authAction !== null,
+          }"
+          :cancel-button-props="{ disabled: deleting }"
+          :disabled="loginUserStore.authAction !== null"
+          @open-change="changeDeleteOpen"
+          @confirm="removeApp"
+        >
+          <template #description>
+            <p class="delete-confirmation">删除后无法继续访问该应用，已发布链接也会失效。</p>
+          </template>
+          <AButton danger :loading="deleting" :disabled="loginUserStore.authAction !== null">
+            {{ deleting ? '删除中' : '删除应用' }}
+          </AButton>
+        </APopconfirm>
+      </div>
     </div>
     <PageHeading :title="app?.appName ?? '应用工作台'" description="生成、预览并分享你的应用。" />
     <ASkeleton v-if="loading" active :paragraph="{ rows: 6 }" aria-label="正在读取应用" />
@@ -168,6 +226,24 @@ onBeforeUnmount(() => {
       <template #action><AButton @click="load">重试</AButton></template>
     </AAlert>
     <template v-else-if="app">
+      <AAlert
+        v-if="deleteError"
+        class="delete-error"
+        type="error"
+        message="应用删除失败"
+        :description="deleteError"
+        show-icon
+        role="alert"
+      >
+        <template #action>
+          <AButton
+            :disabled="deleting || loginUserStore.authAction !== null"
+            @click="deleteOpen = true"
+          >
+            重试
+          </AButton>
+        </template>
+      </AAlert>
       <AppRenameModal
         :key="app.id"
         :open="renameOpen"
@@ -291,6 +367,18 @@ onBeforeUnmount(() => {
 .back-link {
   color: var(--accent);
   text-underline-offset: 4px;
+}
+.app-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.delete-confirmation {
+  max-width: 240px;
+  margin: 0;
+}
+.delete-error {
+  margin-bottom: 24px;
 }
 .source-actions {
   display: flex;

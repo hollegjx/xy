@@ -175,7 +175,7 @@ describe('请求客户端', () => {
   it('保留 HTTP 503 中的业务错误说明', async () => {
     httpClient.defaults.adapter = async (config) => {
       throw new AxiosError('unavailable', AxiosError.ERR_BAD_RESPONSE, config, undefined, {
-        data: { code: 50000, data: null, message: '数据库连接失败，请检查本地配置' },
+        data: { code: 50300, data: null, message: '数据库连接失败，请检查本地配置' },
         status: 503,
         statusText: 'Service Unavailable',
         headers: {},
@@ -183,7 +183,7 @@ describe('请求客户端', () => {
       })
     }
     await expect(request('/api/health')).rejects.toMatchObject({
-      code: 50000,
+      code: 50300,
       status: 503,
       message: '数据库连接失败，请检查本地配置',
     })

@@ -51,7 +51,7 @@ class HealthControllerTest {
 
         mockMvc.perform(get("/api/health").contextPath("/api"))
                 .andExpect(status().isServiceUnavailable())
-                .andExpect(jsonPath("$.code").value(50000))
+                .andExpect(jsonPath("$.code").value(50300))
                 .andExpect(jsonPath("$.message").value("数据库连接失败，请检查本地配置"))
                 .andExpect(jsonPath("$.data").doesNotExist());
     }
@@ -62,7 +62,7 @@ class HealthControllerTest {
 
         mockMvc.perform(get("/api/health").contextPath("/api"))
                 .andExpect(status().isServiceUnavailable())
-                .andExpect(jsonPath("$.code").value(50000));
+                .andExpect(jsonPath("$.code").value(50300));
     }
 
     @Test

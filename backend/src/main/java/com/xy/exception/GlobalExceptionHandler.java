@@ -1,11 +1,11 @@
 package com.xy.exception;
 
 import com.xy.common.ApiResponse;
+import com.xy.common.ErrorCode;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataAccessException;
 import org.springframework.http.HttpHeaders;
-import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -34,13 +34,14 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         String message = exception.getBindingResult().getFieldErrors().stream()
                 .map(error -> error.getDefaultMessage())
                 .findFirst().orElse("请求参数错误");
-        return handleExceptionInternal(exception, ApiResponse.failure(40000, message), headers, status, request);
+        return handleExceptionInternal(exception, ApiResponse.failure(ErrorCode.PARAMS_ERROR.getCode(), message),
+                headers, status, request);
     }
 
     @Override
     protected ResponseEntity<Object> handleHttpMessageNotReadable(HttpMessageNotReadableException exception,
             HttpHeaders headers, HttpStatusCode status, WebRequest request) {
-        return handleExceptionInternal(exception, ApiResponse.failure(40000, "请求体缺失或 JSON 格式错误"),
+        return handleExceptionInternal(exception, ApiResponse.failure(ErrorCode.PARAMS_ERROR.getCode(), "请求体缺失或 JSON 格式错误"),
                 headers, status, request);
     }
 
@@ -51,7 +52,11 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
             log.error("请求处理失败", exception);
         }
         if (!(body instanceof ApiResponse<?>)) {
-            int code = status.value() == 404 ? 40400 : (status.is4xxClientError() ? 40000 : 50000);
+            ErrorCode errorCode = switch (status.value()) {
+                case 404 -> ErrorCode.NOT_FOUND_ERROR;
+                case 503 -> ErrorCode.SERVICE_UNAVAILABLE;
+                default -> status.is4xxClientError() ? ErrorCode.PARAMS_ERROR : ErrorCode.SYSTEM_ERROR;
+            };
             String message = switch (status.value()) {
                 case 404 -> "请求地址不存在";
                 case 405 -> "请求方法不支持";
@@ -59,9 +64,9 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
                 case 415 -> "请求内容类型不支持";
                 default -> status.is4xxClientError() ? "请求参数错误" : "服务暂时不可用，请稍后重试";
             };
-            body = ApiResponse.failure(code, message);
+            body = ApiResponse.failure(errorCode.getCode(), message);
         }
-        // 交由框架保留原始状态码及 Allow、Accept 等协议响应头。
+        // 协议异常是业务码与 HTTP 状态固定映射的例外，保留框架状态及 Allow、Accept 等响应头。
         HttpHeaders responseHeaders = new HttpHeaders();
         responseHeaders.putAll(headers);
         responseHeaders.setContentType(MediaType.APPLICATION_JSON);
@@ -71,16 +76,16 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
     @ExceptionHandler(DataAccessException.class)
     public ResponseEntity<ApiResponse<Void>> handleDataAccessException(DataAccessException exception) {
         log.error("数据库访问失败", exception);
-        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+        return ResponseEntity.status(ErrorCode.SERVICE_UNAVAILABLE.getStatus())
                 .contentType(MediaType.APPLICATION_JSON)
-                .body(ApiResponse.failure(50000, "数据库连接失败，请检查本地配置"));
+                .body(ApiResponse.failure(ErrorCode.SERVICE_UNAVAILABLE.getCode(), "数据库连接失败，请检查本地配置"));
     }
 
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ApiResponse<Void>> handleUnexpectedException(Exception exception) {
         log.error("请求处理失败", exception);
-        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+        return ResponseEntity.status(ErrorCode.SYSTEM_ERROR.getStatus())
                 .contentType(MediaType.APPLICATION_JSON)
-                .body(ApiResponse.failure(50000, "服务暂时不可用，请稍后重试"));
+                .body(ApiResponse.failure(ErrorCode.SYSTEM_ERROR.getCode(), "服务暂时不可用，请稍后重试"));
     }
 }

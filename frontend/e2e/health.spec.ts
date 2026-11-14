@@ -18,7 +18,7 @@ test('连接失败后可以重试并显示接口返回的数据库名称', async
         status: attempts === 1 ? 503 : 200,
         json:
           attempts === 1
-            ? { code: 50000, data: null, message: '数据库连接失败，请检查本地配置' }
+            ? { code: 50300, data: null, message: '数据库连接失败，请检查本地配置' }
             : { code: 0, data: { status: 'UP', database: 'xy_e2e' }, message: 'ok' },
       })
     },

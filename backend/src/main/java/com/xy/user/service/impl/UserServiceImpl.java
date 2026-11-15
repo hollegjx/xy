@@ -10,6 +10,7 @@ import com.xy.user.model.dto.UserAddRequest;
 import com.xy.user.model.dto.UserLoginRequest;
 import com.xy.user.model.dto.UserQueryRequest;
 import com.xy.user.model.dto.UserRegisterRequest;
+import com.xy.user.model.dto.UserUpdateRequest;
 import com.xy.user.model.entity.User;
 import com.xy.user.model.enums.UserRoleEnum;
 import com.xy.user.model.vo.UserPageVO;
@@ -58,6 +59,22 @@ public class UserServiceImpl implements UserService {
         Page<User> page = userMapper.paginate(request.current(), request.pageSize(), getQueryWrapper(request));
         return new UserPageVO(page.getRecords().stream().map(this::getUserVO).toList(),
                 page.getTotalRow(), page.getPageNumber(), page.getPageSize());
+    }
+
+    @Override
+    public boolean updateUser(long id, UserUpdateRequest request, HttpServletRequest servletRequest) {
+        checkAdmin(servletRequest, "仅管理员可修改用户昵称");
+        User user = userMapper.selectOneById(id);
+        if (user == null) {
+            throw new BusinessException(ErrorCode.NOT_FOUND_ERROR, "用户不存在或已删除");
+        }
+        if (request.userName().equals(user.getUserName())) {
+            return true;
+        }
+        if (userMapper.updateUserName(id, request.userName()) != 1) {
+            throw new BusinessException(ErrorCode.SYSTEM_ERROR, "用户昵称保存失败，请重试");
+        }
+        return true;
     }
 
     private void checkAdmin(HttpServletRequest request, String message) {

@@ -62,6 +62,17 @@ watchEffect(() => {
       >
         用户管理
       </RouterLink>
+      <RouterLink
+        v-if="
+          loginUserStore.status === 'ready' &&
+          loginUserStore.user?.userRole === 'admin' &&
+          route.name !== 'admin-apps'
+        "
+        to="/admin/apps"
+        class="nav-link"
+      >
+        应用管理
+      </RouterLink>
       <RouterLink v-if="route.name !== 'system-status'" to="/system/status" class="nav-link">
         系统状态
       </RouterLink>

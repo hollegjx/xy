@@ -91,6 +91,30 @@ export interface AppPageVO {
   pageSize: number
 }
 
+export interface AppAdminQueryRequest {
+  appName?: string
+  userId?: string
+  current: number
+  pageSize: number
+}
+
+export interface AppAdminVO {
+  id: string
+  userId: string
+  appName: string
+  codeGenType: CodeGenType
+  createTime: string
+  updateTime: string
+  deployment: AppDeployVO | null
+}
+
+export interface AppAdminPageVO {
+  records: AppAdminVO[]
+  total: number
+  current: number
+  pageSize: number
+}
+
 export type GenerationStatus = 'running' | 'completed' | 'failed' | 'cancelled'
 
 export interface GenerationEventVO {

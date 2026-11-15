@@ -1,6 +1,8 @@
 import request, { ApiError, requestHtml, requestZip } from '@/request'
 import type {
   AppAddRequest,
+  AppAdminPageVO,
+  AppAdminQueryRequest,
   AppDeployVO,
   AppPageVO,
   AppQueryRequest,
@@ -22,6 +24,9 @@ export const deleteApp = (id: string): Promise<boolean> =>
 
 export const listMyApps = (params: AppQueryRequest): Promise<AppPageVO> =>
   request<AppPageVO>('/api/apps/mine', { params })
+
+export const listAppsForAdmin = (params: AppAdminQueryRequest): Promise<AppAdminPageVO> =>
+  request<AppAdminPageVO>('/api/apps', { params })
 
 export const getAppSource = (id: string): Promise<Blob> =>
   requestZip(`/api/apps/${encodeURIComponent(id)}/source`)

@@ -26,6 +26,10 @@ export interface UserAddRequest {
   userName?: string
 }
 
+export interface UserUpdateRequest {
+  userName: string
+}
+
 export interface UserVO {
   id: string
   userAccount: string

@@ -12,6 +12,7 @@ import {
 } from 'ant-design-vue'
 import PageHeading from '@/components/PageHeading.vue'
 import UserAddModal from '@/pages/user/components/UserAddModal.vue'
+import UserRenameModal from '@/pages/user/components/UserRenameModal.vue'
 import { ApiError, errorMessage } from '@/request'
 import { listUsers } from '@/service/api/user'
 import { useLoginUserStore } from '@/stores/useLoginUserStore'
@@ -26,12 +27,14 @@ const total = ref(0)
 const loading = ref(false)
 const error = ref('')
 const addOpen = ref(false)
+const editingUser = ref<UserVO | null>(null)
 const pageSize = 10
 const columns = [
   { title: '用户 ID', dataIndex: 'id', key: 'id', width: 180 },
   { title: '登录账号', dataIndex: 'userAccount', key: 'userAccount', width: 220 },
   { title: '昵称', dataIndex: 'userName', key: 'userName', width: 220 },
   { title: '角色', dataIndex: 'userRole', key: 'userRole', width: 120 },
+  { title: '操作', key: 'actions', width: 120, fixed: 'right' as const },
 ]
 let active = true
 
@@ -76,6 +79,14 @@ function handleAdded(): void {
   reset()
 }
 
+function handleRenamed(id: string, userName: string): void {
+  editingUser.value = null
+  if (loginUserStore.user?.id === id) {
+    loginUserStore.setUser({ ...loginUserStore.user, userName })
+  }
+  void load()
+}
+
 function changePage(page: number): void {
   if (loading.value) return
   current.value = page
@@ -90,7 +101,7 @@ onBeforeUnmount(() => {
 
 <template>
   <section class="user-list" aria-label="用户管理">
-    <PageHeading title="用户管理" description="按账号查找用户，查看昵称与角色。" />
+    <PageHeading title="用户管理" description="按账号查找用户，维护用户昵称。" />
     <form class="search-form" aria-label="查询用户" @submit.prevent="search">
       <label class="account-filter">
         登录账号
@@ -138,14 +149,22 @@ onBeforeUnmount(() => {
         :columns="columns"
         :data-source="rows"
         :pagination="false"
-        :scroll="{ x: 740 }"
+        :scroll="{ x: 860 }"
         row-key="id"
         table-layout="fixed"
       >
-        <template #bodyCell="{ column, text }">
+        <template #bodyCell="{ column, text, record }">
           <ATag v-if="column.key === 'userRole'">{{
             text === 'admin' ? '管理员' : '普通用户'
           }}</ATag>
+          <AButton
+            v-else-if="column.key === 'actions'"
+            type="link"
+            :disabled="loginUserStore.authAction !== null"
+            @click="editingUser = record as UserVO"
+          >
+            修改昵称
+          </AButton>
           <span v-else class="cell-text">{{ text }}</span>
         </template>
       </ATable>
@@ -164,6 +183,13 @@ onBeforeUnmount(() => {
       </div>
     </template>
     <UserAddModal :open="addOpen" @close="addOpen = false" @saved="handleAdded" />
+    <UserRenameModal
+      v-if="editingUser"
+      :open="true"
+      :user="editingUser"
+      @close="editingUser = null"
+      @saved="handleRenamed"
+    />
   </section>
 </template>
 

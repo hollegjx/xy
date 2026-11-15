@@ -5,6 +5,7 @@ import type {
   UserPageVO,
   UserQueryRequest,
   UserRegisterRequest,
+  UserUpdateRequest,
   UserVO,
 } from '@/types/api'
 
@@ -13,6 +14,9 @@ export const addUser = (data: UserAddRequest): Promise<string> =>
 
 export const listUsers = (params: UserQueryRequest): Promise<UserPageVO> =>
   request<UserPageVO>('/api/users', { params })
+
+export const updateUser = (id: string, data: UserUpdateRequest): Promise<boolean> =>
+  request<boolean>(`/api/users/${id}`, { method: 'PATCH', data })
 
 export const registerUser = (data: UserRegisterRequest): Promise<string> =>
   request<string>('/api/users/register', { method: 'POST', data })

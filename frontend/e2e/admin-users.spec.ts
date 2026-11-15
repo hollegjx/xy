@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test'
 import type { UserVO } from '../src/types/api'
 
-test('管理员查询、分页并新增用户，普通用户不能进入用户管理', async ({ page }) => {
+test('管理员查询、新增和修改用户昵称，普通用户不能进入用户管理', async ({ page }) => {
   const admin: UserVO = { id: '42', userAccount: 'admin', userName: '管理员', userRole: 'admin' }
   const users: UserVO[] = Array.from({ length: 12 }, (_, index) => ({
     id: String(9007199254740993n + BigInt(index)),
@@ -9,6 +9,7 @@ test('管理员查询、分页并新增用户，普通用户不能进入用户�
     userName: `星云用户 ${index + 1}`,
     userRole: 'user',
   }))
+  users.push(admin)
   let currentUser: UserVO | null = null
   let listRequests = 0
   const newUser = { userAccount: 'xy_new_member', userPassword: 'Demo123456!', userName: '新成员' }
@@ -32,6 +33,15 @@ test('管理员查询、分页并新增用户，普通用户不能进入用户�
         })
       } else if (url.pathname === '/api/users/logout') {
         currentUser = null
+        await route.fulfill({ json: { code: 0, data: true, message: 'ok' } })
+      } else if (/^\/api\/users\/\d+$/.test(url.pathname)) {
+        expect(request.method()).toBe('PATCH')
+        expect(currentUser?.userRole).toBe('admin')
+        const target = users.find((user) => user.id === url.pathname.split('/').pop())
+        expect(target).toBeDefined()
+        const data = request.postDataJSON()
+        expect(data).toEqual({ userName: expect.any(String) })
+        target!.userName = data.userName
         await route.fulfill({ json: { code: 0, data: true, message: 'ok' } })
       } else if (url.pathname === '/api/users') {
         expect(currentUser?.userRole).toBe('admin')
@@ -89,9 +99,21 @@ test('管理员查询、分页并新增用户，普通用户不能进入用户�
   await expect(page).toHaveURL('/admin/users')
   const panel = page.getByRole('region', { name: '用户管理', exact: true })
   await expect(panel.getByText(users[0]!.id, { exact: true })).toBeVisible()
-  await expect(panel.getByText('共 12 个用户')).toBeVisible()
+  await expect(panel.getByText('共 13 个用户')).toBeVisible()
   await panel.getByTitle('下一页').click()
   await expect(panel.getByText('xy_user_11', { exact: true })).toBeVisible()
+  const memberRow = panel.getByRole('row').filter({ hasText: 'xy_user_11' })
+  await memberRow.getByRole('button', { name: '修改昵称', exact: true }).click()
+  const renameDialog = page.getByRole('dialog', { name: '修改昵称', exact: true })
+  await expect(renameDialog.getByLabel('昵称', { exact: true })).toHaveValue('星云用户 11')
+  await renameDialog.getByLabel('昵称', { exact: true }).fill('更新后的成员')
+  await renameDialog.getByRole('button', { name: '保存', exact: true }).click()
+  await expect(renameDialog).toBeHidden()
+  await expect(memberRow.getByText('更新后的成员', { exact: true })).toBeVisible()
+  await expect(panel.getByText('xy_user_1', { exact: true })).toHaveCount(0)
+  await page.reload()
+  await panel.getByTitle('下一页').click()
+  await expect(memberRow.getByText('更新后的成员', { exact: true })).toBeVisible()
   await panel.getByLabel('登录账号', { exact: true }).fill('xy_user_12')
   await panel.getByRole('button', { name: '查询', exact: true }).click()
   await expect(panel.getByText('共 1 个用户')).toBeVisible()
@@ -105,14 +127,27 @@ test('管理员查询、分页并新增用户，普通用户不能进入用户�
   await expect(dialog).toBeHidden()
   await expect(panel.getByLabel('登录账号', { exact: true })).toHaveValue('')
   await expect(panel.getByText(newUser.userAccount, { exact: true })).toBeVisible()
-  await expect(panel.getByText('共 13 个用户')).toBeVisible()
+  await expect(panel.getByText('共 14 个用户')).toBeVisible()
   await expect(page.getByLabel('当前账号', { exact: true })).toContainText('管理员')
   await page.reload()
   await expect(panel.getByText(newUser.userAccount, { exact: true })).toBeVisible()
   await expect(panel.getByText('xy_user_1', { exact: true })).toBeVisible()
+  await panel.getByLabel('登录账号', { exact: true }).fill('admin')
+  await panel.getByRole('button', { name: '查询', exact: true }).click()
+  await expect(panel.getByText('共 1 个用户')).toBeVisible()
+  await panel.getByRole('button', { name: '修改昵称', exact: true }).click()
+  await renameDialog.getByLabel('昵称', { exact: true }).fill('星云维护员')
+  await renameDialog.getByRole('button', { name: '保存', exact: true }).click()
+  await expect(renameDialog).toBeHidden()
+  await expect(panel.getByText('星云维护员', { exact: true })).toBeVisible()
+  await expect(panel.getByLabel('登录账号', { exact: true })).toHaveValue('admin')
+  await expect(panel.getByText('共 1 个用户')).toBeVisible()
+  await expect(page.getByLabel('当前账号', { exact: true })).toContainText('星云维护员')
+  await page.reload()
+  await expect(page.getByLabel('当前账号', { exact: true })).toContainText('星云维护员')
   await page.getByRole('link', { name: '星云首页', exact: true }).click()
   await page.getByRole('link', { name: '用户管理', exact: true }).click()
-  await expect(panel.getByText('共 13 个用户')).toBeVisible()
+  await expect(panel.getByText('共 14 个用户')).toBeVisible()
   await page.getByRole('button', { name: '退出登录', exact: true }).click()
   await expect(page).toHaveURL('/user/login')
   await page.getByLabel('账号', { exact: true }).fill('xy_user_1')

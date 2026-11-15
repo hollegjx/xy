@@ -11,6 +11,7 @@ import {
   Tag as ATag,
 } from 'ant-design-vue'
 import PageHeading from '@/components/PageHeading.vue'
+import UserAddModal from '@/pages/user/components/UserAddModal.vue'
 import { ApiError, errorMessage } from '@/request'
 import { listUsers } from '@/service/api/user'
 import { useLoginUserStore } from '@/stores/useLoginUserStore'
@@ -24,6 +25,7 @@ const current = ref(1)
 const total = ref(0)
 const loading = ref(false)
 const error = ref('')
+const addOpen = ref(false)
 const pageSize = 10
 const columns = [
   { title: '用户 ID', dataIndex: 'id', key: 'id', width: 180 },
@@ -69,6 +71,11 @@ function reset(): void {
   search()
 }
 
+function handleAdded(): void {
+  addOpen.value = false
+  reset()
+}
+
 function changePage(page: number): void {
   if (loading.value) return
   current.value = page
@@ -95,8 +102,17 @@ onBeforeUnmount(() => {
           allow-clear
         />
       </label>
-      <AButton type="primary" shape="round" html-type="submit" :loading="loading">查询</AButton>
+      <AButton html-type="submit" :loading="loading">查询</AButton>
       <AButton :disabled="loading || (!keyword && !appliedAccount)" @click="reset">重置</AButton>
+      <AButton
+        type="primary"
+        shape="round"
+        class="add-user-button"
+        :disabled="loading"
+        @click="addOpen = true"
+      >
+        新增用户
+      </AButton>
     </form>
     <ASkeleton v-if="loading" active :paragraph="{ rows: 5 }" aria-label="正在读取用户列表" />
     <AAlert
@@ -147,6 +163,7 @@ onBeforeUnmount(() => {
         />
       </div>
     </template>
+    <UserAddModal :open="addOpen" @close="addOpen = false" @saved="handleAdded" />
   </section>
 </template>
 
@@ -165,6 +182,9 @@ onBeforeUnmount(() => {
   display: grid;
   gap: 8px;
   width: min(100%, 360px);
+}
+.add-user-button {
+  margin-left: auto;
 }
 .cell-text {
   overflow-wrap: anywhere;

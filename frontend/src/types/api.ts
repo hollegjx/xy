@@ -20,6 +20,12 @@ export interface UserLoginRequest {
   userPassword: string
 }
 
+export interface UserAddRequest {
+  userAccount: string
+  userPassword: string
+  userName?: string
+}
+
 export interface UserVO {
   id: string
   userAccount: string

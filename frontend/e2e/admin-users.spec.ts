@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test'
 import type { UserVO } from '../src/types/api'
 
-test('管理员登录后查询和翻页，普通用户不能进入用户管理', async ({ page }) => {
+test('管理员查询、分页并新增用户，普通用户不能进入用户管理', async ({ page }) => {
   const admin: UserVO = { id: '42', userAccount: 'admin', userName: '管理员', userRole: 'admin' }
   const users: UserVO[] = Array.from({ length: 12 }, (_, index) => ({
     id: String(9007199254740993n + BigInt(index)),
@@ -11,13 +11,17 @@ test('管理员登录后查询和翻页，普通用户不能进入用户管理',
   }))
   let currentUser: UserVO | null = null
   let listRequests = 0
+  const newUser = { userAccount: 'xy_new_member', userPassword: 'Demo123456!', userName: '新成员' }
   await page.route(
     (url) => url.pathname.startsWith('/api/'),
     async (route) => {
       const request = route.request()
       const url = new URL(request.url())
       if (url.pathname === '/api/users/login') {
-        currentUser = request.postDataJSON().userAccount === 'admin' ? admin : users[0]!
+        currentUser =
+          request.postDataJSON().userAccount === 'admin'
+            ? admin
+            : users.find((user) => user.userAccount === request.postDataJSON().userAccount)!
         await route.fulfill({ json: { code: 0, data: currentUser, message: 'ok' } })
       } else if (url.pathname === '/api/users/me') {
         await route.fulfill({
@@ -30,8 +34,20 @@ test('管理员登录后查询和翻页，普通用户不能进入用户管理',
         currentUser = null
         await route.fulfill({ json: { code: 0, data: true, message: 'ok' } })
       } else if (url.pathname === '/api/users') {
-        expect(request.method()).toBe('GET')
         expect(currentUser?.userRole).toBe('admin')
+        if (request.method() === 'POST') {
+          expect(request.postDataJSON()).toEqual(newUser)
+          const id = '9007199254741006'
+          users.unshift({
+            id,
+            userAccount: newUser.userAccount,
+            userName: newUser.userName,
+            userRole: 'user',
+          })
+          await route.fulfill({ json: { code: 0, data: id, message: 'ok' } })
+          return
+        }
+        expect(request.method()).toBe('GET')
         listRequests += 1
         const current = Number(url.searchParams.get('current'))
         expect(url.searchParams.get('pageSize')).toBe('10')
@@ -80,11 +96,23 @@ test('管理员登录后查询和翻页，普通用户不能进入用户管理',
   await panel.getByRole('button', { name: '查询', exact: true }).click()
   await expect(panel.getByText('共 1 个用户')).toBeVisible()
   await expect(panel.getByText('xy_user_12', { exact: true })).toBeVisible()
-  await panel.getByRole('button', { name: '重置', exact: true }).click()
+  await panel.getByRole('button', { name: '新增用户', exact: true }).click()
+  const dialog = page.getByRole('dialog', { name: '新增用户', exact: true })
+  await dialog.getByLabel('账号', { exact: true }).fill(newUser.userAccount)
+  await dialog.getByLabel('初始密码', { exact: true }).fill(newUser.userPassword)
+  await dialog.getByLabel('昵称', { exact: true }).fill(newUser.userName)
+  await dialog.getByRole('button', { name: '保存', exact: true }).click()
+  await expect(dialog).toBeHidden()
+  await expect(panel.getByLabel('登录账号', { exact: true })).toHaveValue('')
+  await expect(panel.getByText(newUser.userAccount, { exact: true })).toBeVisible()
+  await expect(panel.getByText('共 13 个用户')).toBeVisible()
+  await expect(page.getByLabel('当前账号', { exact: true })).toContainText('管理员')
+  await page.reload()
+  await expect(panel.getByText(newUser.userAccount, { exact: true })).toBeVisible()
   await expect(panel.getByText('xy_user_1', { exact: true })).toBeVisible()
   await page.getByRole('link', { name: '星云首页', exact: true }).click()
   await page.getByRole('link', { name: '用户管理', exact: true }).click()
-  await expect(panel.getByText('共 12 个用户')).toBeVisible()
+  await expect(panel.getByText('共 13 个用户')).toBeVisible()
   await page.getByRole('button', { name: '退出登录', exact: true }).click()
   await expect(page).toHaveURL('/user/login')
   await page.getByLabel('账号', { exact: true }).fill('xy_user_1')

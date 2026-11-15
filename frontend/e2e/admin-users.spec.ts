@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test'
 import type { UserVO } from '../src/types/api'
 
-test('管理员查询、新增和修改用户昵称，普通用户不能进入用户管理', async ({ page }) => {
+test('管理员查询、新增、修改昵称和删除用户，普通用户不能进入用户管理', async ({ page }) => {
   const admin: UserVO = { id: '42', userAccount: 'admin', userName: '管理员', userRole: 'admin' }
   const users: UserVO[] = Array.from({ length: 12 }, (_, index) => ({
     id: String(9007199254740993n + BigInt(index)),
@@ -35,13 +35,20 @@ test('管理员查询、新增和修改用户昵称，普通用户不能进入�
         currentUser = null
         await route.fulfill({ json: { code: 0, data: true, message: 'ok' } })
       } else if (/^\/api\/users\/\d+$/.test(url.pathname)) {
-        expect(request.method()).toBe('PATCH')
         expect(currentUser?.userRole).toBe('admin')
-        const target = users.find((user) => user.id === url.pathname.split('/').pop())
+        const targetIndex = users.findIndex((user) => user.id === url.pathname.split('/').pop())
+        const target = users[targetIndex]
         expect(target).toBeDefined()
-        const data = request.postDataJSON()
-        expect(data).toEqual({ userName: expect.any(String) })
-        target!.userName = data.userName
+        if (request.method() === 'DELETE') {
+          expect(target!.userAccount).toBe(newUser.userAccount)
+          expect(request.postData()).toBeNull()
+          users.splice(targetIndex, 1)
+        } else {
+          expect(request.method()).toBe('PATCH')
+          const data = request.postDataJSON()
+          expect(data).toEqual({ userName: expect.any(String) })
+          target!.userName = data.userName
+        }
         await route.fulfill({ json: { code: 0, data: true, message: 'ok' } })
       } else if (url.pathname === '/api/users') {
         expect(currentUser?.userRole).toBe('admin')
@@ -132,9 +139,25 @@ test('管理员查询、新增和修改用户昵称，普通用户不能进入�
   await page.reload()
   await expect(panel.getByText(newUser.userAccount, { exact: true })).toBeVisible()
   await expect(panel.getByText('xy_user_1', { exact: true })).toBeVisible()
+  const newMemberRow = panel.getByRole('row').filter({ hasText: newUser.userAccount })
+  await newMemberRow.getByRole('button', { name: '删除', exact: true }).click()
+  await expect(page.getByText('确认删除这个用户？', { exact: true })).toBeVisible()
+  await expect(
+    page.getByText(`将删除账号「${newUser.userAccount}」`, { exact: false }),
+  ).toContainText('全部应用，并下线公开作品')
+  await page.getByRole('button', { name: '取消', exact: true }).click()
+  await expect(newMemberRow).toBeVisible()
+  await newMemberRow.getByRole('button', { name: '删除', exact: true }).click()
+  await page.getByRole('button', { name: '确认删除', exact: true }).click()
+  await expect(newMemberRow).toHaveCount(0)
+  await expect(panel.getByText('共 13 个用户')).toBeVisible()
+  await page.reload()
+  await expect(panel.getByText('共 13 个用户')).toBeVisible()
+  await expect(panel.getByText(newUser.userAccount, { exact: true })).toHaveCount(0)
   await panel.getByLabel('登录账号', { exact: true }).fill('admin')
   await panel.getByRole('button', { name: '查询', exact: true }).click()
   await expect(panel.getByText('共 1 个用户')).toBeVisible()
+  await expect(panel.getByRole('button', { name: '删除', exact: true })).toHaveCount(0)
   await panel.getByRole('button', { name: '修改昵称', exact: true }).click()
   await renameDialog.getByLabel('昵称', { exact: true }).fill('星云维护员')
   await renameDialog.getByRole('button', { name: '保存', exact: true }).click()
@@ -147,7 +170,7 @@ test('管理员查询、新增和修改用户昵称，普通用户不能进入�
   await expect(page.getByLabel('当前账号', { exact: true })).toContainText('星云维护员')
   await page.getByRole('link', { name: '星云首页', exact: true }).click()
   await page.getByRole('link', { name: '用户管理', exact: true }).click()
-  await expect(panel.getByText('共 14 个用户')).toBeVisible()
+  await expect(panel.getByText('共 13 个用户')).toBeVisible()
   await page.getByRole('button', { name: '退出登录', exact: true }).click()
   await expect(page).toHaveURL('/user/login')
   await page.getByLabel('账号', { exact: true }).fill('xy_user_1')

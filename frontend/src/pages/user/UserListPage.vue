@@ -1,20 +1,22 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import {
   Alert as AAlert,
   Button as AButton,
   Empty as AEmpty,
   Input as AInput,
   Pagination as APagination,
+  Popconfirm as APopconfirm,
   Skeleton as ASkeleton,
   Table as ATable,
   Tag as ATag,
+  message,
 } from 'ant-design-vue'
 import PageHeading from '@/components/PageHeading.vue'
 import UserAddModal from '@/pages/user/components/UserAddModal.vue'
 import UserRenameModal from '@/pages/user/components/UserRenameModal.vue'
 import { ApiError, errorMessage } from '@/request'
-import { listUsers } from '@/service/api/user'
+import { deleteUser, listUsers } from '@/service/api/user'
 import { useLoginUserStore } from '@/stores/useLoginUserStore'
 import type { UserVO } from '@/types/api'
 
@@ -28,6 +30,11 @@ const loading = ref(false)
 const error = ref('')
 const addOpen = ref(false)
 const editingUser = ref<UserVO | null>(null)
+const deleteOpenId = ref('')
+const deletingId = ref('')
+const deleteError = ref('')
+const failedDeleteUser = ref<UserVO | null>(null)
+const busy = computed(() => loading.value || deletingId.value !== '')
 const pageSize = 10
 const columns = [
   { title: '用户 ID', dataIndex: 'id', key: 'id', width: 180 },
@@ -42,13 +49,24 @@ async function load(): Promise<void> {
   if (loading.value) return
   loading.value = true
   error.value = ''
+  deleteOpenId.value = ''
   try {
-    const result = await listUsers({
+    let result = await listUsers({
       userAccount: appliedAccount.value,
       current: current.value,
       pageSize,
     })
     if (!active) return
+    const lastPage = Math.max(1, Math.ceil(result.total / pageSize))
+    if (current.value > lastPage) {
+      current.value = lastPage
+      result = await listUsers({
+        userAccount: appliedAccount.value,
+        current: current.value,
+        pageSize,
+      })
+      if (!active) return
+    }
     rows.value = result.records
     total.value = result.total
   } catch (cause) {
@@ -63,7 +81,9 @@ async function load(): Promise<void> {
 }
 
 function search(): void {
-  if (loading.value) return
+  if (busy.value) return
+  deleteError.value = ''
+  failedDeleteUser.value = null
   appliedAccount.value = keyword.value.trim()
   current.value = 1
   void load()
@@ -88,9 +108,53 @@ function handleRenamed(id: string, userName: string): void {
 }
 
 function changePage(page: number): void {
-  if (loading.value) return
+  if (busy.value) return
+  deleteError.value = ''
+  failedDeleteUser.value = null
   current.value = page
   void load()
+}
+
+function changeDeleteOpen(user: UserVO, open: boolean): void {
+  if (busy.value || loginUserStore.authAction !== null) return
+  deleteOpenId.value = open ? user.id : ''
+}
+
+async function removeUser(user: UserVO): Promise<void> {
+  if (busy.value || loginUserStore.authAction !== null) return
+  deletingId.value = user.id
+  deleteError.value = ''
+  failedDeleteUser.value = null
+  try {
+    await deleteUser(user.id)
+    if (!active) return
+    void message.success('用户已删除')
+    await load()
+  } catch (cause) {
+    if (!active) return
+    deleteError.value = `账号「${user.userAccount}」：${errorMessage(cause)}`
+    if (cause instanceof ApiError && (cause.code === 40100 || cause.code === 40300)) {
+      await loginUserStore.loadUser()
+    } else if (cause instanceof ApiError && (cause.code === 40400 || cause.code === 50001)) {
+      await load()
+    } else {
+      failedDeleteUser.value = user
+    }
+  } finally {
+    if (active) {
+      deletingId.value = ''
+      deleteOpenId.value = ''
+    }
+  }
+}
+
+function retryDelete(): void {
+  if (busy.value || loginUserStore.authAction !== null) return
+  const target = rows.value.find(
+    (user) => user.id === failedDeleteUser.value?.id && user.userRole === 'user',
+  )
+  if (target) changeDeleteOpen(target, true)
+  else void load()
 }
 
 onMounted(load)
@@ -101,7 +165,7 @@ onBeforeUnmount(() => {
 
 <template>
   <section class="user-list" aria-label="用户管理">
-    <PageHeading title="用户管理" description="按账号查找用户，维护用户昵称。" />
+    <PageHeading title="用户管理" description="按账号查找用户，维护昵称或删除普通用户。" />
     <form class="search-form" aria-label="查询用户" @submit.prevent="search">
       <label class="account-filter">
         登录账号
@@ -109,22 +173,37 @@ onBeforeUnmount(() => {
           v-model:value="keyword"
           placeholder="输入账号关键词"
           aria-label="登录账号"
-          :disabled="loading"
+          :disabled="busy"
           allow-clear
         />
       </label>
-      <AButton html-type="submit" :loading="loading">查询</AButton>
-      <AButton :disabled="loading || (!keyword && !appliedAccount)" @click="reset">重置</AButton>
+      <AButton html-type="submit" :loading="loading" :disabled="deletingId !== ''">查询</AButton>
+      <AButton :disabled="busy || (!keyword && !appliedAccount)" @click="reset">重置</AButton>
       <AButton
         type="primary"
         shape="round"
         class="add-user-button"
-        :disabled="loading"
+        :disabled="busy || loginUserStore.authAction !== null"
         @click="addOpen = true"
       >
         新增用户
       </AButton>
     </form>
+    <AAlert
+      v-if="deleteError"
+      class="delete-error"
+      type="error"
+      message="用户删除失败"
+      :description="deleteError"
+      show-icon
+      role="alert"
+    >
+      <template #action>
+        <AButton :disabled="busy || loginUserStore.authAction !== null" @click="retryDelete">
+          {{ failedDeleteUser ? '重试' : '刷新列表' }}
+        </AButton>
+      </template>
+    </AAlert>
     <ASkeleton v-if="loading" active :paragraph="{ rows: 5 }" aria-label="正在读取用户列表" />
     <AAlert
       v-else-if="error"
@@ -157,14 +236,48 @@ onBeforeUnmount(() => {
           <ATag v-if="column.key === 'userRole'">{{
             text === 'admin' ? '管理员' : '普通用户'
           }}</ATag>
-          <AButton
-            v-else-if="column.key === 'actions'"
-            type="link"
-            :disabled="loginUserStore.authAction !== null"
-            @click="editingUser = record as UserVO"
-          >
-            修改昵称
-          </AButton>
+          <div v-else-if="column.key === 'actions'" class="row-actions">
+            <AButton
+              type="link"
+              :disabled="busy || loginUserStore.authAction !== null"
+              @click="editingUser = record as UserVO"
+            >
+              修改昵称
+            </AButton>
+            <APopconfirm
+              v-if="record.userRole === 'user'"
+              :open="deleteOpenId === record.id"
+              title="确认删除这个用户？"
+              placement="bottomRight"
+              :ok-text="deletingId === record.id ? '删除中' : '确认删除'"
+              cancel-text="取消"
+              :ok-button-props="{
+                danger: true,
+                loading: deletingId === record.id,
+                disabled: loginUserStore.authAction !== null,
+              }"
+              :cancel-button-props="{ disabled: deletingId !== '' }"
+              :disabled="busy || loginUserStore.authAction !== null"
+              @open-change="(open: boolean) => changeDeleteOpen(record as UserVO, open)"
+              @confirm="removeUser(record as UserVO)"
+            >
+              <template #description>
+                <p class="delete-confirmation">
+                  将删除账号「{{
+                    record.userAccount
+                  }}」及其全部应用，并下线公开作品。删除后该账号将无法登录。
+                </p>
+              </template>
+              <AButton
+                type="link"
+                danger
+                :loading="deletingId === record.id"
+                :disabled="busy || loginUserStore.authAction !== null"
+              >
+                删除
+              </AButton>
+            </APopconfirm>
+          </div>
           <span v-else class="cell-text">{{ text }}</span>
         </template>
       </ATable>
@@ -175,6 +288,7 @@ onBeforeUnmount(() => {
           :page-size="pageSize"
           :total="total"
           :show-size-changer="false"
+          :disabled="busy"
           hide-on-single-page
           simple
           aria-label="用户分页"
@@ -214,6 +328,20 @@ onBeforeUnmount(() => {
 }
 .cell-text {
   overflow-wrap: anywhere;
+}
+.row-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+}
+.delete-confirmation {
+  width: min(280px, calc(100vw - 96px));
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.delete-error {
+  margin-bottom: 16px;
 }
 .list-footer {
   display: flex;

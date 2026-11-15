@@ -18,6 +18,9 @@ export const listUsers = (params: UserQueryRequest): Promise<UserPageVO> =>
 export const updateUser = (id: string, data: UserUpdateRequest): Promise<boolean> =>
   request<boolean>(`/api/users/${id}`, { method: 'PATCH', data })
 
+export const deleteUser = (id: string): Promise<boolean> =>
+  request<boolean>(`/api/users/${id}`, { method: 'DELETE' })
+
 export const registerUser = (data: UserRegisterRequest): Promise<string> =>
   request<string>('/api/users/register', { method: 'POST', data })
 

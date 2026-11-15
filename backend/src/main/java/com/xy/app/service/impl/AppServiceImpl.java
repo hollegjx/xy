@@ -112,6 +112,21 @@ public class AppServiceImpl implements AppService {
     }
 
     @Override
+    public void removeUserDeployments(long userId) {
+        var apps = appMapper.selectListByQuery(QueryWrapper.create().eq(App::getUserId, userId));
+        for (App app : apps) {
+            if (app.getDeployKey() == null) continue;
+            try {
+                fileManager.removePublishedHtml(deployment.directory(), app.getDeployKey());
+            } catch (IOException error) {
+                log.error("用户 {} 应用 {} 发布页面移除失败，异常类型 {}", userId, app.getId(),
+                        error.getClass().getSimpleName());
+                throw new BusinessException(ErrorCode.SYSTEM_ERROR, "移除用户作品失败，账号尚未删除，请重试");
+            }
+        }
+    }
+
+    @Override
     public App getOwnedApp(long id, User loginUser) {
         App app = appMapper.selectOneById(id);
         if (app == null) {

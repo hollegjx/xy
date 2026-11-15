@@ -18,6 +18,8 @@ public interface UserService {
 
     boolean updateUser(long id, UserUpdateRequest request, HttpServletRequest servletRequest);
 
+    boolean deleteUser(long id, HttpServletRequest servletRequest);
+
     long register(UserRegisterRequest request);
 
     UserVO login(UserLoginRequest request, HttpServletRequest servletRequest);

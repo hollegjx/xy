@@ -2,6 +2,7 @@ package com.xy.user.service.impl;
 
 import com.mybatisflex.core.paginate.Page;
 import com.mybatisflex.core.query.QueryWrapper;
+import com.xy.app.service.AppService;
 import com.xy.common.ErrorCode;
 import com.xy.common.UserConstant;
 import com.xy.exception.BusinessException;
@@ -27,10 +28,15 @@ public class UserServiceImpl implements UserService {
 
     private final UserMapper userMapper;
     private final PasswordEncoder passwordEncoder;
+    private final AppService appService;
+    private final UserDeletionPersistence deletionPersistence;
 
-    public UserServiceImpl(UserMapper userMapper, PasswordEncoder passwordEncoder) {
+    public UserServiceImpl(UserMapper userMapper, PasswordEncoder passwordEncoder, AppService appService,
+            UserDeletionPersistence deletionPersistence) {
         this.userMapper = userMapper;
         this.passwordEncoder = passwordEncoder;
+        this.appService = appService;
+        this.deletionPersistence = deletionPersistence;
     }
 
     @Override
@@ -74,6 +80,21 @@ public class UserServiceImpl implements UserService {
         if (userMapper.updateUserName(id, request.userName()) != 1) {
             throw new BusinessException(ErrorCode.SYSTEM_ERROR, "用户昵称保存失败，请重试");
         }
+        return true;
+    }
+
+    @Override
+    public boolean deleteUser(long id, HttpServletRequest servletRequest) {
+        checkAdmin(servletRequest, "仅管理员可删除用户");
+        User user = userMapper.selectOneById(id);
+        if (user == null) {
+            throw new BusinessException(ErrorCode.NOT_FOUND_ERROR, "用户不存在或已删除");
+        }
+        if (!UserRoleEnum.USER.getValue().equals(user.getUserRole())) {
+            throw new BusinessException(ErrorCode.OPERATION_ERROR, "仅支持删除普通用户，管理员账号不能删除");
+        }
+        appService.removeUserDeployments(id);
+        deletionPersistence.deleteUserAndApps(id);
         return true;
     }
 

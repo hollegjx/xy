@@ -16,6 +16,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Positive;
 import org.springdoc.core.annotations.ParameterObject;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.ModelAttribute;
 import org.springframework.web.bind.annotation.PatchMapping;
@@ -64,6 +65,17 @@ public class UserController {
             @Positive @PathVariable long id, @Valid @RequestBody UserUpdateRequest request,
             HttpServletRequest servletRequest) {
         return ApiResponse.success(userService.updateUser(id, request, servletRequest));
+    }
+
+    @Operation(summary = "管理员删除用户", description = "仅管理员可调用，无需请求体；只允许删除普通用户，管理员账号返回 HTTP 409。"
+            + "先移除目标用户的公开作品，再将账号和所属应用一起逻辑删除；成功返回 true。"
+            + "删除后账号不能登录，原 Session 在后续身份校验时失效；对话和私有源码保留。"
+            + "目标不存在或已删除返回 HTTP 404，公开入口移除失败时保留账号供重试。")
+    @DeleteMapping("/{id}")
+    public ApiResponse<Boolean> deleteUser(
+            @Parameter(description = "待删除的普通用户 ID，必须大于 0", example = "84")
+            @Positive @PathVariable long id, HttpServletRequest servletRequest) {
+        return ApiResponse.success(userService.deleteUser(id, servletRequest));
     }
 
     @Operation(summary = "注册用户", description = "无需登录；两次密码须一致，账号重复时返回 HTTP 409 / 业务码 50001。仅创建普通用户，返回字符串形式的用户 ID。")

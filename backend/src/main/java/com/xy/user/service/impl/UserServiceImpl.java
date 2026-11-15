@@ -6,6 +6,7 @@ import com.xy.common.ErrorCode;
 import com.xy.common.UserConstant;
 import com.xy.exception.BusinessException;
 import com.xy.user.mapper.UserMapper;
+import com.xy.user.model.dto.UserAddRequest;
 import com.xy.user.model.dto.UserLoginRequest;
 import com.xy.user.model.dto.UserQueryRequest;
 import com.xy.user.model.dto.UserRegisterRequest;
@@ -32,15 +33,38 @@ public class UserServiceImpl implements UserService {
     }
 
     @Override
-    public UserPageVO listUsers(UserQueryRequest request, HttpServletRequest servletRequest) {
-        User loginUser = getLoginUser(servletRequest);
-        if (!UserRoleEnum.ADMIN.getValue().equals(loginUser.getUserRole())) {
-            throw new BusinessException(ErrorCode.NO_AUTH_ERROR, "仅管理员可查询用户");
-        }
+    public long addUser(UserAddRequest request, HttpServletRequest servletRequest) {
+        checkAdmin(servletRequest, "仅管理员可新增用户");
+        User user = new User();
+        user.setUserAccount(request.userAccount());
+        user.setUserPassword(passwordEncoder.encode(request.userPassword()));
+        user.setUserName(request.userName() == null || request.userName().isBlank()
+                ? request.userAccount() : request.userName());
+        user.setUserRole(UserRoleEnum.USER.getValue());
 
+        try {
+            if (userMapper.insert(user) != 1) {
+                throw new BusinessException(ErrorCode.SYSTEM_ERROR, "新增用户失败，请稍后重试");
+            }
+        } catch (DuplicateKeyException exception) {
+            throw new BusinessException(ErrorCode.OPERATION_ERROR, "账号已存在");
+        }
+        return user.getId();
+    }
+
+    @Override
+    public UserPageVO listUsers(UserQueryRequest request, HttpServletRequest servletRequest) {
+        checkAdmin(servletRequest, "仅管理员可查询用户");
         Page<User> page = userMapper.paginate(request.current(), request.pageSize(), getQueryWrapper(request));
         return new UserPageVO(page.getRecords().stream().map(this::getUserVO).toList(),
                 page.getTotalRow(), page.getPageNumber(), page.getPageSize());
+    }
+
+    private void checkAdmin(HttpServletRequest request, String message) {
+        User loginUser = getLoginUser(request);
+        if (!UserRoleEnum.ADMIN.getValue().equals(loginUser.getUserRole())) {
+            throw new BusinessException(ErrorCode.NO_AUTH_ERROR, message);
+        }
     }
 
     private QueryWrapper getQueryWrapper(UserQueryRequest request) {

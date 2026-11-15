@@ -1,6 +1,7 @@
 package com.xy.user.controller;
 
 import com.xy.common.ApiResponse;
+import com.xy.user.model.dto.UserAddRequest;
 import com.xy.user.model.dto.UserLoginRequest;
 import com.xy.user.model.dto.UserQueryRequest;
 import com.xy.user.model.dto.UserRegisterRequest;
@@ -28,6 +29,15 @@ public class UserController {
 
     public UserController(UserService userService) {
         this.userService = userService;
+    }
+
+    @Operation(summary = "管理员新增用户", description = "仅管理员可调用；填写账号、初始密码及可选昵称，只创建普通用户。"
+            + "昵称留空时使用账号，账号重复时返回 HTTP 409 / 业务码 50001。"
+            + "成功仅返回字符串用户 ID，不改变当前管理员的登录身份。")
+    @PostMapping
+    public ApiResponse<String> addUser(@Valid @RequestBody UserAddRequest request,
+            HttpServletRequest servletRequest) {
+        return ApiResponse.success(Long.toString(userService.addUser(request, servletRequest)));
     }
 
     @Operation(summary = "管理员查询用户", description = "仅管理员可调用；支持账号模糊查询，默认第 1 页、每页 10 个。"

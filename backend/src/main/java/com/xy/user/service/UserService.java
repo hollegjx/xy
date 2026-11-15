@@ -1,5 +1,6 @@
 package com.xy.user.service;
 
+import com.xy.user.model.dto.UserAddRequest;
 import com.xy.user.model.dto.UserLoginRequest;
 import com.xy.user.model.dto.UserQueryRequest;
 import com.xy.user.model.dto.UserRegisterRequest;
@@ -9,6 +10,8 @@ import com.xy.user.model.vo.UserVO;
 import jakarta.servlet.http.HttpServletRequest;
 
 public interface UserService {
+
+    long addUser(UserAddRequest request, HttpServletRequest servletRequest);
 
     UserPageVO listUsers(UserQueryRequest request, HttpServletRequest servletRequest);
 

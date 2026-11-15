@@ -4,11 +4,14 @@ import com.mybatisflex.core.paginate.Page;
 import com.mybatisflex.core.query.QueryWrapper;
 import com.xy.app.mapper.AppMapper;
 import com.xy.app.model.dto.AppAddRequest;
+import com.xy.app.model.dto.AppAdminQueryRequest;
 import com.xy.app.model.dto.AppQueryRequest;
 import com.xy.app.model.dto.AppUpdateRequest;
 import com.xy.app.model.entity.App;
 import com.xy.app.model.enums.CodeGenTypeEnum;
 import com.xy.app.model.vo.AppDeployVO;
+import com.xy.app.model.vo.AppAdminPageVO;
+import com.xy.app.model.vo.AppAdminVO;
 import com.xy.app.model.vo.AppPageVO;
 import com.xy.app.model.vo.AppVO;
 import com.xy.app.service.AppService;
@@ -21,6 +24,7 @@ import com.xy.config.DeploymentConfiguration;
 import com.xy.exception.BusinessException;
 import com.xy.manager.GeneratedFileManager;
 import com.xy.user.model.entity.User;
+import com.xy.user.model.enums.UserRoleEnum;
 import java.io.IOException;
 import java.nio.file.NoSuchFileException;
 import java.time.LocalDateTime;
@@ -78,6 +82,21 @@ public class AppServiceImpl implements AppService {
                 .orderBy(App::getId, false);
         Page<App> page = appMapper.paginate(request.current(), request.pageSize(), query);
         return new AppPageVO(page.getRecords().stream().map(this::getAppVO).toList(),
+                page.getTotalRow(), page.getPageNumber(), page.getPageSize());
+    }
+
+    @Override
+    public AppAdminPageVO listAppsForAdmin(AppAdminQueryRequest request, User loginUser) {
+        if (!UserRoleEnum.ADMIN.getValue().equals(loginUser.getUserRole())) {
+            throw new BusinessException(ErrorCode.NO_AUTH_ERROR, "仅管理员可查询全平台应用");
+        }
+        QueryWrapper query = QueryWrapper.create()
+                .like(App::getAppName, request.appName(), !request.appName().isEmpty())
+                .eq(App::getUserId, request.userId(), request.userId() != null)
+                .orderBy(App::getCreateTime, false)
+                .orderBy(App::getId, false);
+        Page<App> page = appMapper.paginate(request.current(), request.pageSize(), query);
+        return new AppAdminPageVO(page.getRecords().stream().map(this::getAppAdminVO).toList(),
                 page.getTotalRow(), page.getPageNumber(), page.getPageSize());
     }
 
@@ -199,6 +218,13 @@ public class AppServiceImpl implements AppService {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "当前交付仅支持 html 或 multi_file 模式");
         }
         return versionId;
+    }
+
+    private AppAdminVO getAppAdminVO(App app) {
+        return new AppAdminVO(Long.toString(app.getId()), Long.toString(app.getUserId()), app.getAppName(),
+                app.getCodeGenType(), app.getCreateTime(), app.getUpdateTime(),
+                app.getPublishedVersion() == null ? null : new AppDeployVO(deployment.siteUrl(app.getDeployKey()),
+                        Long.toString(app.getPublishedVersion()), app.getDeployedAt()));
     }
 
     private AppVO getAppVO(App app) {

@@ -1,9 +1,11 @@
 package com.xy.app.controller;
 
 import com.xy.app.model.dto.AppAddRequest;
+import com.xy.app.model.dto.AppAdminQueryRequest;
 import com.xy.app.model.dto.AppQueryRequest;
 import com.xy.app.model.dto.AppUpdateRequest;
 import com.xy.app.model.vo.AppDeployVO;
+import com.xy.app.model.vo.AppAdminPageVO;
 import com.xy.app.model.vo.AppPageVO;
 import com.xy.app.model.vo.AppVO;
 import com.xy.app.service.AppService;
@@ -52,6 +54,17 @@ public class AppController {
     public ApiResponse<String> createApp(@Valid @RequestBody AppAddRequest request,
             HttpServletRequest servletRequest) {
         return ApiResponse.success(Long.toString(appService.createApp(request, userService.getLoginUser(servletRequest))));
+    }
+
+    @Operation(summary = "管理员查询应用", description = "仅管理员可调用，支持名称模糊查询和创建者 ID 精确筛选；"
+            + "省略条件时查询全平台未删除应用，默认第 1 页、每页 10 个，按创建时间和 ID 倒序排列。"
+            + "仅返回应用摘要及已有发布信息，不包含初始需求、对话或源码；不开放他人工作台访问权限。"
+            + "未登录返回 HTTP 401，普通用户返回 HTTP 403，非法分页或创建者 ID 返回 HTTP 400。")
+    @GetMapping
+    public ApiResponse<AppAdminPageVO> listAppsForAdmin(
+            @Valid @ModelAttribute @ParameterObject AppAdminQueryRequest request,
+            HttpServletRequest servletRequest) {
+        return ApiResponse.success(appService.listAppsForAdmin(request, userService.getLoginUser(servletRequest)));
     }
 
     @Operation(summary = "查询我的应用", description = "需要登录；仅查询当前账号创建且未删除的应用，管理员也不例外。"

@@ -1,10 +1,12 @@
 package com.xy.app.service;
 
 import com.xy.app.model.dto.AppAddRequest;
+import com.xy.app.model.dto.AppAdminQueryRequest;
 import com.xy.app.model.dto.AppQueryRequest;
 import com.xy.app.model.dto.AppUpdateRequest;
 import com.xy.app.model.entity.App;
 import com.xy.app.model.vo.AppDeployVO;
+import com.xy.app.model.vo.AppAdminPageVO;
 import com.xy.app.model.vo.AppPageVO;
 import com.xy.app.model.vo.AppVO;
 import com.xy.user.model.entity.User;
@@ -16,6 +18,8 @@ public interface AppService {
     AppVO getAppById(long id, User loginUser);
 
     AppPageVO listMyApps(AppQueryRequest request, User loginUser);
+
+    AppAdminPageVO listAppsForAdmin(AppAdminQueryRequest request, User loginUser);
 
     boolean updateApp(long id, AppUpdateRequest request, User loginUser);
 

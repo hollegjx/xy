@@ -11,11 +11,15 @@ import {
 } from 'ant-design-vue'
 import type { FormInstance } from 'ant-design-vue'
 import { ApiError, errorMessage } from '@/request'
-import { updateApp } from '@/service/api/app'
+import { updateApp, updateAppForAdmin } from '@/service/api/app'
 import { useLoginUserStore } from '@/stores/useLoginUserStore'
 import type { AppUpdateRequest, AppVO } from '@/types/api'
 
-const props = defineProps<{ open: boolean; app: AppVO }>()
+const props = defineProps<{
+  open: boolean
+  app: Pick<AppVO, 'id' | 'appName'>
+  mode?: 'owner' | 'admin'
+}>()
 const emit = defineEmits<{ close: []; saved: [appName: string] }>()
 const loginUserStore = useLoginUserStore()
 const formRef = ref<FormInstance>()
@@ -35,12 +39,17 @@ async function save(): Promise<void> {
   error.value = ''
   const data = { ...form }
   try {
-    await updateApp(props.app.id, data)
+    const update = props.mode === 'admin' ? updateAppForAdmin : updateApp
+    await update(props.app.id, data)
     emit('saved', data.appName)
     void message.success('名称已更新')
   } catch (cause) {
-    if (cause instanceof ApiError && cause.code === 40100) loginUserStore.setUser(null)
-    else error.value = errorMessage(cause)
+    error.value = errorMessage(cause)
+    if (cause instanceof ApiError) {
+      if (props.mode === 'admin' && (cause.code === 40100 || cause.code === 40300)) {
+        await loginUserStore.loadUser()
+      } else if (cause.code === 40100) loginUserStore.setUser(null)
+    }
   } finally {
     busy.value = false
   }
@@ -69,6 +78,7 @@ watch(
     :mask-closable="!busy"
     @cancel="emit('close')"
   >
+    <p v-if="mode === 'admin'" class="app-info">应用 ID：{{ app.id }}</p>
     <AForm
       ref="formRef"
       name="rename-app"
@@ -117,6 +127,12 @@ watch(
 </template>
 
 <style scoped>
+.app-info {
+  margin: 0 0 24px;
+  overflow-wrap: anywhere;
+  color: var(--muted);
+  font-size: 14px;
+}
 .submit-error {
   margin-bottom: 24px;
 }

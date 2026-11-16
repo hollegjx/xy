@@ -19,6 +19,9 @@ export const getApp = (id: string): Promise<AppVO> =>
 export const updateApp = (id: string, data: AppUpdateRequest): Promise<boolean> =>
   request<boolean>(`/api/apps/${encodeURIComponent(id)}`, { method: 'PATCH', data })
 
+export const updateAppForAdmin = (id: string, data: AppUpdateRequest): Promise<boolean> =>
+  request<boolean>(`/api/admin/apps/${encodeURIComponent(id)}`, { method: 'PATCH', data })
+
 export const deleteApp = (id: string): Promise<boolean> =>
   request<boolean>(`/api/apps/${encodeURIComponent(id)}`, { method: 'DELETE' })
 

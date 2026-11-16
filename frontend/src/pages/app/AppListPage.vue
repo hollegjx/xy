@@ -11,6 +11,7 @@ import {
   Tag as ATag,
 } from 'ant-design-vue'
 import PageHeading from '@/components/PageHeading.vue'
+import AppRenameModal from '@/pages/app/components/AppRenameModal.vue'
 import { ApiError, errorMessage } from '@/request'
 import { listAppsForAdmin } from '@/service/api/app'
 import { useLoginUserStore } from '@/stores/useLoginUserStore'
@@ -24,6 +25,7 @@ const current = ref(1)
 const total = ref(0)
 const loading = ref(false)
 const error = ref('')
+const editingApp = ref<AppAdminVO | null>(null)
 const hasFilters = computed(() =>
   Boolean(appliedFilters.value.appName || appliedFilters.value.userId),
 )
@@ -91,6 +93,11 @@ function changePage(page: number): void {
   void load()
 }
 
+function handleRenamed(): void {
+  editingApp.value = null
+  void load()
+}
+
 onMounted(load)
 onBeforeUnmount(() => {
   active = false
@@ -99,7 +106,7 @@ onBeforeUnmount(() => {
 
 <template>
   <section class="app-list" aria-label="应用管理">
-    <PageHeading title="应用管理" description="按名称和创建者查找应用，查看已有公开作品。" />
+    <PageHeading title="应用管理" description="按名称和创建者查找应用，维护名称并查看公开作品。" />
     <form class="search-form" aria-label="查询应用" @submit.prevent="search">
       <label class="name-filter">
         应用名称
@@ -178,10 +185,18 @@ onBeforeUnmount(() => {
           >
             {{ text.replace('T', ' ') }}
           </time>
-          <template v-else-if="column.key === 'actions'">
+          <div v-else-if="column.key === 'actions'" class="row-actions">
+            <AButton
+              class="action-link"
+              type="link"
+              :disabled="loading || loginUserStore.authAction !== null"
+              @click="editingApp = record as AppAdminVO"
+            >
+              修改名称
+            </AButton>
             <AButton
               v-if="record.deployment?.deployUrl"
-              class="work-link"
+              class="action-link"
               type="link"
               :href="record.deployment.deployUrl"
               target="_blank"
@@ -190,7 +205,7 @@ onBeforeUnmount(() => {
               查看作品
             </AButton>
             <span v-else class="muted">{{ record.deployment ? '暂无公开地址' : '—' }}</span>
-          </template>
+          </div>
           <span v-else class="cell-text">{{ text }}</span>
         </template>
       </ATable>
@@ -209,6 +224,14 @@ onBeforeUnmount(() => {
         />
       </div>
     </template>
+    <AppRenameModal
+      v-if="editingApp"
+      :open="true"
+      :app="editingApp"
+      mode="admin"
+      @close="editingApp = null"
+      @saved="handleRenamed"
+    />
   </section>
 </template>
 
@@ -241,7 +264,13 @@ onBeforeUnmount(() => {
 .cell-text {
   overflow-wrap: anywhere;
 }
-.work-link {
+.row-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+}
+.action-link {
   padding-inline: 0;
 }
 .muted {

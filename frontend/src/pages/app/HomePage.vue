@@ -12,6 +12,7 @@ import {
 } from 'ant-design-vue'
 import { ApiError, errorMessage } from '@/request'
 import MyAppsPanel from '@/pages/app/components/MyAppsPanel.vue'
+import FeaturedAppsPanel from '@/pages/app/components/FeaturedAppsPanel.vue'
 import { createApp } from '@/service/api/app'
 import { useAppDraftStore } from '@/stores/useAppDraftStore'
 import { useLoginUserStore } from '@/stores/useLoginUserStore'
@@ -139,6 +140,7 @@ onBeforeUnmount(() => {
       v-if="loginUserStore.status === 'ready' && loginUserStore.user"
       :key="loginUserStore.user.id"
     />
+    <FeaturedAppsPanel />
   </section>
 </template>
 

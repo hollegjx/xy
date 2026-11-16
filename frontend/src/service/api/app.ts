@@ -5,6 +5,7 @@ import type {
   AppAdminQueryRequest,
   AppDeployVO,
   AppFeaturedRequest,
+  AppFeaturedVO,
   AppPageVO,
   AppQueryRequest,
   AppUpdateRequest,
@@ -37,6 +38,9 @@ export const listMyApps = (params: AppQueryRequest): Promise<AppPageVO> =>
 
 export const listAppsForAdmin = (params: AppAdminQueryRequest): Promise<AppAdminPageVO> =>
   request<AppAdminPageVO>('/api/apps', { params })
+
+export const listFeaturedApps = (): Promise<AppFeaturedVO[]> =>
+  request<AppFeaturedVO[]>('/api/apps/featured')
 
 export const getAppSource = (id: string): Promise<Blob> =>
   requestZip(`/api/apps/${encodeURIComponent(id)}/source`)

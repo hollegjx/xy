@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test'
 import type { AppAdminVO, UserVO } from '../src/types/api'
 
-test('管理员查询应用、组合筛选、翻页、改名、精选、删除和查看公开作品，普通用户不能访问', async ({
+test('管理员管理应用并设置精选，访客从首页浏览公开作品，普通用户不能访问管理页', async ({
   page,
   context,
 }) => {
@@ -113,6 +113,17 @@ test('管理员查询应用、组合筛选、翻页、改名、精选、删除�
             message: 'ok',
           },
         })
+      } else if (url.pathname === '/api/apps/featured') {
+        expect(request.method()).toBe('GET')
+        const featured = apps
+          .filter((app) => app.featured && app.deployment?.deployUrl)
+          .map((app) => ({
+            id: app.id,
+            appName: app.appName,
+            codeGenType: app.codeGenType,
+            deployUrl: app.deployment!.deployUrl,
+          }))
+        await route.fulfill({ json: { code: 0, data: featured, message: 'ok' } })
       } else if (url.pathname === '/api/apps/mine') {
         await route.fulfill({
           json: {
@@ -203,6 +214,26 @@ test('管理员查询应用、组合筛选、翻页、改名、精选、删除�
   await expect(panel.getByLabel('应用名称', { exact: true })).toHaveValue('摄影')
   await page.reload()
   await expect(publishedRow.getByText('精选', { exact: true })).toBeVisible()
+  await page.getByRole('button', { name: '退出登录', exact: true }).click()
+  await expect(page).toHaveURL('/user/login')
+  await page.getByRole('link', { name: '星云首页', exact: true }).click()
+  const featuredPanel = page.getByRole('region', { name: '精选作品', exact: true })
+  await expect(
+    featuredPanel.getByRole('heading', { name: '摄影作品集', exact: true }),
+  ).toBeVisible()
+  await expect(page.getByRole('region', { name: '我的应用', exact: true })).toHaveCount(0)
+  await expect(featuredPanel.getByRole('link')).toHaveCount(1)
+  const featuredPopupPromise = page.waitForEvent('popup')
+  await featuredPanel.getByRole('link', { name: '查看作品', exact: true }).click()
+  const featuredPopup = await featuredPopupPromise
+  await expect(
+    featuredPopup.getByRole('heading', { name: '公开摄影作品', exact: true }),
+  ).toBeVisible()
+  await featuredPopup.close()
+  await page.goto('/admin/apps')
+  await page.getByLabel('账号', { exact: true }).fill('admin')
+  await page.getByLabel('密码', { exact: true }).fill('Demo123456!')
+  await page.getByRole('button', { name: '登录', exact: true }).click()
   await publishedRow.getByRole('button', { name: '取消精选', exact: true }).click()
   await expect(publishedRow.getByRole('button', { name: '设为精选', exact: true })).toBeVisible()
   await expect(publishedRow.getByText('精选', { exact: true })).toHaveCount(0)
@@ -211,6 +242,9 @@ test('管理员查询应用、组合筛选、翻页、改名、精选、删除�
     'https://sites.example.test/photography/',
   )
   expect(featuredChanges).toEqual([true, false])
+  await page.getByRole('link', { name: '星云首页', exact: true }).click()
+  await expect(featuredPanel.getByText('还没有精选作品，期待灵感在此成形。')).toBeVisible()
+  await page.getByRole('link', { name: '应用管理', exact: true }).click()
   await panel.getByLabel('应用名称', { exact: true }).fill('摄影')
   await panel.getByRole('button', { name: '查询', exact: true }).click()
   await publishedRow.getByRole('button', { name: '删除', exact: true }).click()

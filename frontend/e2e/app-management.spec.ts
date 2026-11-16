@@ -22,6 +22,8 @@ test('我的应用查询、分页、改名与确认删除后重新读取列表',
       const url = new URL(request.url())
       if (url.pathname === '/api/users/me') {
         await route.fulfill({ json: { code: 0, data: user, message: 'ok' } })
+      } else if (url.pathname === '/api/apps/featured') {
+        await route.fulfill({ json: { code: 0, data: [], message: 'ok' } })
       } else if (url.pathname === '/api/apps/mine') {
         const current = Number(url.searchParams.get('current'))
         const name = url.searchParams.get('appName') ?? ''

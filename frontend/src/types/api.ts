@@ -65,6 +65,13 @@ export interface AppFeaturedRequest {
   featured: boolean
 }
 
+export interface AppFeaturedVO {
+  id: string
+  appName: string
+  codeGenType: CodeGenType
+  deployUrl: string
+}
+
 export interface AppVO {
   id: string
   userId: string

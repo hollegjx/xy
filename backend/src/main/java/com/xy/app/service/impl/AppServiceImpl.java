@@ -13,6 +13,7 @@ import com.xy.app.model.enums.CodeGenTypeEnum;
 import com.xy.app.model.vo.AppDeployVO;
 import com.xy.app.model.vo.AppAdminPageVO;
 import com.xy.app.model.vo.AppAdminVO;
+import com.xy.app.model.vo.AppFeaturedVO;
 import com.xy.app.model.vo.AppPageVO;
 import com.xy.app.model.vo.AppVO;
 import com.xy.app.service.AppService;
@@ -29,6 +30,7 @@ import com.xy.user.model.enums.UserRoleEnum;
 import java.io.IOException;
 import java.nio.file.NoSuchFileException;
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -99,6 +101,22 @@ public class AppServiceImpl implements AppService {
         Page<App> page = appMapper.paginate(request.current(), request.pageSize(), query);
         return new AppAdminPageVO(page.getRecords().stream().map(this::getAppAdminVO).toList(),
                 page.getTotalRow(), page.getPageNumber(), page.getPageSize());
+    }
+
+    @Override
+    public List<AppFeaturedVO> listFeaturedApps() {
+        QueryWrapper query = QueryWrapper.create()
+                .eq(App::getFeatured, true)
+                .isNotNull(App::getPublishedVersion)
+                .isNotNull(App::getDeployKey)
+                .orderBy(App::getDeployedAt, false)
+                .orderBy(App::getId, false)
+                .limit(6);
+        return appMapper.selectListByQuery(query).stream()
+                .map(app -> new AppFeaturedVO(Long.toString(app.getId()), app.getAppName(),
+                        app.getCodeGenType(), deployment.siteUrl(app.getDeployKey())))
+                .filter(app -> app.deployUrl() != null)
+                .toList();
     }
 
     @Override

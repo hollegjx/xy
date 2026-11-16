@@ -55,6 +55,8 @@ for (const codeGenType of ['html', 'multi_file']) {
         } else if (path === '/api/users/login') {
           signedIn = true
           await route.fulfill({ json: { code: 0, data: user, message: 'ok' } })
+        } else if (path === '/api/apps/featured') {
+          await route.fulfill({ json: { code: 0, data: [], message: 'ok' } })
         } else if (path === '/api/apps/mine') {
           await route.fulfill({
             json: {
@@ -252,6 +254,8 @@ test('单 HTML 创建失败保留输入，重试期间阻止重复提交，详�
       const path = new URL(route.request().url()).pathname
       if (path === '/api/users/me') {
         await route.fulfill({ json: { code: 0, data: user, message: 'ok' } })
+      } else if (path === '/api/apps/featured') {
+        await route.fulfill({ json: { code: 0, data: [], message: 'ok' } })
       } else if (path === '/api/apps/mine') {
         await route.fulfill({
           json: {

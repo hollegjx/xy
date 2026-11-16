@@ -83,6 +83,8 @@ test('管理员查询、新增、修改昵称和删除用户，普通用户不�
             message: 'ok',
           },
         })
+      } else if (url.pathname === '/api/apps/featured') {
+        await route.fulfill({ json: { code: 0, data: [], message: 'ok' } })
       } else if (url.pathname === '/api/apps/mine') {
         await route.fulfill({
           json: {

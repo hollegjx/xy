@@ -8,9 +8,11 @@ import com.xy.app.model.dto.AppUpdateRequest;
 import com.xy.app.model.entity.App;
 import com.xy.app.model.vo.AppDeployVO;
 import com.xy.app.model.vo.AppAdminPageVO;
+import com.xy.app.model.vo.AppFeaturedVO;
 import com.xy.app.model.vo.AppPageVO;
 import com.xy.app.model.vo.AppVO;
 import com.xy.user.model.entity.User;
+import java.util.List;
 
 public interface AppService {
 
@@ -21,6 +23,8 @@ public interface AppService {
     AppPageVO listMyApps(AppQueryRequest request, User loginUser);
 
     AppAdminPageVO listAppsForAdmin(AppAdminQueryRequest request, User loginUser);
+
+    List<AppFeaturedVO> listFeaturedApps();
 
     boolean updateApp(long id, AppUpdateRequest request, User loginUser);
 

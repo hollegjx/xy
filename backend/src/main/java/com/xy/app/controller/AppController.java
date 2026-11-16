@@ -6,6 +6,7 @@ import com.xy.app.model.dto.AppQueryRequest;
 import com.xy.app.model.dto.AppUpdateRequest;
 import com.xy.app.model.vo.AppDeployVO;
 import com.xy.app.model.vo.AppAdminPageVO;
+import com.xy.app.model.vo.AppFeaturedVO;
 import com.xy.app.model.vo.AppPageVO;
 import com.xy.app.model.vo.AppVO;
 import com.xy.app.service.AppService;
@@ -19,6 +20,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Positive;
+import java.util.List;
 import org.springdoc.core.annotations.ParameterObject;
 import org.springframework.http.CacheControl;
 import org.springframework.http.ContentDisposition;
@@ -75,6 +77,13 @@ public class AppController {
             @Valid @ModelAttribute @ParameterObject AppQueryRequest request,
             HttpServletRequest servletRequest) {
         return ApiResponse.success(appService.listMyApps(request, userService.getLoginUser(servletRequest)));
+    }
+
+    @Operation(summary = "查询公开精选作品", description = "无需登录；按发布时间和 ID 倒序返回最多 6 个有效精选作品。"
+            + "仅返回 ID、名称、生成模式和公开地址，不提供私有工作台内容；未配置公开站点时返回空数组。")
+    @GetMapping("/featured")
+    public ApiResponse<List<AppFeaturedVO>> listFeaturedApps() {
+        return ApiResponse.success(appService.listFeaturedApps());
     }
 
     @Operation(summary = "获取应用详情", description = "需要登录且为应用创建者；返回名称、初始需求、生成模式、时间和发布信息。"

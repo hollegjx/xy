@@ -2,6 +2,7 @@ package com.xy.app.service;
 
 import com.xy.app.model.dto.AppAddRequest;
 import com.xy.app.model.dto.AppAdminQueryRequest;
+import com.xy.app.model.dto.AppFeaturedRequest;
 import com.xy.app.model.dto.AppQueryRequest;
 import com.xy.app.model.dto.AppUpdateRequest;
 import com.xy.app.model.entity.App;
@@ -24,6 +25,8 @@ public interface AppService {
     boolean updateApp(long id, AppUpdateRequest request, User loginUser);
 
     boolean updateAppForAdmin(long id, AppUpdateRequest request, User loginUser);
+
+    boolean updateFeaturedForAdmin(long id, AppFeaturedRequest request, User loginUser);
 
     boolean deleteApp(long id, User loginUser);
 

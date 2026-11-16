@@ -1,6 +1,7 @@
 package com.xy.app.controller;
 
 import com.xy.app.model.dto.AppUpdateRequest;
+import com.xy.app.model.dto.AppFeaturedRequest;
 import com.xy.app.service.AppService;
 import com.xy.common.ApiResponse;
 import com.xy.user.service.UserService;
@@ -40,6 +41,19 @@ public class AppAdminController {
             @Positive @PathVariable long id, @Valid @RequestBody AppUpdateRequest request,
             HttpServletRequest servletRequest) {
         return ApiResponse.success(appService.updateAppForAdmin(id, request,
+                userService.getLoginUser(servletRequest)));
+    }
+
+    @Operation(summary = "管理员设置或取消精选", description = "仅管理员可调用；featured 为 true 时应用须已发布，"
+            + "为 false 时取消精选。成功或状态未变化时返回 true，不改变生成或发布内容。"
+            + "未登录返回 HTTP 401，普通用户返回 HTTP 403，不存在或已删除返回 HTTP 404，"
+            + "参数错误返回 HTTP 400，未发布应用设为精选返回 HTTP 409。")
+    @PatchMapping("/{id}/featured")
+    public ApiResponse<Boolean> updateFeaturedForAdmin(
+            @Parameter(description = "应用 ID，必须大于 0", example = "55")
+            @Positive @PathVariable long id, @Valid @RequestBody AppFeaturedRequest request,
+            HttpServletRequest servletRequest) {
+        return ApiResponse.success(appService.updateFeaturedForAdmin(id, request,
                 userService.getLoginUser(servletRequest)));
     }
 

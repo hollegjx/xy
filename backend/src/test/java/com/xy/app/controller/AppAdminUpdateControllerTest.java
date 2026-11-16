@@ -25,6 +25,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
@@ -152,6 +153,83 @@ class AppAdminUpdateControllerTest {
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value(40000));
         verifyNoInteractions(apps);
+    }
+
+    @Test
+    void adminSetsAndClearsFeaturedAndQueriesReadTheSavedState() throws Exception {
+        when(apps.paginate(eq(1), eq(10), any(QueryWrapper.class)))
+                .thenReturn(new Page<>(List.of(app), 1, 10, 1));
+        assertThat(app.getFeatured()).isFalse();
+        for (boolean featured : List.of(true, false)) {
+            when(apps.updateFeatured(55L, 84L, featured)).thenAnswer(invocation -> {
+                app.setFeatured(invocation.getArgument(2));
+                return 1;
+            });
+            for (int attempt = 0; attempt < 2; attempt++) {
+                mockMvc.perform(featured(55L).session(session(42L))
+                                .content("{\"featured\":" + featured + ",\"userId\":\"42\",\"appName\":\"替换名称\"}"))
+                        .andExpect(status().isOk()).andExpect(jsonPath("$.data").value(true));
+            }
+            mockMvc.perform(get("/api/apps").contextPath("/api").session(session(42L)))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data.records[0].featured").value(featured));
+            verify(apps).updateFeatured(55L, 84L, featured);
+        }
+        assertThat(app.getAppName()).isEqualTo("旧应用");
+        assertThat(app.getUserId()).isEqualTo(84L);
+        assertThat(app.getInitPrompt()).isEqualTo("生成一个个人博客");
+        assertThat(app.getGeneratedVersion()).isEqualTo(90L);
+        assertThat(app.getPublishedVersion()).isEqualTo(89L);
+        assertThat(app.getDeployKey()).isEqualTo("a".repeat(32));
+    }
+
+    @Test
+    void featuredRequiresCurrentAdminRoleEvenWhenTheCallerOwnsTheApp() throws Exception {
+        mockMvc.perform(featured(55L).content("{\"featured\":true}"))
+                .andExpect(status().isUnauthorized()).andExpect(jsonPath("$.code").value(40100));
+        app.setUserId(42L);
+        when(users.selectOneById(42L)).thenReturn(user(42L, UserRoleEnum.USER));
+        mockMvc.perform(featured(55L).session(session(42L)).content("{\"featured\":true}"))
+                .andExpect(status().isForbidden()).andExpect(jsonPath("$.code").value(40300));
+        verifyNoInteractions(apps);
+    }
+
+    @Test
+    void unpublishedAppCannotBeFeaturedButCanRemainUnfeatured() throws Exception {
+        app.setPublishedVersion(null);
+        mockMvc.perform(featured(55L).session(session(42L)).content("{\"featured\":true}"))
+                .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value(50001))
+                .andExpect(jsonPath("$.message").value("仅已发布应用可设为精选"));
+        mockMvc.perform(featured(55L).session(session(42L)).content("{\"featured\":false}"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data").value(true));
+        assertThat(app.getFeatured()).isFalse();
+        verify(apps, times(2)).selectOneById(55L);
+        verifyNoMoreInteractions(apps);
+    }
+
+    @Test
+    void featuredRejectsMissingOrDeletedApp() throws Exception {
+        when(apps.selectOneById(55L)).thenReturn(null);
+        mockMvc.perform(featured(55L).session(session(42L)).content("{\"featured\":true}"))
+                .andExpect(status().isNotFound()).andExpect(jsonPath("$.code").value(40400));
+        verify(apps).selectOneById(55L);
+        verifyNoMoreInteractions(apps);
+    }
+
+    @Test
+    void featuredRequiresAValueAndPositiveId() throws Exception {
+        for (String body : List.of("{}", "{\"featured\":null}")) {
+            mockMvc.perform(featured(55L).session(session(42L)).content(body))
+                    .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value(40000));
+        }
+        mockMvc.perform(featured(0L).session(session(42L)).content("{\"featured\":true}"))
+                .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value(40000));
+        verifyNoInteractions(apps);
+    }
+
+    private MockHttpServletRequestBuilder featured(long id) {
+        return patch("/api/admin/apps/" + id + "/featured")
+                .contextPath("/api").contentType(MediaType.APPLICATION_JSON);
     }
 
     private MockHttpServletRequestBuilder update(long id) {

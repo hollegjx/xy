@@ -18,6 +18,11 @@ public interface AppMapper extends BaseMapper<App> {
     int updateAppName(@Param("appId") long appId, @Param("userId") long userId,
             @Param("appName") String appName);
 
+    @Update("UPDATE app SET featured = #{featured} "
+            + "WHERE id = #{appId} AND userId = #{userId} AND isDelete = 0")
+    int updateFeatured(@Param("appId") long appId, @Param("userId") long userId,
+            @Param("featured") boolean featured);
+
     @Update("UPDATE app SET generatedVersion = #{generationId} "
             + "WHERE id = #{appId} AND userId = #{userId} AND isDelete = 0")
     int updateGeneratedVersion(@Param("appId") long appId, @Param("userId") long userId,

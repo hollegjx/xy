@@ -5,6 +5,7 @@ import com.mybatisflex.core.query.QueryWrapper;
 import com.xy.app.mapper.AppMapper;
 import com.xy.app.model.dto.AppAddRequest;
 import com.xy.app.model.dto.AppAdminQueryRequest;
+import com.xy.app.model.dto.AppFeaturedRequest;
 import com.xy.app.model.dto.AppQueryRequest;
 import com.xy.app.model.dto.AppUpdateRequest;
 import com.xy.app.model.entity.App;
@@ -136,6 +137,27 @@ public class AppServiceImpl implements AppService {
     }
 
     @Override
+    public boolean updateFeaturedForAdmin(long id, AppFeaturedRequest request, User loginUser) {
+        if (!UserRoleEnum.ADMIN.getValue().equals(loginUser.getUserRole())) {
+            throw new BusinessException(ErrorCode.NO_AUTH_ERROR, "仅管理员可设置应用精选状态");
+        }
+        App app = appMapper.selectOneById(id);
+        if (app == null) {
+            throw new BusinessException(ErrorCode.NOT_FOUND_ERROR, "应用不存在");
+        }
+        if (request.featured() && app.getPublishedVersion() == null) {
+            throw new BusinessException(ErrorCode.OPERATION_ERROR, "仅已发布应用可设为精选");
+        }
+        if (Boolean.TRUE.equals(app.getFeatured()) == request.featured()) {
+            return true;
+        }
+        if (appMapper.updateFeatured(id, app.getUserId(), request.featured()) != 1) {
+            throw new BusinessException(ErrorCode.SYSTEM_ERROR, "精选状态保存失败，请重试");
+        }
+        return true;
+    }
+
+    @Override
     public boolean deleteAppForAdmin(long id, User loginUser) {
         if (!UserRoleEnum.ADMIN.getValue().equals(loginUser.getUserRole())) {
             throw new BusinessException(ErrorCode.NO_AUTH_ERROR, "仅管理员可通过管理接口删除应用");
@@ -255,7 +277,7 @@ public class AppServiceImpl implements AppService {
 
     private AppAdminVO getAppAdminVO(App app) {
         return new AppAdminVO(Long.toString(app.getId()), Long.toString(app.getUserId()), app.getAppName(),
-                app.getCodeGenType(), app.getCreateTime(), app.getUpdateTime(),
+                app.getCodeGenType(), Boolean.TRUE.equals(app.getFeatured()), app.getCreateTime(), app.getUpdateTime(),
                 app.getPublishedVersion() == null ? null : new AppDeployVO(deployment.siteUrl(app.getDeployKey()),
                         Long.toString(app.getPublishedVersion()), app.getDeployedAt()));
     }

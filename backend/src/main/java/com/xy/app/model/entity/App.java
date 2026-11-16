@@ -15,6 +15,7 @@ public class App {
     private String appName;
     private String initPrompt;
     private String codeGenType;
+    private Boolean featured = false;
     private Long generatedVersion;
     private Long publishedVersion;
     private String deployKey;
@@ -60,6 +61,14 @@ public class App {
 
     public String getCodeGenType() {
         return codeGenType;
+    }
+
+    public Boolean getFeatured() {
+        return featured;
+    }
+
+    public void setFeatured(Boolean featured) {
+        this.featured = featured;
     }
 
     public Long getGeneratedVersion() {

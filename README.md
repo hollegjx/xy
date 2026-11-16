@@ -57,7 +57,7 @@ com.xy/
 ## 本地配置与启动
 
 1. 在 IDEA 打开 `backend/pom.xml`，选择已有且受支持的 JDK，等待 Maven 导入完成。
-2. 在已有 MySQL 连接中依次执行 [backend/sql/001_create_database.sql](backend/sql/001_create_database.sql)、[backend/sql/002_create_user.sql](backend/sql/002_create_user.sql)、[backend/sql/003_create_app.sql](backend/sql/003_create_app.sql)、[backend/sql/004_add_generation.sql](backend/sql/004_add_generation.sql) 和 [backend/sql/005_add_app_deployment.sql](backend/sql/005_add_app_deployment.sql)，创建数据库和业务表，并为应用增加生成及发布字段。不删除已有数据；已执行过的文件无需重复执行，`004`、`005` 中的 ALTER 只能执行一次。如已有同名表或字段，先核对结构。
+2. 在已有 MySQL 连接中依次执行 [backend/sql/001_create_database.sql](backend/sql/001_create_database.sql)、[backend/sql/002_create_user.sql](backend/sql/002_create_user.sql)、[backend/sql/003_create_app.sql](backend/sql/003_create_app.sql)、[backend/sql/004_add_generation.sql](backend/sql/004_add_generation.sql)、[backend/sql/005_add_app_deployment.sql](backend/sql/005_add_app_deployment.sql) 和 [backend/sql/007_add_app_featured.sql](backend/sql/007_add_app_featured.sql)，创建数据库和业务表，并为应用增加生成、发布及精选字段。不删除已有数据；已执行过的文件无需重复执行，`004`、`005`、`007` 中的 ALTER 只能执行一次。如已有同名表或字段，先核对结构。`006_set_admin.sql` 仅用于按需指定已有管理员账号。
 3. 将 `backend/src/main/resources/application.example.yml` 复制为同目录的 `application.yml`，填写实际数据库地址、库名、账号、密码。本工作区若已存在该文件，直接编辑，勿覆盖已有配置。密码建议使用 YAML 单引号字符串，密码本身含单引号时写成两个单引号。
 4. 在 IDEA 运行 `com.xy.MainApplication`，打开 `http://localhost:8101/api/doc.html`，在「健康检查」中调用 `GET /health`。
 

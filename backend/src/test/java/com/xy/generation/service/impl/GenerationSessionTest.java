@@ -42,8 +42,8 @@ class GenerationSessionTest {
     private final GeneratedFileManager files = mock(GeneratedFileManager.class);
     private final SseEmitter emitter = mock(SseEmitter.class);
     private final Runnable release = mock(Runnable.class);
-    private final GenerationSession session = new GenerationSession(55, 42, 101, emitter, persistence, files,
-            "html", new ObjectMapper(), release);
+    private final GenerationSession session = new GenerationSession(55, 42, 101, emitter, persistence,
+            new NativeGenerationOutputHandler(42, 55, 101, "html", files, new ObjectMapper()), release);
 
     @Test
     void timeoutStopsTheModelAndLateCompletionCannotOverwriteFailure() {
@@ -78,7 +78,7 @@ class GenerationSessionTest {
         Map<String, String> output = Map.of("index.html", "html", "style.css", "css", "script.js", "js");
         String json = mapper.writeValueAsString(output);
         GenerationSession multiFile = new GenerationSession(55, 42, 101, mock(SseEmitter.class),
-                persistence, files, "multi_file", mapper, release);
+                persistence, new NativeGenerationOutputHandler(42, 55, 101, "multi_file", files, mapper), release);
         doThrow(new IOException("disk unavailable")).when(files).saveMultiFile(42, 55, 101, output);
         multiFile.onPartialResponse(json);
         multiFile.onCompleteResponse(ChatResponse.builder().aiMessage(AiMessage.from(json))
@@ -131,7 +131,7 @@ class GenerationSessionTest {
         when(messages.selectListByQuery(any())).thenReturn(List.of(stored));
         SseEmitter recoveringEmitter = mock(SseEmitter.class);
         GenerationSession recoveringSession = new GenerationSession(55, 42, 101, recoveringEmitter,
-                actualPersistence, files, "html", new ObjectMapper(), release);
+                actualPersistence, new NativeGenerationOutputHandler(42, 55, 101, "html", files, new ObjectMapper()), release);
         StreamingHandle handle = mock(StreamingHandle.class);
         recoveringSession.onPartialResponse(new PartialResponse("partial"), new PartialResponseContext(handle));
         if (timedOut) {

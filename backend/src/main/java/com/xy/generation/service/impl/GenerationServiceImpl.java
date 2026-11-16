@@ -79,9 +79,10 @@ public class GenerationServiceImpl implements GenerationService {
                 throw new BusinessException(ErrorCode.OPERATION_ERROR, "该应用正在生成，请等待本次结束");
             }
             long generationId = persistence.start(appId, loginUser.getId(), request.prompt());
+            NativeGenerationOutputHandler outputHandler = new NativeGenerationOutputHandler(
+                    loginUser.getId(), appId, generationId, app.codeGenType(), fileManager, objectMapper);
             return new GenerationSession(appId, loginUser.getId(), generationId,
-                    emitter, persistence, fileManager, app.codeGenType(), objectMapper,
-                    () -> runningSessions.remove(appId));
+                    emitter, persistence, outputHandler, () -> runningSessions.remove(appId));
         });
         if (session.start()) {
             try {

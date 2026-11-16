@@ -1,17 +1,9 @@
 package com.xy.generation.service.impl;
 
-import com.fasterxml.jackson.core.JsonParser;
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.DeserializationFeature;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.ObjectReader;
-import com.xy.app.model.enums.CodeGenTypeEnum;
 import com.xy.chat.model.enums.MessageStatusEnum;
 import com.xy.common.ErrorCode;
 import com.xy.exception.BusinessException;
 import com.xy.generation.model.vo.GenerationEventVO;
-import com.xy.manager.GeneratedFileManager;
 import dev.langchain4j.model.chat.response.ChatResponse;
 import dev.langchain4j.model.chat.response.PartialResponse;
 import dev.langchain4j.model.chat.response.PartialResponseContext;
@@ -21,8 +13,6 @@ import dev.langchain4j.model.chat.response.StreamingChatResponseHandler;
 import dev.langchain4j.model.chat.response.StreamingHandle;
 import dev.langchain4j.model.output.FinishReason;
 import java.io.IOException;
-import java.util.LinkedHashMap;
-import java.util.Map;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.MediaType;
@@ -37,27 +27,20 @@ final class GenerationSession implements StreamingChatResponseHandler {
     private final long generationId;
     private final SseEmitter emitter;
     private final GenerationPersistence persistence;
-    private final GeneratedFileManager fileManager;
-    private final String codeGenType;
-    private final ObjectReader multiFileReader;
+    private final NativeGenerationOutputHandler outputHandler;
     private final Runnable release;
     private final StringBuilder content = new StringBuilder();
     private StreamingHandle handle;
     private boolean finished;
 
     GenerationSession(long appId, long userId, long generationId, SseEmitter emitter,
-            GenerationPersistence persistence, GeneratedFileManager fileManager, String codeGenType,
-            ObjectMapper objectMapper, Runnable release) {
+            GenerationPersistence persistence, NativeGenerationOutputHandler outputHandler, Runnable release) {
         this.appId = appId;
         this.userId = userId;
         this.generationId = generationId;
         this.emitter = emitter;
         this.persistence = persistence;
-        this.fileManager = fileManager;
-        this.codeGenType = codeGenType;
-        this.multiFileReader = objectMapper.readerFor(JsonNode.class)
-                .with(JsonParser.Feature.STRICT_DUPLICATE_DETECTION)
-                .with(DeserializationFeature.FAIL_ON_TRAILING_TOKENS);
+        this.outputHandler = outputHandler;
         this.release = release;
         emitter.onTimeout(() -> fail("生成超时，请重试"));
         emitter.onError(error -> fail("生成连接中断，请重试"));
@@ -131,15 +114,10 @@ final class GenerationSession implements StreamingChatResponseHandler {
         }
         try {
             String output = response.aiMessage().text();
-            if (CodeGenTypeEnum.MULTI_FILE.getValue().equals(codeGenType)) {
-                fileManager.saveMultiFile(userId, appId, generationId, parseMultiFile(output));
-            } else {
-                fileManager.saveHtml(userId, appId, generationId, output);
-            }
+            outputHandler.save(output);
             persistence.complete(appId, userId, generationId, output);
         } catch (IllegalArgumentException error) {
-            fail(CodeGenTypeEnum.MULTI_FILE.getValue().equals(codeGenType)
-                    ? "模型未返回完整的 HTML/CSS/JS 文件，请重试" : "模型未返回完整的 HTML 文档，请重试");
+            fail(outputHandler.invalidOutputMessage());
             return;
         } catch (Exception error) {
             logFailure(error);
@@ -163,21 +141,6 @@ final class GenerationSession implements StreamingChatResponseHandler {
         if (finished) return;
         logFailure(error);
         fail("读取历史或成功源码失败，请检查应用生成记录和文件后重试");
-    }
-
-    private Map<String, String> parseMultiFile(String output) {
-        try {
-            JsonNode node = multiFileReader.readValue(output);
-            if (node == null || !node.isObject()) throw new IllegalArgumentException("多文件输出必须是 JSON 对象");
-            Map<String, String> files = new LinkedHashMap<>();
-            node.properties().forEach(field -> {
-                if (!field.getValue().isTextual()) throw new IllegalArgumentException("文件内容必须是字符串");
-                files.put(field.getKey(), field.getValue().textValue());
-            });
-            return files;
-        } catch (JsonProcessingException error) {
-            throw new IllegalArgumentException("多文件输出不是完整的 JSON");
-        }
     }
 
     private synchronized void fail(String message) {

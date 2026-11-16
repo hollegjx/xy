@@ -113,6 +113,24 @@ public class AppServiceImpl implements AppService {
     }
 
     @Override
+    public boolean updateAppForAdmin(long id, AppUpdateRequest request, User loginUser) {
+        if (!UserRoleEnum.ADMIN.getValue().equals(loginUser.getUserRole())) {
+            throw new BusinessException(ErrorCode.NO_AUTH_ERROR, "仅管理员可通过管理接口修改应用名称");
+        }
+        App app = appMapper.selectOneById(id);
+        if (app == null) {
+            throw new BusinessException(ErrorCode.NOT_FOUND_ERROR, "应用不存在");
+        }
+        if (app.getAppName().equals(request.appName())) {
+            return true;
+        }
+        if (appMapper.updateAppName(id, app.getUserId(), request.appName()) != 1) {
+            throw new BusinessException(ErrorCode.SYSTEM_ERROR, "应用名称保存失败，请重试");
+        }
+        return true;
+    }
+
+    @Override
     public boolean deleteApp(long id, User loginUser) {
         App app = getOwnedApp(id, loginUser);
         if (app.getDeployKey() != null) {

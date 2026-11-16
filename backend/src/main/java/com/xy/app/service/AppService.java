@@ -23,6 +23,8 @@ public interface AppService {
 
     boolean updateApp(long id, AppUpdateRequest request, User loginUser);
 
+    boolean updateAppForAdmin(long id, AppUpdateRequest request, User loginUser);
+
     boolean deleteApp(long id, User loginUser);
 
     /** 用户删除的内部清理步骤，调用方须先完成管理员及目标普通用户校验。 */

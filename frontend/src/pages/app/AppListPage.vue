@@ -6,14 +6,16 @@ import {
   Empty as AEmpty,
   Input as AInput,
   Pagination as APagination,
+  Popconfirm as APopconfirm,
   Skeleton as ASkeleton,
   Table as ATable,
   Tag as ATag,
+  message,
 } from 'ant-design-vue'
 import PageHeading from '@/components/PageHeading.vue'
 import AppRenameModal from '@/pages/app/components/AppRenameModal.vue'
 import { ApiError, errorMessage } from '@/request'
-import { listAppsForAdmin } from '@/service/api/app'
+import { deleteAppForAdmin, listAppsForAdmin } from '@/service/api/app'
 import { useLoginUserStore } from '@/stores/useLoginUserStore'
 import type { AppAdminVO } from '@/types/api'
 
@@ -26,6 +28,11 @@ const total = ref(0)
 const loading = ref(false)
 const error = ref('')
 const editingApp = ref<AppAdminVO | null>(null)
+const deleteOpenId = ref('')
+const deletingId = ref('')
+const deleteError = ref('')
+const failedDeleteApp = ref<AppAdminVO | null>(null)
+const busy = computed(() => loading.value || deletingId.value !== '')
 const hasFilters = computed(() =>
   Boolean(appliedFilters.value.appName || appliedFilters.value.userId),
 )
@@ -45,6 +52,7 @@ async function load(): Promise<void> {
   if (loading.value) return
   loading.value = true
   error.value = ''
+  deleteOpenId.value = ''
   const params = {
     appName: appliedFilters.value.appName,
     userId: appliedFilters.value.userId || undefined,
@@ -74,21 +82,25 @@ async function load(): Promise<void> {
 }
 
 function search(): void {
-  if (loading.value) return
+  if (busy.value) return
+  deleteError.value = ''
+  failedDeleteApp.value = null
   appliedFilters.value = { appName: filters.appName.trim(), userId: filters.userId.trim() }
   current.value = 1
   void load()
 }
 
 function reset(): void {
-  if (loading.value) return
+  if (busy.value) return
   filters.appName = ''
   filters.userId = ''
   search()
 }
 
 function changePage(page: number): void {
-  if (loading.value) return
+  if (busy.value) return
+  deleteError.value = ''
+  failedDeleteApp.value = null
   current.value = page
   void load()
 }
@@ -96,6 +108,46 @@ function changePage(page: number): void {
 function handleRenamed(): void {
   editingApp.value = null
   void load()
+}
+
+function changeDeleteOpen(app: AppAdminVO, open: boolean): void {
+  if (busy.value || loginUserStore.authAction !== null) return
+  deleteOpenId.value = open ? app.id : ''
+}
+
+async function removeApp(app: AppAdminVO): Promise<void> {
+  if (busy.value || loginUserStore.authAction !== null) return
+  deletingId.value = app.id
+  deleteError.value = ''
+  failedDeleteApp.value = null
+  try {
+    await deleteAppForAdmin(app.id)
+    if (!active) return
+    void message.success('应用已删除')
+    await load()
+  } catch (cause) {
+    if (!active) return
+    deleteError.value = `应用「${app.appName}」（ID：${app.id}）：${errorMessage(cause)}`
+    if (cause instanceof ApiError && (cause.code === 40100 || cause.code === 40300)) {
+      await loginUserStore.loadUser()
+    } else if (cause instanceof ApiError && (cause.code === 40400 || cause.code === 50001)) {
+      await load()
+    } else {
+      failedDeleteApp.value = app
+    }
+  } finally {
+    if (active) {
+      deletingId.value = ''
+      deleteOpenId.value = ''
+    }
+  }
+}
+
+function retryDelete(): void {
+  if (busy.value || loginUserStore.authAction !== null) return
+  const target = rows.value.find((app) => app.id === failedDeleteApp.value?.id)
+  if (target) changeDeleteOpen(target, true)
+  else void load()
 }
 
 onMounted(load)
@@ -106,7 +158,10 @@ onBeforeUnmount(() => {
 
 <template>
   <section class="app-list" aria-label="应用管理">
-    <PageHeading title="应用管理" description="按名称和创建者查找应用，维护名称并查看公开作品。" />
+    <PageHeading
+      title="应用管理"
+      description="按名称和创建者查找应用，维护名称、删除应用或查看公开作品。"
+    />
     <form class="search-form" aria-label="查询应用" @submit.prevent="search">
       <label class="name-filter">
         应用名称
@@ -114,7 +169,7 @@ onBeforeUnmount(() => {
           v-model:value="filters.appName"
           placeholder="输入应用名称关键词"
           aria-label="应用名称"
-          :disabled="loading"
+          :disabled="busy"
           allow-clear
         />
       </label>
@@ -125,18 +180,40 @@ onBeforeUnmount(() => {
           placeholder="输入完整创建者 ID"
           aria-label="创建者 ID"
           inputmode="numeric"
-          :disabled="loading"
+          :disabled="busy"
           allow-clear
         />
       </label>
-      <AButton type="primary" shape="round" html-type="submit" :loading="loading">查询</AButton>
       <AButton
-        :disabled="loading || (!filters.appName && !filters.userId && !hasFilters)"
+        type="primary"
+        shape="round"
+        html-type="submit"
+        :loading="loading"
+        :disabled="deletingId !== ''"
+        >查询</AButton
+      >
+      <AButton
+        :disabled="busy || (!filters.appName && !filters.userId && !hasFilters)"
         @click="reset"
       >
         重置
       </AButton>
     </form>
+    <AAlert
+      v-if="deleteError"
+      class="delete-error"
+      type="error"
+      message="应用删除失败"
+      :description="deleteError"
+      show-icon
+      role="alert"
+    >
+      <template #action>
+        <AButton :disabled="busy || loginUserStore.authAction !== null" @click="retryDelete">
+          {{ failedDeleteApp ? '重试' : '刷新列表' }}
+        </AButton>
+      </template>
+    </AAlert>
     <ASkeleton v-if="loading" active :paragraph="{ rows: 5 }" aria-label="正在读取应用列表" />
     <AAlert
       v-else-if="error"
@@ -189,7 +266,7 @@ onBeforeUnmount(() => {
             <AButton
               class="action-link"
               type="link"
-              :disabled="loading || loginUserStore.authAction !== null"
+              :disabled="busy || loginUserStore.authAction !== null"
               @click="editingApp = record as AppAdminVO"
             >
               修改名称
@@ -205,6 +282,39 @@ onBeforeUnmount(() => {
               查看作品
             </AButton>
             <span v-else class="muted">{{ record.deployment ? '暂无公开地址' : '—' }}</span>
+            <APopconfirm
+              :open="deleteOpenId === record.id"
+              title="确认删除这个应用？"
+              placement="bottomRight"
+              :ok-text="deletingId === record.id ? '删除中' : '确认删除'"
+              cancel-text="取消"
+              :ok-button-props="{
+                danger: true,
+                loading: deletingId === record.id,
+                disabled: loginUserStore.authAction !== null,
+              }"
+              :cancel-button-props="{ disabled: deletingId !== '' }"
+              :disabled="busy || loginUserStore.authAction !== null"
+              @open-change="(open: boolean) => changeDeleteOpen(record as AppAdminVO, open)"
+              @confirm="removeApp(record as AppAdminVO)"
+            >
+              <template #description>
+                <p class="delete-confirmation">
+                  将删除应用「{{ record.appName }}」（ID：{{
+                    record.id
+                  }}），其工作台将无法访问，已发布作品将下线。
+                </p>
+              </template>
+              <AButton
+                class="action-link"
+                type="link"
+                danger
+                :loading="deletingId === record.id"
+                :disabled="busy || loginUserStore.authAction !== null"
+              >
+                删除
+              </AButton>
+            </APopconfirm>
           </div>
           <span v-else class="cell-text">{{ text }}</span>
         </template>
@@ -216,7 +326,7 @@ onBeforeUnmount(() => {
           :page-size="pageSize"
           :total="total"
           :show-size-changer="false"
-          :disabled="loading"
+          :disabled="busy"
           hide-on-single-page
           simple
           aria-label="应用分页"
@@ -272,6 +382,14 @@ onBeforeUnmount(() => {
 }
 .action-link {
   padding-inline: 0;
+}
+.delete-confirmation {
+  width: min(280px, calc(100vw - 96px));
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.delete-error {
+  margin-bottom: 16px;
 }
 .muted {
   color: var(--muted);

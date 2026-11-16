@@ -27,6 +27,8 @@ public interface AppService {
 
     boolean deleteApp(long id, User loginUser);
 
+    boolean deleteAppForAdmin(long id, User loginUser);
+
     /** 用户删除的内部清理步骤，调用方须先完成管理员及目标普通用户校验。 */
     void removeUserDeployments(long userId);
 

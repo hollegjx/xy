@@ -10,6 +10,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Positive;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -40,5 +41,16 @@ public class AppAdminController {
             HttpServletRequest servletRequest) {
         return ApiResponse.success(appService.updateAppForAdmin(id, request,
                 userService.getLoginUser(servletRequest)));
+    }
+
+    @Operation(summary = "管理员删除应用", description = "仅管理员可删除任一有效应用；"
+            + "先下线公开作品，再逻辑删除应用，成功返回 true；保留私有对话和生成文件。"
+            + "未登录返回 HTTP 401，普通用户返回 HTTP 403，不存在或已删除返回 HTTP 404，"
+            + "非正数 ID 返回 HTTP 400；公开入口移除失败时保留应用并返回错误。")
+    @DeleteMapping("/{id}")
+    public ApiResponse<Boolean> deleteAppForAdmin(
+            @Parameter(description = "应用 ID，必须大于 0", example = "55")
+            @Positive @PathVariable long id, HttpServletRequest servletRequest) {
+        return ApiResponse.success(appService.deleteAppForAdmin(id, userService.getLoginUser(servletRequest)));
     }
 }

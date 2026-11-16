@@ -155,13 +155,61 @@ class AppDeleteControllerTest {
         Files.createDirectories(directory.resolve("published"));
         Files.createSymbolicLink(publishedIndex().getParent(), outside);
 
-        mockMvc.perform(remove().session(session())).andExpect(status().isInternalServerError())
-                .andExpect(jsonPath("$.code").value(50000))
-                .andExpect(jsonPath("$.message").value("移除发布页面失败，应用尚未删除，请重试"));
+        user.setUserRole("admin");
+        for (String path : List.of("/api/apps/55", "/api/admin/apps/55")) {
+            mockMvc.perform(delete(path).contextPath("/api").session(session()))
+                    .andExpect(status().isInternalServerError()).andExpect(jsonPath("$.code").value(50000))
+                    .andExpect(jsonPath("$.message").value("移除发布页面失败，应用尚未删除，请重试"));
+        }
         mockMvc.perform(get("/api/apps/55").contextPath("/api").session(session()))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.data.id").value("55"));
         assertThat(app.getIsDelete()).isZero();
         assertThat(Files.readString(outside.resolve("index.html"))).isEqualTo(HTML);
+        verify(apps, never()).markDeleted(anyLong(), anyLong());
+    }
+
+    @Test
+    void administratorDeletesAnotherUsersAppAndRemovesOnlyItsPublicEntry() throws Exception {
+        user.setUserRole("admin");
+        app.setUserId(84L);
+        app.setDeployKey("f".repeat(32));
+        files.saveHtml(84, 55, 101, HTML);
+        files.publishHtml(directory.resolve("published"), app.getDeployKey(), HTML);
+        when(apps.markDeleted(55L, 84L)).thenAnswer(call -> {
+            assertThat(publishedIndex()).doesNotExist();
+            app.setIsDelete(1);
+            return 1;
+        });
+
+        mockMvc.perform(delete("/api/admin/apps/55").contextPath("/api").session(session()))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data").value(true));
+
+        assertThat(app.getIsDelete()).isEqualTo(1);
+        assertThat(publishedIndex()).doesNotExist();
+        assertThat(Files.readString(directory.resolve("generated/84/55/101/index.html"))).isEqualTo(HTML);
+        mockMvc.perform(delete("/api/admin/apps/55").contextPath("/api").session(session()))
+                .andExpect(status().isNotFound()).andExpect(jsonPath("$.code").value(40400));
+        verify(apps).markDeleted(55L, 84L);
+        verify(apps, never()).markDeleted(55L, 42L);
+        verifyNoInteractions(messages);
+    }
+
+    @Test
+    void adminEntryRejectsAnonymousAndOrdinaryOwnerBeforeAccessingApps() throws Exception {
+        mockMvc.perform(delete("/api/admin/apps/55").contextPath("/api"))
+                .andExpect(status().isUnauthorized()).andExpect(jsonPath("$.code").value(40100));
+        mockMvc.perform(delete("/api/admin/apps/55").contextPath("/api").session(session()))
+                .andExpect(status().isForbidden()).andExpect(jsonPath("$.code").value(40300));
+        verifyNoInteractions(apps);
+    }
+
+    @Test
+    void adminEntryRejectsMissingAppAndNonPositiveId() throws Exception {
+        user.setUserRole("admin");
+        mockMvc.perform(delete("/api/admin/apps/99").contextPath("/api").session(session()))
+                .andExpect(status().isNotFound()).andExpect(jsonPath("$.code").value(40400));
+        mockMvc.perform(delete("/api/admin/apps/0").contextPath("/api").session(session()))
+                .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value(40000));
         verify(apps, never()).markDeleted(anyLong(), anyLong());
     }
 

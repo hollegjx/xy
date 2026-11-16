@@ -25,6 +25,9 @@ export const updateAppForAdmin = (id: string, data: AppUpdateRequest): Promise<b
 export const deleteApp = (id: string): Promise<boolean> =>
   request<boolean>(`/api/apps/${encodeURIComponent(id)}`, { method: 'DELETE' })
 
+export const deleteAppForAdmin = (id: string): Promise<boolean> =>
+  request<boolean>(`/api/admin/apps/${encodeURIComponent(id)}`, { method: 'DELETE' })
+
 export const listMyApps = (params: AppQueryRequest): Promise<AppPageVO> =>
   request<AppPageVO>('/api/apps/mine', { params })
 

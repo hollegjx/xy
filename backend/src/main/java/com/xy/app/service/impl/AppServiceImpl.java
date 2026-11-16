@@ -132,17 +132,32 @@ public class AppServiceImpl implements AppService {
 
     @Override
     public boolean deleteApp(long id, User loginUser) {
-        App app = getOwnedApp(id, loginUser);
+        return deleteAuthorizedApp(getOwnedApp(id, loginUser));
+    }
+
+    @Override
+    public boolean deleteAppForAdmin(long id, User loginUser) {
+        if (!UserRoleEnum.ADMIN.getValue().equals(loginUser.getUserRole())) {
+            throw new BusinessException(ErrorCode.NO_AUTH_ERROR, "仅管理员可通过管理接口删除应用");
+        }
+        App app = appMapper.selectOneById(id);
+        if (app == null) {
+            throw new BusinessException(ErrorCode.NOT_FOUND_ERROR, "应用不存在");
+        }
+        return deleteAuthorizedApp(app);
+    }
+
+    private boolean deleteAuthorizedApp(App app) {
         if (app.getDeployKey() != null) {
             try {
-                // 先关闭公开入口；移除失败时保留应用，创建者可以再次删除。
+                // 调用入口已完成权限检查；先下线公开作品，再标记删除。
                 fileManager.removePublishedHtml(deployment.directory(), app.getDeployKey());
             } catch (IOException error) {
-                log.error("应用 {} 发布页面移除失败，异常类型 {}", id, error.getClass().getSimpleName());
+                log.error("应用 {} 发布页面移除失败，异常类型 {}", app.getId(), error.getClass().getSimpleName());
                 throw new BusinessException(ErrorCode.SYSTEM_ERROR, "移除发布页面失败，应用尚未删除，请重试");
             }
         }
-        if (appMapper.markDeleted(id, loginUser.getId()) != 1) {
+        if (appMapper.markDeleted(app.getId(), app.getUserId()) != 1) {
             throw new BusinessException(ErrorCode.SYSTEM_ERROR, "应用删除失败，请重试");
         }
         return true;

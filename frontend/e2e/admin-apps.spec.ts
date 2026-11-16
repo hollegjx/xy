@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test'
 import type { AppAdminVO, UserVO } from '../src/types/api'
 
-test('管理员查询应用、组合筛选、翻页、改名和查看公开作品，普通用户不能访问', async ({
+test('管理员查询应用、组合筛选、翻页、改名、删除和查看公开作品，普通用户不能访问', async ({
   page,
   context,
 }) => {
@@ -31,6 +31,8 @@ test('管理员查询应用、组合筛选、翻页、改名和查看公开作�
   let currentUser: UserVO | null = null
   let listRequests = 0
   let updateRequests = 0
+  let deleteRequests = 0
+  const deletedAppId = apps[0]!.id
   const renamedAppName = '摄影项目 11 · 夜景'
   await context.route('https://sites.example.test/**', (route) =>
     route.fulfill({ contentType: 'text/html; charset=utf-8', body: '<h1>公开摄影作品</h1>' }),
@@ -52,6 +54,15 @@ test('管理员查询应用、组合筛选、翻页、改名和查看公开作�
         await route.fulfill({ json: { code: 0, data: currentUser, message: 'ok' } })
       } else if (url.pathname === '/api/users/logout') {
         currentUser = null
+        await route.fulfill({ json: { code: 0, data: true, message: 'ok' } })
+      } else if (url.pathname === `/api/admin/apps/${deletedAppId}`) {
+        expect(request.method()).toBe('DELETE')
+        expect(currentUser?.userRole).toBe('admin')
+        deleteRequests += 1
+        apps.splice(
+          apps.findIndex((app) => app.id === deletedAppId),
+          1,
+        )
         await route.fulfill({ json: { code: 0, data: true, message: 'ok' } })
       } else if (url.pathname === `/api/admin/apps/${apps[10]!.id}`) {
         expect(request.method()).toBe('PATCH')
@@ -170,6 +181,27 @@ test('管理员查询应用、组合筛选、翻页、改名和查看公开作�
   await panel.getByRole('button', { name: '查询', exact: true }).click()
   await expect(panel.getByText('共 1 个应用')).toBeVisible()
   await expect(panel.getByText(renamedAppName, { exact: true })).toBeVisible()
+
+  await panel.getByRole('button', { name: '重置', exact: true }).click()
+  await expect(panel.getByText('共 12 个应用')).toBeVisible()
+  await panel.getByLabel('应用名称', { exact: true }).fill('摄影')
+  await panel.getByRole('button', { name: '查询', exact: true }).click()
+  await publishedRow.getByRole('button', { name: '删除', exact: true }).click()
+  await expect(
+    page.getByText(`将删除应用「摄影作品集」（ID：${deletedAppId}）`, { exact: false }),
+  ).toBeVisible()
+  await page.getByRole('button', { name: '取消', exact: true }).click()
+  expect(deleteRequests).toBe(0)
+  await expect(publishedRow).toBeVisible()
+  await publishedRow.getByRole('button', { name: '删除', exact: true }).click()
+  await page.getByRole('button', { name: '确认删除', exact: true }).click()
+  await expect(panel.getByText('共 11 个应用')).toBeVisible()
+  await expect(publishedRow).toHaveCount(0)
+  await expect(panel.getByLabel('应用名称', { exact: true })).toHaveValue('摄影')
+  expect(deleteRequests).toBe(1)
+  await page.reload()
+  await expect(panel.getByText('共 11 个应用')).toBeVisible()
+  await expect(panel.getByText(`ID：${deletedAppId}`, { exact: true })).toHaveCount(0)
 
   await page.getByRole('button', { name: '退出登录', exact: true }).click()
   await expect(page).toHaveURL('/user/login')

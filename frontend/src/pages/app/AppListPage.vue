@@ -15,7 +15,7 @@ import {
 import PageHeading from '@/components/PageHeading.vue'
 import AppRenameModal from '@/pages/app/components/AppRenameModal.vue'
 import { ApiError, errorMessage } from '@/request'
-import { deleteAppForAdmin, listAppsForAdmin } from '@/service/api/app'
+import { deleteAppForAdmin, listAppsForAdmin, updateAppFeatured } from '@/service/api/app'
 import { useLoginUserStore } from '@/stores/useLoginUserStore'
 import type { AppAdminVO } from '@/types/api'
 
@@ -32,7 +32,10 @@ const deleteOpenId = ref('')
 const deletingId = ref('')
 const deleteError = ref('')
 const failedDeleteApp = ref<AppAdminVO | null>(null)
-const busy = computed(() => loading.value || deletingId.value !== '')
+const featuringId = ref('')
+const featuredError = ref('')
+const failedFeaturedChange = ref<{ app: AppAdminVO; featured: boolean } | null>(null)
+const busy = computed(() => loading.value || deletingId.value !== '' || featuringId.value !== '')
 const hasFilters = computed(() =>
   Boolean(appliedFilters.value.appName || appliedFilters.value.userId),
 )
@@ -85,6 +88,8 @@ function search(): void {
   if (busy.value) return
   deleteError.value = ''
   failedDeleteApp.value = null
+  featuredError.value = ''
+  failedFeaturedChange.value = null
   appliedFilters.value = { appName: filters.appName.trim(), userId: filters.userId.trim() }
   current.value = 1
   void load()
@@ -101,6 +106,8 @@ function changePage(page: number): void {
   if (busy.value) return
   deleteError.value = ''
   failedDeleteApp.value = null
+  featuredError.value = ''
+  failedFeaturedChange.value = null
   current.value = page
   void load()
 }
@@ -120,6 +127,8 @@ async function removeApp(app: AppAdminVO): Promise<void> {
   deletingId.value = app.id
   deleteError.value = ''
   failedDeleteApp.value = null
+  featuredError.value = ''
+  failedFeaturedChange.value = null
   try {
     await deleteAppForAdmin(app.id)
     if (!active) return
@@ -150,6 +159,39 @@ function retryDelete(): void {
   else void load()
 }
 
+async function saveFeatured(app: AppAdminVO, featured: boolean): Promise<void> {
+  if (busy.value || loginUserStore.authAction !== null) return
+  featuringId.value = app.id
+  featuredError.value = ''
+  failedFeaturedChange.value = null
+  deleteOpenId.value = ''
+  try {
+    await updateAppFeatured(app.id, { featured })
+    if (!active) return
+    void message.success(featured ? '已设为精选' : '已取消精选')
+    await load()
+  } catch (cause) {
+    if (!active) return
+    featuredError.value = `应用「${app.appName}」（ID：${app.id}）：${errorMessage(cause)}`
+    if (cause instanceof ApiError && (cause.code === 40100 || cause.code === 40300)) {
+      await loginUserStore.loadUser()
+    } else if (cause instanceof ApiError && (cause.code === 40400 || cause.code === 50001)) {
+      await load()
+    } else {
+      failedFeaturedChange.value = { app, featured }
+    }
+  } finally {
+    if (active) featuringId.value = ''
+  }
+}
+
+function retryFeatured(): void {
+  if (busy.value || loginUserStore.authAction !== null) return
+  const change = failedFeaturedChange.value
+  if (change) void saveFeatured(change.app, change.featured)
+  else void load()
+}
+
 onMounted(load)
 onBeforeUnmount(() => {
   active = false
@@ -158,10 +200,7 @@ onBeforeUnmount(() => {
 
 <template>
   <section class="app-list" aria-label="应用管理">
-    <PageHeading
-      title="应用管理"
-      description="按名称和创建者查找应用，维护名称、删除应用或查看公开作品。"
-    />
+    <PageHeading title="应用管理" description="按名称和创建者管理应用。已发布应用可设为精选。" />
     <form class="search-form" aria-label="查询应用" @submit.prevent="search">
       <label class="name-filter">
         应用名称
@@ -189,7 +228,7 @@ onBeforeUnmount(() => {
         shape="round"
         html-type="submit"
         :loading="loading"
-        :disabled="deletingId !== ''"
+        :disabled="deletingId !== '' || featuringId !== ''"
         >查询</AButton
       >
       <AButton
@@ -201,7 +240,7 @@ onBeforeUnmount(() => {
     </form>
     <AAlert
       v-if="deleteError"
-      class="delete-error"
+      class="action-error"
       type="error"
       message="应用删除失败"
       :description="deleteError"
@@ -211,6 +250,21 @@ onBeforeUnmount(() => {
       <template #action>
         <AButton :disabled="busy || loginUserStore.authAction !== null" @click="retryDelete">
           {{ failedDeleteApp ? '重试' : '刷新列表' }}
+        </AButton>
+      </template>
+    </AAlert>
+    <AAlert
+      v-if="featuredError"
+      class="action-error"
+      type="error"
+      message="精选设置失败"
+      :description="featuredError"
+      show-icon
+      role="alert"
+    >
+      <template #action>
+        <AButton :disabled="busy || loginUserStore.authAction !== null" @click="retryFeatured">
+          {{ failedFeaturedChange ? '重试' : '刷新列表' }}
         </AButton>
       </template>
     </AAlert>
@@ -246,6 +300,7 @@ onBeforeUnmount(() => {
           <div v-if="column.key === 'appName'" class="app-summary">
             <span class="cell-text">{{ text }}</span>
             <span class="muted cell-text">ID：{{ record.id }}</span>
+            <span v-if="record.featured"><ATag>精选</ATag></span>
           </div>
           <ATag v-else-if="column.key === 'codeGenType'">
             {{ text === 'html' ? '单 HTML' : '多文件' }}
@@ -282,6 +337,16 @@ onBeforeUnmount(() => {
               查看作品
             </AButton>
             <span v-else class="muted">{{ record.deployment ? '暂无公开地址' : '—' }}</span>
+            <AButton
+              v-if="record.deployment || record.featured"
+              class="action-link"
+              type="link"
+              :loading="featuringId === record.id"
+              :disabled="busy || loginUserStore.authAction !== null"
+              @click="saveFeatured(record as AppAdminVO, !record.featured)"
+            >
+              {{ featuringId === record.id ? '保存中' : record.featured ? '取消精选' : '设为精选' }}
+            </AButton>
             <APopconfirm
               :open="deleteOpenId === record.id"
               title="确认删除这个应用？"
@@ -388,7 +453,7 @@ onBeforeUnmount(() => {
   margin: 0;
   overflow-wrap: anywhere;
 }
-.delete-error {
+.action-error {
   margin-bottom: 16px;
 }
 .muted {

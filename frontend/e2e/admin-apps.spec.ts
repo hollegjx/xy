@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test'
 import type { AppAdminVO, UserVO } from '../src/types/api'
 
-test('管理员查询应用、组合筛选、翻页、改名、删除和查看公开作品，普通用户不能访问', async ({
+test('管理员查询应用、组合筛选、翻页、改名、精选、删除和查看公开作品，普通用户不能访问', async ({
   page,
   context,
 }) => {
@@ -17,6 +17,7 @@ test('管理员查询应用、组合筛选、翻页、改名、删除和查看�
     userId: index === 11 ? admin.id : member.id,
     appName: index === 0 ? '摄影作品集' : `摄影项目 ${index + 1}`,
     codeGenType: index === 0 ? 'html' : 'multi_file',
+    featured: false,
     createTime: '2026-11-15T10:00:00',
     updateTime: '2026-11-15T11:00:00',
     deployment:
@@ -32,6 +33,7 @@ test('管理员查询应用、组合筛选、翻页、改名、删除和查看�
   let listRequests = 0
   let updateRequests = 0
   let deleteRequests = 0
+  const featuredChanges: boolean[] = []
   const deletedAppId = apps[0]!.id
   const renamedAppName = '摄影项目 11 · 夜景'
   await context.route('https://sites.example.test/**', (route) =>
@@ -54,6 +56,14 @@ test('管理员查询应用、组合筛选、翻页、改名、删除和查看�
         await route.fulfill({ json: { code: 0, data: currentUser, message: 'ok' } })
       } else if (url.pathname === '/api/users/logout') {
         currentUser = null
+        await route.fulfill({ json: { code: 0, data: true, message: 'ok' } })
+      } else if (url.pathname === `/api/admin/apps/${deletedAppId}/featured`) {
+        expect(request.method()).toBe('PATCH')
+        expect(currentUser?.userRole).toBe('admin')
+        const featured = featuredChanges.length === 0
+        expect(request.postDataJSON()).toEqual({ featured })
+        featuredChanges.push(featured)
+        apps.find((app) => app.id === deletedAppId)!.featured = featured
         await route.fulfill({ json: { code: 0, data: true, message: 'ok' } })
       } else if (url.pathname === `/api/admin/apps/${deletedAppId}`) {
         expect(request.method()).toBe('DELETE')
@@ -132,6 +142,7 @@ test('管理员查询应用、组合筛选、翻页、改名、删除和查看�
   await expect(publishedRow.getByText('已发布', { exact: true })).toBeVisible()
   const unpublishedRow = panel.getByRole('row').filter({ hasText: '摄影项目 2' })
   await expect(unpublishedRow.getByText('未发布', { exact: true })).toBeVisible()
+  await expect(unpublishedRow.getByRole('button', { name: '设为精选', exact: true })).toHaveCount(0)
   await expect(unpublishedRow.getByRole('link')).toHaveCount(0)
   await expect(panel.getByRole('link')).toHaveCount(1)
   const popupPromise = page.waitForEvent('popup')
@@ -184,6 +195,22 @@ test('管理员查询应用、组合筛选、翻页、改名、删除和查看�
 
   await panel.getByRole('button', { name: '重置', exact: true }).click()
   await expect(panel.getByText('共 12 个应用')).toBeVisible()
+  await panel.getByLabel('应用名称', { exact: true }).fill('摄影')
+  await panel.getByRole('button', { name: '查询', exact: true }).click()
+  await publishedRow.getByRole('button', { name: '设为精选', exact: true }).click()
+  await expect(publishedRow.getByText('精选', { exact: true })).toBeVisible()
+  await expect(publishedRow.getByRole('button', { name: '取消精选', exact: true })).toBeVisible()
+  await expect(panel.getByLabel('应用名称', { exact: true })).toHaveValue('摄影')
+  await page.reload()
+  await expect(publishedRow.getByText('精选', { exact: true })).toBeVisible()
+  await publishedRow.getByRole('button', { name: '取消精选', exact: true }).click()
+  await expect(publishedRow.getByRole('button', { name: '设为精选', exact: true })).toBeVisible()
+  await expect(publishedRow.getByText('精选', { exact: true })).toHaveCount(0)
+  await expect(publishedRow.getByRole('link', { name: '查看作品', exact: true })).toHaveAttribute(
+    'href',
+    'https://sites.example.test/photography/',
+  )
+  expect(featuredChanges).toEqual([true, false])
   await panel.getByLabel('应用名称', { exact: true }).fill('摄影')
   await panel.getByRole('button', { name: '查询', exact: true }).click()
   await publishedRow.getByRole('button', { name: '删除', exact: true }).click()

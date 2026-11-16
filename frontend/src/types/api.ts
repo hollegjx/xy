@@ -61,6 +61,10 @@ export interface AppUpdateRequest {
   appName: string
 }
 
+export interface AppFeaturedRequest {
+  featured: boolean
+}
+
 export interface AppVO {
   id: string
   userId: string
@@ -103,6 +107,7 @@ export interface AppAdminVO {
   userId: string
   appName: string
   codeGenType: CodeGenType
+  featured: boolean
   createTime: string
   updateTime: string
   deployment: AppDeployVO | null

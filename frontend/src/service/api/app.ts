@@ -4,6 +4,7 @@ import type {
   AppAdminPageVO,
   AppAdminQueryRequest,
   AppDeployVO,
+  AppFeaturedRequest,
   AppPageVO,
   AppQueryRequest,
   AppUpdateRequest,
@@ -21,6 +22,9 @@ export const updateApp = (id: string, data: AppUpdateRequest): Promise<boolean> 
 
 export const updateAppForAdmin = (id: string, data: AppUpdateRequest): Promise<boolean> =>
   request<boolean>(`/api/admin/apps/${encodeURIComponent(id)}`, { method: 'PATCH', data })
+
+export const updateAppFeatured = (id: string, data: AppFeaturedRequest): Promise<boolean> =>
+  request<boolean>(`/api/admin/apps/${encodeURIComponent(id)}/featured`, { method: 'PATCH', data })
 
 export const deleteApp = (id: string): Promise<boolean> =>
   request<boolean>(`/api/apps/${encodeURIComponent(id)}`, { method: 'DELETE' })

@@ -13,7 +13,7 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 // 处理本次原生生成的完整输出；文件存取仍统一经过 GeneratedFileManager。
-final class NativeGenerationOutputHandler {
+final class NativeGenerationOutputHandler implements GenerationSession.OutputHandler {
 
     private final long userId;
     private final long appId;
@@ -34,7 +34,8 @@ final class NativeGenerationOutputHandler {
                 .with(DeserializationFeature.FAIL_ON_TRAILING_TOKENS);
     }
 
-    void save(String output) throws IOException {
+    @Override
+    public void save(String output) throws IOException {
         if (multiFile) {
             fileManager.saveMultiFile(userId, appId, generationId, parseMultiFile(output));
         } else {
@@ -42,7 +43,8 @@ final class NativeGenerationOutputHandler {
         }
     }
 
-    String invalidOutputMessage() {
+    @Override
+    public String invalidOutputMessage() {
         return multiFile ? "模型未返回完整的 HTML/CSS/JS 文件，请重试" : "模型未返回完整的 HTML 文档，请重试";
     }
 

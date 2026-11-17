@@ -235,6 +235,9 @@ public class AppServiceImpl implements AppService {
         App app = getOwnedApp(id, loginUser);
         long versionId = getSuccessfulVersion(app);
         try {
+            if (CodeGenTypeEnum.VUE_PROJECT.getValue().equals(app.getCodeGenType())) {
+                return fileManager.readVueSourceZip(app.getUserId(), id, versionId);
+            }
             return fileManager.readSourceZip(app.getUserId(), id, versionId,
                     CodeGenTypeEnum.MULTI_FILE.getValue().equals(app.getCodeGenType()));
         } catch (NoSuchFileException error) {
@@ -248,6 +251,9 @@ public class AppServiceImpl implements AppService {
     @Override
     public AppDeployVO deployApp(long id, User loginUser) {
         App app = getOwnedApp(id, loginUser);
+        if (CodeGenTypeEnum.VUE_PROJECT.getValue().equals(app.getCodeGenType())) {
+            throw new BusinessException(ErrorCode.OPERATION_ERROR, "Vue 工程尚未接入构建与发布，请下载源码");
+        }
         long versionId = getSuccessfulVersion(app);
         deployment.requireConfigured();
         String key = app.getDeployKey();
@@ -287,8 +293,9 @@ public class AppServiceImpl implements AppService {
             throw new BusinessException(ErrorCode.OPERATION_ERROR, "应用没有可交付的成功版本");
         }
         if (!CodeGenTypeEnum.HTML.getValue().equals(app.getCodeGenType())
-                && !CodeGenTypeEnum.MULTI_FILE.getValue().equals(app.getCodeGenType())) {
-            throw new BusinessException(ErrorCode.PARAMS_ERROR, "当前交付仅支持 html 或 multi_file 模式");
+                && !CodeGenTypeEnum.MULTI_FILE.getValue().equals(app.getCodeGenType())
+                && !CodeGenTypeEnum.VUE_PROJECT.getValue().equals(app.getCodeGenType())) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "当前交付仅支持 html、multi_file 或 vue_project 模式");
         }
         return versionId;
     }

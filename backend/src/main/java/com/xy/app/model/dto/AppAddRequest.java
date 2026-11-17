@@ -12,7 +12,7 @@ public record AppAddRequest(
         @Schema(description = "初始需求，最多 16383 个字符；名称取前 12 个字符", maxLength = 16383,
                 example = "生成一个简洁的个人作品展示网站", requiredMode = Schema.RequiredMode.REQUIRED)
         String initPrompt,
-        @Schema(description = "生成模式：html 单 HTML / multi_file 多文件；省略或为 null 时默认多文件",
-                allowableValues = {"html", "multi_file"}, defaultValue = "multi_file", example = "multi_file")
+        @Schema(description = "生成模式：html 单 HTML / multi_file 多文件 / vue_project Vue 工程源码；省略时默认多文件",
+                allowableValues = {"html", "multi_file", "vue_project"}, defaultValue = "multi_file", example = "multi_file")
         CodeGenTypeEnum codeGenType) {
 }

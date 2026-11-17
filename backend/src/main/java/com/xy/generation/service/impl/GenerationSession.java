@@ -4,15 +4,20 @@ import com.xy.chat.model.enums.MessageStatusEnum;
 import com.xy.common.ErrorCode;
 import com.xy.exception.BusinessException;
 import com.xy.generation.model.vo.GenerationEventVO;
+import dev.langchain4j.data.message.ChatMessage;
+import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.model.chat.response.ChatResponse;
 import dev.langchain4j.model.chat.response.PartialResponse;
 import dev.langchain4j.model.chat.response.PartialResponseContext;
 import dev.langchain4j.model.chat.response.PartialThinking;
 import dev.langchain4j.model.chat.response.PartialThinkingContext;
+import dev.langchain4j.model.chat.response.PartialToolCall;
+import dev.langchain4j.model.chat.response.PartialToolCallContext;
 import dev.langchain4j.model.chat.response.StreamingChatResponseHandler;
 import dev.langchain4j.model.chat.response.StreamingHandle;
 import dev.langchain4j.model.output.FinishReason;
 import java.io.IOException;
+import java.util.List;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.MediaType;
@@ -21,20 +26,29 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 // 一次模型调用的状态和 SSE 生命周期；不承担权限判断或数据库事务。
 final class GenerationSession implements StreamingChatResponseHandler {
 
+    interface OutputHandler {
+        default void generate(StreamingChatModel model, List<ChatMessage> messages, GenerationSession session) {
+            model.chat(messages, session);
+        }
+        void save(String output) throws IOException;
+        String invalidOutputMessage();
+        default String completedMessage() { return null; }
+    }
+
     private static final Logger log = LoggerFactory.getLogger(GenerationSession.class);
     private final long appId;
     private final long userId;
     private final long generationId;
     private final SseEmitter emitter;
     private final GenerationPersistence persistence;
-    private final NativeGenerationOutputHandler outputHandler;
+    private final OutputHandler outputHandler;
     private final Runnable release;
     private final StringBuilder content = new StringBuilder();
     private StreamingHandle handle;
     private boolean finished;
 
     GenerationSession(long appId, long userId, long generationId, SseEmitter emitter,
-            GenerationPersistence persistence, NativeGenerationOutputHandler outputHandler, Runnable release) {
+            GenerationPersistence persistence, OutputHandler outputHandler, Runnable release) {
         this.appId = appId;
         this.userId = userId;
         this.generationId = generationId;
@@ -66,6 +80,10 @@ final class GenerationSession implements StreamingChatResponseHandler {
         return generationId;
     }
 
+    void generate(StreamingChatModel model, List<ChatMessage> messages) {
+        outputHandler.generate(model, messages, this);
+    }
+
     synchronized void cancel() {
         if (finished) {
             throw new BusinessException(ErrorCode.OPERATION_ERROR, "该生成不在运行中，请刷新消息状态");
@@ -90,6 +108,12 @@ final class GenerationSession implements StreamingChatResponseHandler {
 
     @Override
     public synchronized void onPartialThinking(PartialThinking thinking, PartialThinkingContext context) {
+        handle = context.streamingHandle();
+        if (finished) stopModel();
+    }
+
+    @Override
+    public synchronized void onPartialToolCall(PartialToolCall call, PartialToolCallContext context) {
         handle = context.streamingHandle();
         if (finished) stopModel();
     }
@@ -127,7 +151,7 @@ final class GenerationSession implements StreamingChatResponseHandler {
         // 数据已经提交。即使最终通知无法送达，也不能把成功版本改成失败。
         finished = true;
         release.run();
-        finishStream("completed", MessageStatusEnum.COMPLETED, null);
+        finishStream("completed", MessageStatusEnum.COMPLETED, outputHandler.completedMessage());
     }
 
     @Override
@@ -143,7 +167,7 @@ final class GenerationSession implements StreamingChatResponseHandler {
         fail("读取历史或成功源码失败，请检查应用生成记录和文件后重试");
     }
 
-    private synchronized void fail(String message) {
+    synchronized void fail(String message) {
         if (finished) return;
         finished = true;
         stopModel();

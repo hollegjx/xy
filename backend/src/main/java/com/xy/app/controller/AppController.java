@@ -118,7 +118,7 @@ public class AppController {
 
     @Operation(summary = "发布应用", description = "仅创建者可发布最近成功版本，无需请求体。"
             + "返回独立静态站点地址，重新发布沿用原地址；新生成不会自动更新已发布页面。"
-            + "无成功版本返回 409，文件缺失返回 404，未配置静态站点返回 503。")
+            + "无成功版本或 Vue 工程尚未接入构建发布时返回 409，文件缺失返回 404，未配置静态站点返回 503。")
     @PostMapping("/{id}/deploy")
     public ApiResponse<AppDeployVO> deployApp(
             @Parameter(description = "应用 ID，必须大于 0", example = "55")
@@ -128,6 +128,7 @@ public class AppController {
 
     @Operation(summary = "下载应用源码", description = "仅创建者可下载最近成功版本；返回 ZIP 附件，错误返回统一 JSON。"
             + "html 模式只含 index.html，multi_file 模式包含原始 index.html、style.css、script.js。"
+            + "vue_project 模式包含固定 Vue 工程骨架和 src 源码，不含依赖或构建产物。"
             + "不接受指定版本或文件路径；无成功版本返回 409，生成文件缺失返回 404。")
     @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "最近成功版本的源码 ZIP",
             content = @Content(mediaType = "application/zip", schema = @Schema(type = "string", format = "binary")))

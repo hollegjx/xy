@@ -3,22 +3,29 @@ package com.xy.generation.controller;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.xy.app.mapper.AppMapper;
 import com.xy.app.model.entity.App;
+import com.xy.chat.mapper.ChatHistoryMapper;
+import com.xy.chat.model.entity.ChatHistory;
 import com.xy.common.UserConstant;
 import com.xy.generation.service.impl.GenerationPersistence;
 import com.xy.manager.GeneratedFileManager;
 import com.xy.user.mapper.UserMapper;
 import com.xy.user.model.entity.User;
+import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.SystemMessage;
+import dev.langchain4j.data.message.ToolExecutionResultMessage;
 import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.model.chat.StreamingChatModel;
+import dev.langchain4j.model.chat.request.ChatRequest;
 import dev.langchain4j.model.chat.response.ChatResponse;
 import dev.langchain4j.model.chat.response.PartialResponse;
 import dev.langchain4j.model.chat.response.PartialResponseContext;
+import dev.langchain4j.model.chat.response.PartialToolCallContext;
 import dev.langchain4j.model.chat.response.StreamingChatResponseHandler;
 import dev.langchain4j.model.chat.response.StreamingHandle;
 import dev.langchain4j.model.output.FinishReason;
+import java.io.ByteArrayInputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -29,6 +36,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.zip.ZipInputStream;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -38,6 +46,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.dao.DataAccessResourceFailureException;
+import org.springframework.core.io.ClassPathResource;
 import org.springframework.http.MediaType;
 import org.springframework.mock.web.MockHttpSession;
 import org.springframework.test.context.DynamicPropertyRegistry;
@@ -61,6 +70,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.asyncDispatch;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -95,6 +105,8 @@ class GenerationControllerTest {
     AppMapper appMapper;
     @MockitoBean
     UserMapper userMapper;
+    @MockitoBean
+    ChatHistoryMapper chatHistoryMapper;
     private long generationId;
 
     @DynamicPropertySource
@@ -165,6 +177,108 @@ class GenerationControllerTest {
         assertThat(events).containsSubsequence("event:started", "event:delta", "event:completed").doesNotContain("event:failed");
         verify(persistence).complete(55L, 42L, generationId, json);
         verify(persistence, never()).fail(eq(generationId), any(), any());
+    }
+
+    @Test
+    void vueToolsSaveSourceBeforeCompletionAndDeliverAZipWithoutEnablingPreviewOrDeploy() throws Exception {
+        App app = app(42L, "vue_project");
+        when(appMapper.selectOneById(55L)).thenReturn(app);
+        String source = "<script setup>import Card from './components/Card.vue'</script><template><Card /></template>";
+        doAnswer(invocation -> {
+            ChatRequest request = invocation.getArgument(0);
+            StreamingChatResponseHandler handler = invocation.getArgument(1);
+            if (request.messages().getLast() instanceof ToolExecutionResultMessage) {
+                assertThat(request.messages()).hasSize(5);
+                handler.onCompleteResponse(response("已完成作品集。", FinishReason.STOP));
+            } else {
+                assertThat(request.toolSpecifications()).extracting("name").containsExactly("writeFile");
+                handler.onCompleteResponse(ChatResponse.builder().finishReason(FinishReason.TOOL_EXECUTION)
+                        .aiMessage(AiMessage.from(List.of(writeFile("src/App.vue", source),
+                                writeFile("src/components/Card.vue", "<template>作品集</template>")))).build());
+            }
+            return null;
+        }).when(model).chat(any(ChatRequest.class), any(StreamingChatResponseHandler.class));
+        doAnswer(invocation -> {
+            assertThat(fileManager.readVueProject(42, 55, generationId)).containsEntry("src/App.vue", source);
+            app.setGeneratedVersion(generationId);
+            ChatHistory version = new ChatHistory();
+            version.setAppId(55L);
+            version.setUserId(42L);
+            version.setMessageRole("assistant");
+            version.setStatus("completed");
+            when(chatHistoryMapper.selectOneById(generationId)).thenReturn(version);
+            return null;
+        }).when(persistence).complete(eq(55L), eq(42L), eq(generationId), any());
+
+        String events = finish(mockMvc.perform(generate().session(session())).andReturn());
+        assertThat(events).contains("已写入：src/components/Card.vue", "event:completed", "尚未构建")
+                .doesNotContain("event:failed");
+        Files.writeString(htmlPath().resolveSibling("application.yml"), "平台文件不能下载");
+        byte[] archive = mockMvc.perform(get("/api/apps/55/source").contextPath("/api").session(session()))
+                .andExpect(status().isOk()).andExpect(content().contentType("application/zip"))
+                .andReturn().getResponse().getContentAsByteArray();
+        Map<String, String> actual = new LinkedHashMap<>();
+        try (var zip = new ZipInputStream(new ByteArrayInputStream(archive), StandardCharsets.UTF_8)) {
+            for (var entry = zip.getNextEntry(); entry != null; entry = zip.getNextEntry()) {
+                actual.put(entry.getName(), new String(zip.readAllBytes(), StandardCharsets.UTF_8));
+            }
+        }
+        assertThat(actual).containsOnlyKeys("package.json", "index.html", "vite.config.js", "src/main.js",
+                "src/App.vue", "src/components/Card.vue").containsEntry("src/App.vue", source);
+        mockMvc.perform(get("/api/apps/55/preview").contextPath("/api").session(session()))
+                .andExpect(status().isConflict()).andExpect(jsonPath("$.message").value("Vue 工程尚未接入构建与在线预览，请下载源码"));
+        mockMvc.perform(post("/api/apps/55/deploy").contextPath("/api").session(session()))
+                .andExpect(status().isConflict()).andExpect(jsonPath("$.message").value("Vue 工程尚未接入构建与发布，请下载源码"));
+        Files.delete(htmlPath().resolveSibling("src/App.vue"));
+        mockMvc.perform(get("/api/apps/55/source").contextPath("/api").session(session()))
+                .andExpect(status().isNotFound()).andExpect(content().contentType("application/json"));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"missing_entry", "invalid_path", "model_error", "cancelled"})
+    void incompleteOrCancelledVueOutputDoesNotBecomeASuccessfulVersion(String outcome) throws Exception {
+        App app = app(42L, "vue_project");
+        long previousId = generationId - 1000;
+        app.setGeneratedVersion(previousId);
+        when(appMapper.selectOneById(55L)).thenReturn(app);
+        when(persistence.loadSuccessfulPrompts(55, 42, previousId)).thenReturn(List.of("旧需求"));
+        fileManager.writeVueSource(42, 55, previousId, "src/App.vue", "<template>旧作品</template>");
+        Map<String, String> template = objectMapper.readValue(
+                new ClassPathResource("templates/vue-project.json").getContentAsString(StandardCharsets.UTF_8),
+                new com.fasterxml.jackson.core.type.TypeReference<Map<String, String>>() {});
+        fileManager.finishVueProject(42, 55, previousId, template);
+        doAnswer(invocation -> {
+            ChatRequest request = invocation.getArgument(0);
+            assertThat(((AiMessage) request.messages().get(2)).text()).contains("旧作品");
+            StreamingChatResponseHandler handler = invocation.getArgument(1);
+            if (outcome.equals("cancelled")) {
+                StreamingHandle handle = mock(StreamingHandle.class);
+                PartialToolCallContext context = mock(PartialToolCallContext.class);
+                when(context.streamingHandle()).thenReturn(handle);
+                handler.onPartialToolCall(null, context);
+                mockMvc.perform(cancel(generationId).session(session())).andExpect(status().isOk());
+                verify(handle).cancel();
+            }
+            if (outcome.equals("model_error")) handler.onError(new IllegalStateException("private model detail"));
+            else if (outcome.equals("missing_entry")) handler.onCompleteResponse(response("完成", FinishReason.STOP));
+            else handler.onCompleteResponse(ChatResponse.builder().finishReason(FinishReason.TOOL_EXECUTION)
+                        .aiMessage(AiMessage.from(List.of(writeFile(
+                                outcome.equals("invalid_path") ? "../App.vue" : "src/App.vue", "<template>页面</template>")))).build());
+            return null;
+        }).when(model).chat(any(ChatRequest.class), any(StreamingChatResponseHandler.class));
+
+        String events = finish(mockMvc.perform(generate().session(session())).andReturn());
+        assertThat(events).contains(outcome.equals("cancelled") ? "event:cancelled" : "event:failed")
+                .doesNotContain("event:completed", "private model detail");
+        assertThat(htmlPath()).doesNotExist();
+        assertThat(app.getGeneratedVersion()).isEqualTo(previousId);
+        assertThat(fileManager.readVueProject(42, 55, previousId)).containsEntry("src/App.vue", "<template>旧作品</template>");
+        verify(persistence, never()).complete(eq(55L), eq(42L), eq(generationId), any());
+    }
+
+    private ToolExecutionRequest writeFile(String path, String content) throws Exception {
+        return ToolExecutionRequest.builder().id(path).name("writeFile")
+                .arguments(objectMapper.writeValueAsString(Map.of("relativePath", path, "content", content))).build();
     }
 
     @ParameterizedTest
@@ -337,7 +451,7 @@ class GenerationControllerTest {
     void rejectsUnsupportedModeAndInvalidPromptBeforeStarting() throws Exception {
         when(appMapper.selectOneById(55L)).thenReturn(app(42L, "vue"));
         mockMvc.perform(generate().session(session())).andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.message").value("当前生成仅支持 html 或 multi_file 模式"));
+                .andExpect(jsonPath("$.message").value("当前生成仅支持 html、multi_file 或 vue_project 模式"));
         mockMvc.perform(generate().session(session()).content("{\"prompt\":\" \"}"))
                 .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value(40000));
         verifyNoInteractions(model, persistence);

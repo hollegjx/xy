@@ -310,6 +310,10 @@
 
 - 原生 HTML 与多文件输出的解析、保存交给 `generation/service/impl/NativeGenerationOutputHandler`；会话保留状态和 SSE，仍在文件保存与成功记录提交之后通知完成。
 
+## 2026-11-16：Vue 工程源码
+
+- Vue 工程先交付源码生成与 ZIP 下载，完成状态仅代表源码保存；固定骨架由服务端提供，模型只写 src 文件，避免在本机直接执行模型产物。
+
 ## 第三方文件与依赖来源
 
 - [jsoup 1.24.1 官方发布说明](https://jsoup.org/news/release-1.24.1)：用 HTML 解析器定位和替换 CSS/JS 引用，避免用正则改写 HTML 标签。

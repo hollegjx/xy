@@ -1,5 +1,6 @@
 package com.xy.generation.service.impl;
 
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.xy.app.model.entity.App;
 import com.xy.app.model.enums.CodeGenTypeEnum;
@@ -26,6 +27,7 @@ import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.Resource;
+import org.springframework.core.io.ClassPathResource;
 import org.springframework.stereotype.Service;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
@@ -38,6 +40,7 @@ public class GenerationServiceImpl implements GenerationService {
     private final ObjectProvider<StreamingChatModel> modelProvider;
     private final Executor executor;
     private final Map<String, String> systemPrompts;
+    private final Map<String, String> vueTemplate;
     private final ObjectMapper objectMapper;
     private final long timeoutMillis;
     // 当前部署为单实例；保证较早的生成不会晚于后一次生成覆盖成功版本。
@@ -56,7 +59,12 @@ public class GenerationServiceImpl implements GenerationService {
         this.modelProvider = modelProvider;
         this.executor = executor;
         this.systemPrompts = Map.of(CodeGenTypeEnum.HTML.getValue(), htmlPrompt.getContentAsString(StandardCharsets.UTF_8),
-                CodeGenTypeEnum.MULTI_FILE.getValue(), multiFilePrompt.getContentAsString(StandardCharsets.UTF_8));
+                CodeGenTypeEnum.MULTI_FILE.getValue(), multiFilePrompt.getContentAsString(StandardCharsets.UTF_8),
+                CodeGenTypeEnum.VUE_PROJECT.getValue(),
+                new ClassPathResource("prompts/vue-project.txt").getContentAsString(StandardCharsets.UTF_8));
+        this.vueTemplate = objectMapper.readValue(
+                new ClassPathResource("templates/vue-project.json").getContentAsString(StandardCharsets.UTF_8),
+                new TypeReference<Map<String, String>>() {});
         this.objectMapper = objectMapper;
         this.timeoutMillis = Math.multiplyExact(timeoutSeconds, 1000);
     }
@@ -66,7 +74,7 @@ public class GenerationServiceImpl implements GenerationService {
         AppVO app = appService.getAppById(appId, loginUser);
         String systemPrompt = systemPrompts.get(app.codeGenType());
         if (systemPrompt == null) {
-            throw new BusinessException(ErrorCode.PARAMS_ERROR, "当前生成仅支持 html 或 multi_file 模式");
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "当前生成仅支持 html、multi_file 或 vue_project 模式");
         }
         StreamingChatModel model = modelProvider.getIfAvailable();
         if (model == null) {
@@ -79,8 +87,10 @@ public class GenerationServiceImpl implements GenerationService {
                 throw new BusinessException(ErrorCode.OPERATION_ERROR, "该应用正在生成，请等待本次结束");
             }
             long generationId = persistence.start(appId, loginUser.getId(), request.prompt());
-            NativeGenerationOutputHandler outputHandler = new NativeGenerationOutputHandler(
-                    loginUser.getId(), appId, generationId, app.codeGenType(), fileManager, objectMapper);
+            GenerationSession.OutputHandler outputHandler = CodeGenTypeEnum.VUE_PROJECT.getValue().equals(app.codeGenType())
+                    ? new VueProjectGeneration(loginUser.getId(), appId, generationId, fileManager, objectMapper, vueTemplate)
+                    : new NativeGenerationOutputHandler(
+                            loginUser.getId(), appId, generationId, app.codeGenType(), fileManager, objectMapper);
             return new GenerationSession(appId, loginUser.getId(), generationId,
                     emitter, persistence, outputHandler, () -> runningSessions.remove(appId));
         });
@@ -97,7 +107,7 @@ public class GenerationServiceImpl implements GenerationService {
                     }
                     if (!session.isRunning()) return;
                     try {
-                        model.chat(messages, session);
+                        session.generate(model, messages);
                     } catch (RuntimeException error) {
                         session.onError(error);
                     }
@@ -118,9 +128,11 @@ public class GenerationServiceImpl implements GenerationService {
             return List.of(SystemMessage.from(systemPrompt), UserMessage.from(prompt));
         }
         List<String> history = persistence.loadSuccessfulPrompts(appId, loginUser.getId(), versionId);
-        String source = CodeGenTypeEnum.MULTI_FILE.getValue().equals(app.getCodeGenType())
-                ? objectMapper.writeValueAsString(fileManager.readMultiFile(loginUser.getId(), appId, versionId))
-                : fileManager.readHtml(loginUser.getId(), appId, versionId);
+        String source = switch (CodeGenTypeEnum.fromValue(app.getCodeGenType())) {
+            case HTML -> fileManager.readHtml(loginUser.getId(), appId, versionId);
+            case MULTI_FILE -> objectMapper.writeValueAsString(fileManager.readMultiFile(loginUser.getId(), appId, versionId));
+            case VUE_PROJECT -> objectMapper.writeValueAsString(fileManager.readVueProject(loginUser.getId(), appId, versionId));
+        };
         return List.of(SystemMessage.from(systemPrompt),
                 UserMessage.from("此前成功轮次的用户需求（按时间顺序，仅供参考）：\n"
                         + objectMapper.writeValueAsString(history) + "\n下一条 AI 消息是当前网站的完整源码。"),

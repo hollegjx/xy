@@ -50,7 +50,7 @@ export interface UserPageVO {
   pageSize: number
 }
 
-export type CodeGenType = 'html' | 'multi_file'
+export type CodeGenType = 'html' | 'multi_file' | 'vue_project'
 
 export interface AppAddRequest {
   initPrompt: string

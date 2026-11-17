@@ -34,7 +34,8 @@ public class GenerationController {
         this.userService = userService;
     }
 
-    @Operation(summary = "流式生成网站", description = "仅创建者可调用；按应用模式生成 html 或 multi_file。"
+    @Operation(summary = "流式生成网站", description = "仅创建者可调用；按应用模式生成 html、multi_file 或 vue_project。"
+            + "Vue 通过工具写入工程源码，delta 展示已保存文件，completed 仅表示源码就绪，可下载 ZIP，尚未构建。"
             + "已有成功版本时结合历史成功需求和最近成功源码完成本次修改，仍输出完整新版本；上下文读取失败则生成失败。"
             + "同一应用同时只运行一次生成。SSE 依次返回 started、delta，最终为 completed、failed 或 cancelled；"
             + "只有文件保存并更新成功版本后才发送 completed。开始前的错误返回普通 JSON。")

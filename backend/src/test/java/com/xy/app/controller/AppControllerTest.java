@@ -95,6 +95,7 @@ class AppControllerTest {
                 Arguments.of("生成一个简洁的个人作品展示网站", null, "生成一个简洁的个人作品展", "multi_file"),
                 Arguments.of("博客", "html", "博客", "html"),
                 Arguments.of("12345678901🌟作品", "multi_file", "12345678901🌟", "multi_file"),
+                Arguments.of("生成 Vue 作品集", "vue_project", "生成 Vue 作品集", "vue_project"),
                 Arguments.of("🌟".repeat(16383), null, "🌟".repeat(12), "multi_file"));
     }
 

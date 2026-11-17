@@ -6,7 +6,8 @@ import com.fasterxml.jackson.annotation.JsonValue;
 public enum CodeGenTypeEnum {
 
     HTML("html"),
-    MULTI_FILE("multi_file");
+    MULTI_FILE("multi_file"),
+    VUE_PROJECT("vue_project");
 
     private final String value;
 
@@ -26,6 +27,6 @@ public enum CodeGenTypeEnum {
                 return type;
             }
         }
-        throw new IllegalArgumentException("生成模式仅支持 html 或 multi_file");
+        throw new IllegalArgumentException("生成模式仅支持 html、multi_file 或 vue_project");
     }
 }

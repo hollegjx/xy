@@ -44,6 +44,36 @@ class GeneratedFileManagerTest {
         assertThat(directory.resolve("42")).doesNotExist();
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = {"../App.vue", "/tmp/xy-App.vue", "src/../../App.vue", "src/main.js", "src/Main.js",
+            "src\\App.vue", "src/node_modules/main.js", "package.json"})
+    void vueToolsRejectPathsOutsideEditableSource(String path) {
+        GeneratedFileManager manager = new GeneratedFileManager(directory);
+        assertThatThrownBy(() -> manager.writeVueSource(42, 55, 101, path, "source"))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThat(directory.resolve("42")).doesNotExist();
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void vueToolsAndDownloadsRejectLinkedSourceDirectoriesAndFiles(boolean directoryLink) throws Exception {
+        GeneratedFileManager manager = new GeneratedFileManager(directory);
+        manager.writeVueSource(42, 55, 101, "src/App.vue", "<template>旧内容</template>");
+        manager.writeVueSource(42, 55, 101, "src/App.vue", "<template>新内容</template>");
+        Map<String, String> template = Map.of("package.json", "{}", "index.html", "entry",
+                "vite.config.js", "config", "src/main.js", "main");
+        manager.finishVueProject(42, 55, 101, template);
+        assertThat(manager.readVueProject(42, 55, 101)).containsEntry("src/App.vue", "<template>新内容</template>");
+        Path outside = Files.createDirectory(directory.resolve("outside"));
+        Path secret = Files.writeString(outside.resolve("secret.js"), "private");
+        Files.createSymbolicLink(directory.resolve("42/55/101/src/link" + (directoryLink ? "" : ".js")),
+                directoryLink ? outside : secret);
+        assertThatThrownBy(() -> manager.writeVueSource(42, 55, 101,
+                directoryLink ? "src/link/secret.js" : "src/link.js", "changed")).isInstanceOf(IOException.class);
+        assertThatThrownBy(() -> manager.readVueSourceZip(42, 55, 101)).isInstanceOf(IOException.class);
+        assertThat(Files.readString(secret)).isEqualTo("private");
+    }
+
     @Test
     void refusesToFollowASymlinkOutsideTheApplicationDirectory() throws Exception {
         Path outside = Files.createDirectory(directory.resolve("outside"));

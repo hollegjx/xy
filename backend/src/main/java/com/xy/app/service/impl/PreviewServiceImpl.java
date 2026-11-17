@@ -35,6 +35,9 @@ public class PreviewServiceImpl implements PreviewService {
     @Override
     public String getPreview(long appId, User loginUser) {
         App app = appService.getOwnedApp(appId, loginUser);
+        if (CodeGenTypeEnum.VUE_PROJECT.getValue().equals(app.getCodeGenType())) {
+            throw new BusinessException(ErrorCode.OPERATION_ERROR, "Vue 工程尚未接入构建与在线预览，请下载源码");
+        }
         Long versionId = app.getGeneratedVersion();
         if (versionId == null) {
             throw new BusinessException(ErrorCode.OPERATION_ERROR, "应用还没有成功生成的版本");

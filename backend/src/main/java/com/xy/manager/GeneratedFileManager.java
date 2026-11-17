@@ -12,6 +12,7 @@ import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 import java.util.Base64;
 import java.util.Locale;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
@@ -29,6 +30,7 @@ public class GeneratedFileManager {
     private static final Pattern HEAD = Pattern.compile("(?is)<head\\b[^>]*>.*?</head\\s*>");
     private static final Pattern BODY = Pattern.compile("(?is)<body\\b[^>]*>(.*?)</body\\s*>");
     private static final Set<String> MULTI_FILE_NAMES = Set.of("index.html", "style.css", "script.js");
+    private static final Set<String> VUE_TEMPLATE_NAMES = Set.of("package.json", "index.html", "vite.config.js", "src/main.js");
     private final Path root;
 
     public GeneratedFileManager(@Value("${xy.generation.output-directory:./generated}") Path root) {
@@ -52,6 +54,14 @@ public class GeneratedFileManager {
     }
 
     private void saveFiles(long userId, long appId, long generationId, Map<String, String> files) throws IOException {
+        Path directory = createVersionDirectory(userId, appId, generationId);
+        for (var file : files.entrySet()) {
+            Files.writeString(directory.resolve(file.getKey()), file.getValue(), StandardCharsets.UTF_8,
+                    StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE);
+        }
+    }
+
+    private Path createVersionDirectory(long userId, long appId, long generationId) throws IOException {
         Files.createDirectories(root);
         Path directory = root.toRealPath();
         // 文件名由服务端固定，模型输出不能提供路径；各层禁止符号链接。
@@ -66,10 +76,82 @@ public class GeneratedFileManager {
                 throw new IOException("生成目录不可用");
             }
         }
-        for (var file : files.entrySet()) {
+        return directory;
+    }
+
+    public void writeVueSource(long userId, long appId, long generationId, String relativePath, String content)
+            throws IOException {
+        Path relative = vueSourcePath(relativePath);
+        if (relativePath.equalsIgnoreCase("src/main.js") || content == null || content.isBlank()) {
+            throw new IllegalArgumentException("不能覆盖工程入口或写入空文件");
+        }
+        Path directory = createVersionDirectory(userId, appId, generationId);
+        for (Path segment : relative.getParent()) {
+            directory = directory.resolve(segment);
+            try {
+                Files.createDirectory(directory);
+            } catch (FileAlreadyExistsException existing) {
+                // 工具可重复写入同一版本，已有目录必须仍是普通目录。
+            }
+            if (!Files.isDirectory(directory, LinkOption.NOFOLLOW_LINKS)) throw new IOException("源码目录不可用");
+        }
+        Files.writeString(directory.resolve(relative.getFileName()), content, StandardCharsets.UTF_8,
+                StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING, LinkOption.NOFOLLOW_LINKS);
+    }
+
+    public void finishVueProject(long userId, long appId, long generationId, Map<String, String> template)
+            throws IOException {
+        Path directory = createVersionDirectory(userId, appId, generationId);
+        Path source = directory.resolve("src");
+        if (!Files.isDirectory(source, LinkOption.NOFOLLOW_LINKS)
+                || !Files.isRegularFile(source.resolve("App.vue"), LinkOption.NOFOLLOW_LINKS)
+                || readFile(source, "App.vue").isBlank()) {
+            throw new IllegalArgumentException("缺少 src/App.vue");
+        }
+        for (var file : template.entrySet()) {
             Files.writeString(directory.resolve(file.getKey()), file.getValue(), StandardCharsets.UTF_8,
                     StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE);
         }
+    }
+
+    public Map<String, String> readVueProject(long userId, long appId, long generationId) throws IOException {
+        Path directory = versionDirectory(userId, appId, generationId);
+        Path source = directory.resolve("src");
+        if (Files.isSymbolicLink(source)) throw new IOException("源码目录不可使用符号链接");
+        Map<String, String> files = new LinkedHashMap<>();
+        for (String name : VUE_TEMPLATE_NAMES) files.put(name, readFile(directory, name));
+        files.put("src/App.vue", readFile(source, "App.vue"));
+        try (var paths = Files.walk(source)) {
+            for (Path path : paths.sorted().toList()) {
+                if (Files.isSymbolicLink(path)) throw new IOException("源码不可使用符号链接");
+                if (Files.isDirectory(path, LinkOption.NOFOLLOW_LINKS)) continue;
+                String name = directory.relativize(path).toString();
+                try {
+                    vueSourcePath(name);
+                } catch (IllegalArgumentException error) {
+                    throw new IOException("存在无效的源码路径");
+                }
+                files.put(name, readFile(path.getParent(), path.getFileName().toString()));
+            }
+        }
+        if (files.values().stream().anyMatch(String::isBlank)) throw new IOException("源码文件不完整");
+        return files;
+    }
+
+    private Path vueSourcePath(String value) {
+        if (value == null || !value.startsWith("src/") || value.contains("\\")
+                || !value.matches(".*\\.(vue|js|css|json)")) throw new IllegalArgumentException("源码路径无效");
+        for (String part : value.split("/", -1)) {
+            if (part.isEmpty() || part.equals(".") || part.equals("..")
+                    || part.equalsIgnoreCase("node_modules") || part.equalsIgnoreCase("dist")) {
+                throw new IllegalArgumentException("源码路径无效");
+            }
+        }
+        return Path.of(value);
+    }
+
+    public byte[] readVueSourceZip(long userId, long appId, long generationId) throws IOException {
+        return zip(readVueProject(userId, appId, generationId));
     }
 
     public String readHtml(long userId, long appId, long generationId) throws IOException {
@@ -86,6 +168,10 @@ public class GeneratedFileManager {
         // 只读取固定生成文件，全部打包成功后才返回，避免缺文件时下载到残缺 ZIP。
         Map<String, String> files = multiFile ? readMultiFile(userId, appId, generationId)
                 : Map.of("index.html", readHtml(userId, appId, generationId));
+        return zip(files);
+    }
+
+    private byte[] zip(Map<String, String> files) throws IOException {
         ByteArrayOutputStream output = new ByteArrayOutputStream();
         try (ZipOutputStream zip = new ZipOutputStream(output, StandardCharsets.UTF_8)) {
             for (var file : files.entrySet()) {

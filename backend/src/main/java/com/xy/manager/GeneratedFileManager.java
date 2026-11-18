@@ -154,6 +154,42 @@ public class GeneratedFileManager {
         return zip(readVueProject(userId, appId, generationId));
     }
 
+    public record VueBuildPaths(Path source, Path output) {}
+
+    public VueBuildPaths prepareVueBuild(long userId, long appId, long generationId) throws IOException {
+        Map<String, String> source = readVueProject(userId, appId, generationId);
+        Path workspace = Files.createDirectory(versionDirectory(userId, appId, generationId).resolve(".build"));
+        Path input = Files.createDirectory(workspace.resolve("source"));
+        Path output = Files.createDirectory(workspace.resolve("output"));
+        for (var file : source.entrySet()) {
+            Path target = input.resolve(file.getKey());
+            Files.createDirectories(target.getParent());
+            Files.writeString(target, file.getValue(), StandardCharsets.UTF_8, StandardOpenOption.CREATE_NEW);
+        }
+        return new VueBuildPaths(input, output);
+    }
+
+    public void saveVuePreview(long userId, long appId, long generationId, VueBuildPaths paths) throws IOException {
+        Document html = Jsoup.parse(validateHtml(readFile(paths.output(), "index.html")));
+        html.outputSettings().prettyPrint(false);
+        var scripts = html.select("script[src]");
+        if (scripts.size() != 1 || !Set.of("app.js", "./app.js").contains(scripts.first().attr("src"))) {
+            throw new IOException("Vue 构建脚本不完整");
+        }
+        scripts.attr("src", dataUrl("text/javascript", readFile(paths.output(), "app.js")));
+        for (var style : html.select("link[rel=stylesheet][href]")) {
+            String name = style.attr("href").replaceFirst("^\\./", "");
+            if (!name.matches("[A-Za-z0-9_-]+\\.css")) throw new IOException("Vue 构建样式路径无效");
+            style.attr("href", dataUrl("text/css", readFile(paths.output(), name)));
+        }
+        Files.writeString(versionDirectory(userId, appId, generationId).resolve("preview.html"), html.outerHtml(),
+                StandardCharsets.UTF_8, StandardOpenOption.CREATE_NEW);
+    }
+
+    public String readVuePreview(long userId, long appId, long generationId) throws IOException {
+        return readFile(versionDirectory(userId, appId, generationId), "preview.html");
+    }
+
     public String readHtml(long userId, long appId, long generationId) throws IOException {
         return readFile(versionDirectory(userId, appId, generationId), "index.html");
     }

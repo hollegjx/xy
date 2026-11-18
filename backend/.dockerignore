@@ -1,0 +1,9 @@
+**
+!vue-builder/
+!vue-builder/Dockerfile
+!vue-builder/build.mjs
+!src/
+!src/main/
+!src/main/resources/
+!src/main/resources/templates/
+!src/main/resources/templates/vue-project.json

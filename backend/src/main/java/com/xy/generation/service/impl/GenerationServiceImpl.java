@@ -11,6 +11,7 @@ import com.xy.exception.BusinessException;
 import com.xy.generation.model.dto.GenerationRequest;
 import com.xy.generation.service.GenerationService;
 import com.xy.manager.GeneratedFileManager;
+import com.xy.manager.VueProjectBuildManager;
 import com.xy.user.model.entity.User;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
@@ -37,6 +38,7 @@ public class GenerationServiceImpl implements GenerationService {
     private final AppService appService;
     private final GenerationPersistence persistence;
     private final GeneratedFileManager fileManager;
+    private final VueProjectBuildManager vueBuilder;
     private final ObjectProvider<StreamingChatModel> modelProvider;
     private final Executor executor;
     private final Map<String, String> systemPrompts;
@@ -51,7 +53,7 @@ public class GenerationServiceImpl implements GenerationService {
             @Qualifier("generationExecutor") Executor executor,
             @Value("classpath:prompts/single-html.txt") Resource htmlPrompt,
             @Value("classpath:prompts/multi-file.txt") Resource multiFilePrompt,
-            ObjectMapper objectMapper,
+            ObjectMapper objectMapper, VueProjectBuildManager vueBuilder,
             @Value("${xy.ai.timeout-seconds:180}") long timeoutSeconds) throws IOException {
         this.appService = appService;
         this.persistence = persistence;
@@ -66,6 +68,7 @@ public class GenerationServiceImpl implements GenerationService {
                 new ClassPathResource("templates/vue-project.json").getContentAsString(StandardCharsets.UTF_8),
                 new TypeReference<Map<String, String>>() {});
         this.objectMapper = objectMapper;
+        this.vueBuilder = vueBuilder;
         this.timeoutMillis = Math.multiplyExact(timeoutSeconds, 1000);
     }
 
@@ -88,7 +91,7 @@ public class GenerationServiceImpl implements GenerationService {
             }
             long generationId = persistence.start(appId, loginUser.getId(), request.prompt());
             GenerationSession.OutputHandler outputHandler = CodeGenTypeEnum.VUE_PROJECT.getValue().equals(app.codeGenType())
-                    ? new VueProjectGeneration(loginUser.getId(), appId, generationId, fileManager, objectMapper, vueTemplate)
+                    ? new VueProjectGeneration(loginUser.getId(), appId, generationId, fileManager, objectMapper, vueTemplate, vueBuilder)
                     : new NativeGenerationOutputHandler(
                             loginUser.getId(), appId, generationId, app.codeGenType(), fileManager, objectMapper);
             return new GenerationSession(appId, loginUser.getId(), generationId,

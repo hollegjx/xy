@@ -8,6 +8,7 @@ import com.xy.chat.model.entity.ChatHistory;
 import com.xy.common.UserConstant;
 import com.xy.generation.service.impl.GenerationPersistence;
 import com.xy.manager.GeneratedFileManager;
+import com.xy.manager.VueProjectBuildManager;
 import com.xy.user.mapper.UserMapper;
 import com.xy.user.model.entity.User;
 import dev.langchain4j.agent.tool.ToolExecutionRequest;
@@ -107,6 +108,8 @@ class GenerationControllerTest {
     UserMapper userMapper;
     @MockitoBean
     ChatHistoryMapper chatHistoryMapper;
+    @MockitoBean
+    VueProjectBuildManager builder;
     private long generationId;
 
     @DynamicPropertySource
@@ -226,9 +229,9 @@ class GenerationControllerTest {
         assertThat(actual).containsOnlyKeys("package.json", "index.html", "vite.config.js", "src/main.js",
                 "src/App.vue", "src/components/Card.vue").containsEntry("src/App.vue", source);
         mockMvc.perform(get("/api/apps/55/preview").contextPath("/api").session(session()))
-                .andExpect(status().isConflict()).andExpect(jsonPath("$.message").value("Vue 工程尚未接入构建与在线预览，请下载源码"));
+                .andExpect(status().isConflict()).andExpect(jsonPath("$.message").value("该版本尚无构建产物，请启用 Vue 构建后重新生成；源码仍可下载"));
         mockMvc.perform(post("/api/apps/55/deploy").contextPath("/api").session(session()))
-                .andExpect(status().isConflict()).andExpect(jsonPath("$.message").value("Vue 工程尚未接入构建与发布，请下载源码"));
+                .andExpect(status().isConflict()).andExpect(jsonPath("$.message").value("Vue 工程尚未接入发布，请下载源码"));
         Files.delete(htmlPath().resolveSibling("src/App.vue"));
         mockMvc.perform(get("/api/apps/55/source").contextPath("/api").session(session()))
                 .andExpect(status().isNotFound()).andExpect(content().contentType("application/json"));
@@ -279,6 +282,46 @@ class GenerationControllerTest {
     private ToolExecutionRequest writeFile(String path, String content) throws Exception {
         return ToolExecutionRequest.builder().id(path).name("writeFile")
                 .arguments(objectMapper.writeValueAsString(Map.of("relativePath", path, "content", content))).build();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"success", "failure", "cancelled"})
+    void enabledVueBuildMustFinishBeforePublishingTheSuccessfulVersion(String outcome) throws Exception {
+        when(appMapper.selectOneById(55L)).thenReturn(app(42L, "vue_project"));
+        when(builder.enabled()).thenReturn(true);
+        doAnswer(invocation -> {
+            ChatRequest request = invocation.getArgument(0);
+            StreamingChatResponseHandler handler = invocation.getArgument(1);
+            handler.onCompleteResponse(request.messages().getLast() instanceof ToolExecutionResultMessage
+                    ? response("源码完成", FinishReason.STOP)
+                    : ChatResponse.builder().finishReason(FinishReason.TOOL_EXECUTION)
+                            .aiMessage(AiMessage.from(List.of(writeFile("src/App.vue", "<template>作品</template>")))).build());
+            return null;
+        }).when(model).chat(any(ChatRequest.class), any(StreamingChatResponseHandler.class));
+        doAnswer(invocation -> {
+            verify(persistence, never()).complete(eq(55L), eq(42L), eq(generationId), any());
+            var paths = (GeneratedFileManager.VueBuildPaths) invocation.getArgument(0);
+            assertThat(paths.source().resolve("src/App.vue")).exists();
+            if (outcome.equals("failure")) throw new java.io.IOException("private build detail");
+            if (outcome.equals("cancelled")) mockMvc.perform(cancel(generationId).session(session())).andExpect(status().isOk());
+            Files.writeString(paths.output().resolve("index.html"), HTML.replace("</head>",
+                    "<script type=\"module\" src=\"./app.js\"></script></head>"));
+            Files.writeString(paths.output().resolve("app.js"), "document.body.dataset.vue = 'ready'");
+            return null;
+        }).when(builder).build(any(), any());
+
+        String events = finish(mockMvc.perform(generate().session(session())).andReturn());
+        assertThat(events).contains("正在构建 Vue 工程").doesNotContain("private build detail");
+        if (outcome.equals("success")) {
+            assertThat(events).contains("event:completed", "Vue 工程构建完成");
+            assertThat(fileManager.readVuePreview(42, 55, generationId)).contains("data:text/javascript");
+            verify(persistence).complete(eq(55L), eq(42L), eq(generationId), any());
+        } else {
+            assertThat(events).contains(outcome.equals("failure") ? "event:failed" : "event:cancelled")
+                    .doesNotContain("event:completed");
+            verify(persistence, never()).complete(eq(55L), eq(42L), eq(generationId), any());
+            assertThat(htmlPath().resolveSibling("preview.html")).doesNotExist();
+        }
     }
 
     @ParameterizedTest

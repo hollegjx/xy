@@ -35,9 +35,6 @@ public class PreviewServiceImpl implements PreviewService {
     @Override
     public String getPreview(long appId, User loginUser) {
         App app = appService.getOwnedApp(appId, loginUser);
-        if (CodeGenTypeEnum.VUE_PROJECT.getValue().equals(app.getCodeGenType())) {
-            throw new BusinessException(ErrorCode.OPERATION_ERROR, "Vue 工程尚未接入构建与在线预览，请下载源码");
-        }
         Long versionId = app.getGeneratedVersion();
         if (versionId == null) {
             throw new BusinessException(ErrorCode.OPERATION_ERROR, "应用还没有成功生成的版本");
@@ -49,14 +46,21 @@ public class PreviewServiceImpl implements PreviewService {
             throw new BusinessException(ErrorCode.OPERATION_ERROR, "应用没有可预览的成功版本");
         }
         if (!CodeGenTypeEnum.HTML.getValue().equals(app.getCodeGenType())
-                && !CodeGenTypeEnum.MULTI_FILE.getValue().equals(app.getCodeGenType())) {
-            throw new BusinessException(ErrorCode.PARAMS_ERROR, "当前预览仅支持 html 或 multi_file 模式");
+                && !CodeGenTypeEnum.MULTI_FILE.getValue().equals(app.getCodeGenType())
+                && !CodeGenTypeEnum.VUE_PROJECT.getValue().equals(app.getCodeGenType())) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "当前预览仅支持 html、multi_file 或 vue_project 模式");
         }
         try {
+            if (CodeGenTypeEnum.VUE_PROJECT.getValue().equals(app.getCodeGenType())) {
+                return fileManager.readVuePreview(app.getUserId(), appId, versionId);
+            }
             return CodeGenTypeEnum.MULTI_FILE.getValue().equals(app.getCodeGenType())
                     ? fileManager.readMultiFilePreview(app.getUserId(), appId, versionId)
                     : fileManager.readHtml(app.getUserId(), appId, versionId);
         } catch (NoSuchFileException error) {
+            if (CodeGenTypeEnum.VUE_PROJECT.getValue().equals(app.getCodeGenType())) {
+                throw new BusinessException(ErrorCode.OPERATION_ERROR, "该版本尚无构建产物，请启用 Vue 构建后重新生成；源码仍可下载");
+            }
             throw new BusinessException(ErrorCode.NOT_FOUND_ERROR, "生成文件不存在，请重新生成");
         } catch (IOException | IllegalArgumentException error) {
             log.error("应用 {} 版本 {} 预览读取失败，异常类型 {}", appId, versionId, error.getClass().getSimpleName());

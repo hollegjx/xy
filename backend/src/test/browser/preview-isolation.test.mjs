@@ -7,6 +7,7 @@ import { chromium } from '../../../../frontend/node_modules/@playwright/test/ind
 const fixtures = {
   html: JSON.parse(await readFile(new URL('../../../target/preview-browser-fixture.json', import.meta.url), 'utf8')),
   multi_file: JSON.parse(await readFile(new URL('../../../target/preview-multi-file-browser-fixture.json', import.meta.url), 'utf8')),
+  vue_project: JSON.parse(await readFile(new URL('../../../target/preview-vue-browser-fixture.json', import.meta.url), 'utf8')),
 }
 const origin = 'https://xy-preview.test'
 const previewPath = '/api/apps/55/preview'

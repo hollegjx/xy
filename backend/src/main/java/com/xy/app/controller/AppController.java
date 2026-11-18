@@ -118,7 +118,7 @@ public class AppController {
 
     @Operation(summary = "发布应用", description = "仅创建者可发布最近成功版本，无需请求体。"
             + "返回独立静态站点地址，重新发布沿用原地址；新生成不会自动更新已发布页面。"
-            + "无成功版本或 Vue 工程尚未接入构建发布时返回 409，文件缺失返回 404，未配置静态站点返回 503。")
+            + "无成功版本或 Vue 工程尚未接入发布时返回 409，文件缺失返回 404，未配置静态站点返回 503。")
     @PostMapping("/{id}/deploy")
     public ApiResponse<AppDeployVO> deployApp(
             @Parameter(description = "应用 ID，必须大于 0", example = "55")

@@ -30,7 +30,7 @@ xy/
 com.xy/
 ├── common/、exception/  全局响应、共享常量与异常
 ├── config/              AI 模型、密码编码与发布配置
-├── manager/             GeneratedFileManager，生成文件存取与发布快照
+├── manager/             生成文件存取、发布快照与隔离构建
 ├── health/              controller、service/impl、model/vo
 ├── user/                用户业务
 ├── app/                 应用业务，包含 PreviewController 与 PreviewService
@@ -81,6 +81,8 @@ com.xy/
 
 ### 独立静态站点配置
 
+Vue 工程的构建与预览配置见下节；当前发布接口仍用于原生 HTML 和多文件网站。
+
 在本地 `application.yml` 的 `xy.deployment` 中配置 `directory`（默认 `./published`）、`public-url`（静态站点来源，不含路径）和 `platform-origin`（浏览器访问平台的来源，默认 `http://localhost:5173`）。`public-url` 留空时发布返回 503，其他业务正常使用。
 
 静态服务器需要与后端共享发布目录，且此目录不能与私有 `generated` 目录重叠。已有 Nginx 可参考 [backend/nginx.example.conf](backend/nginx.example.conf)：将示例 `root` 改为发布目录的绝对路径，并保留文件白名单和响应头配置；先验证并启动实际站点，再填写 `public-url`。本机示例使用 `http://127.0.0.1:8102`，平台通过 `localhost` 打开。仅换端口不能隔离 Cookie；线上作品使用与平台隔离的域名，不共享平台会话 Cookie，不代理平台 `/api`。
@@ -88,6 +90,30 @@ com.xy/
 发布文件为 `published/{deployKey}/index.html`。`deployKey` 由服务端首次发布时生成并保存；重新发布只更新此快照，分享地址保持不变。多文件模式复用已有合并逻辑，将 CSS/JS 编码进 HTML，因此发布快照只有一个文件，源码下载仍保留原始三文件。页面保持现有沙箱限制：允许本地样式与脚本交互，不支持联网资源、表单提交或模块导入。静态服务器仅公开快照，不提供目录浏览、对话或源码下载接口。
 
 本机地址只能用于本机验收。公网分享需要配置真实静态站点与 HTTPS 地址，并另外验证匿名访问；当前示例配置不代表已部署站点。
+
+### Vue 工程构建与预览
+
+`vue_project` 模式通过工具生成工程源码，下载接口返回完整源码 ZIP。`xy.vue-build.enabled` 默认 false；此时完成仅表示源码就绪。
+
+macOS 先安装并启动 Docker Desktop；Linux 使用已有 Docker Engine。在项目根目录准备固定构建镜像：
+
+```sh
+docker build -t xy-vue-builder:local -f backend/vue-builder/Dockerfile backend
+```
+
+镜像构建只安装固定模板中的依赖；`backend/.dockerignore` 仅允许模板和构建工具进入上下文。在本地 `application.yml` 已有的 `xy` 节点下追加：
+
+```yaml
+vue-build:
+  enabled: true
+  docker-executable: docker
+  image: xy-vue-builder:local
+  timeout-seconds: 120
+```
+
+IDEA 找不到 Docker 时，`docker-executable` 填 `command -v docker` 输出的绝对路径。重新运行后端后，Vue 生成会展示构建阶段，构建成功后可通过已有预览接口或工作台浏览；原来的源码版本需要重新生成才能获得预览产物。`xy.ai.timeout-seconds` 是整个 SSE 任务的等待时间，包含模型生成与构建。
+
+每次构建只挂载当前版本的源码快照和产物目录，容器断网、根文件系统只读，使用平台固定配置。失败、超时或停止均不替换旧成功版本。源码 ZIP 不包含构建缓存和预览产物。
 
 ## 用户注册验收
 

@@ -252,7 +252,7 @@ public class AppServiceImpl implements AppService {
     public AppDeployVO deployApp(long id, User loginUser) {
         App app = getOwnedApp(id, loginUser);
         if (CodeGenTypeEnum.VUE_PROJECT.getValue().equals(app.getCodeGenType())) {
-            throw new BusinessException(ErrorCode.OPERATION_ERROR, "Vue 工程尚未接入构建与发布，请下载源码");
+            throw new BusinessException(ErrorCode.OPERATION_ERROR, "Vue 工程尚未接入发布，请下载源码");
         }
         long versionId = getSuccessfulVersion(app);
         deployment.requireConfigured();

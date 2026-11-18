@@ -2,6 +2,7 @@ package com.xy.generation.service.impl;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.xy.manager.GeneratedFileManager;
+import com.xy.manager.VueProjectBuildManager;
 import dev.langchain4j.agent.tool.ToolSpecification;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
@@ -34,15 +35,18 @@ final class VueProjectGeneration implements GenerationSession.OutputHandler {
     private final GeneratedFileManager files;
     private final ObjectMapper mapper;
     private final Map<String, String> template;
+    private final VueProjectBuildManager builder;
+    private GeneratedFileManager.VueBuildPaths buildPaths;
 
     VueProjectGeneration(long userId, long appId, long generationId, GeneratedFileManager files,
-            ObjectMapper mapper, Map<String, String> template) {
+            ObjectMapper mapper, Map<String, String> template, VueProjectBuildManager builder) {
         this.userId = userId;
         this.appId = appId;
         this.generationId = generationId;
         this.files = files;
         this.mapper = mapper;
         this.template = template;
+        this.builder = builder;
     }
 
     @Override
@@ -74,6 +78,7 @@ final class VueProjectGeneration implements GenerationSession.OutputHandler {
                 public void onError(Throwable error) { session.onError(error); }
                 @Override
                 public void onCompleteResponse(ChatResponse response) {
+                    boolean hasTools;
                     synchronized (session) {
                         if (!session.isRunning()) return;
                         if (response.finishReason() != FinishReason.STOP
@@ -83,13 +88,8 @@ final class VueProjectGeneration implements GenerationSession.OutputHandler {
                         }
                         AiMessage reply = response.aiMessage();
                         if (reply.text() != null) history.append(reply.text());
-                        if (!reply.hasToolExecutionRequests()) {
-                            history.append('\n').append(completedMessage());
-                            session.onCompleteResponse(ChatResponse.builder().finishReason(FinishReason.STOP)
-                                    .aiMessage(AiMessage.from(history.toString())).build());
-                            return;
-                        }
-                        try {
+                        hasTools = reply.hasToolExecutionRequests();
+                        if (hasTools) try {
                             messages.add(reply);
                             for (var tool : reply.toolExecutionRequests()) {
                                 if (!"writeFile".equals(tool.name())) throw new IllegalArgumentException();
@@ -109,7 +109,8 @@ final class VueProjectGeneration implements GenerationSession.OutputHandler {
                             return;
                         }
                     }
-                    next(model, messages, session, history);
+                    if (hasTools) next(model, messages, session, history);
+                    else complete(session, history);
                 }
             });
         } catch (RuntimeException error) {
@@ -117,14 +118,42 @@ final class VueProjectGeneration implements GenerationSession.OutputHandler {
         }
     }
 
+    private void complete(GenerationSession session, StringBuilder history) {
+        try {
+            if (builder.enabled()) {
+                synchronized (session) {
+                    if (!session.isRunning()) return;
+                    files.finishVueProject(userId, appId, generationId, template);
+                    buildPaths = files.prepareVueBuild(userId, appId, generationId);
+                    String progress = "\n源码已保存，正在构建 Vue 工程…\n";
+                    history.append(progress);
+                    session.onPartialResponse(progress);
+                }
+                if (!session.isRunning()) return;
+                builder.build(buildPaths, session::isRunning);
+            }
+            history.append('\n').append(completedMessage());
+            session.onCompleteResponse(ChatResponse.builder().finishReason(FinishReason.STOP)
+                    .aiMessage(AiMessage.from(history.toString())).build());
+        } catch (IllegalArgumentException error) {
+            session.fail(invalidOutputMessage());
+        } catch (IOException | RuntimeException error) {
+            session.fail("Vue 工程构建失败，请检查源码和构建环境后重试");
+        }
+    }
+
     @Override
     public void save(String output) throws IOException {
-        files.finishVueProject(userId, appId, generationId, template);
+        if (builder.enabled()) files.saveVuePreview(userId, appId, generationId, buildPaths);
+        else files.finishVueProject(userId, appId, generationId, template);
     }
 
     @Override
     public String invalidOutputMessage() { return "Vue 工程缺少完整的 src/App.vue，请重试"; }
 
     @Override
-    public String completedMessage() { return "Vue 工程源码已生成，可下载 ZIP；尚未构建，暂不支持在线预览或发布。"; }
+    public String completedMessage() {
+        return builder.enabled() ? "Vue 工程构建完成，可在线预览或下载源码。"
+                : "Vue 工程源码已生成，可下载 ZIP；尚未构建，暂不支持在线预览或发布。";
+    }
 }

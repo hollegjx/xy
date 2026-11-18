@@ -36,7 +36,7 @@ public class PreviewController {
         this.userService = userService;
     }
 
-    @Operation(summary = "预览最近成功版本", description = "仅创建者可访问；支持 html 与 multi_file，直接返回 UTF-8 HTML，"
+    @Operation(summary = "预览最近成功版本", description = "仅创建者可访问；支持 html、multi_file 和已构建的 vue_project，直接返回 UTF-8 HTML；Vue 缺少构建产物返回 409，"
             + "错误返回普通 JSON。无成功版本返回 409，生成文件缺失返回 404。多文件 CSS/JS 编码为 data URL，"
             + "沙箱阻止读取平台 Cookie、存储和父页面，禁止联网与表单提交；iframe 应通过同源 /api 地址加载。")
     @ApiResponse(responseCode = "200", description = "隔离运行的 HTML；在浏览器直接访问本接口可预览",

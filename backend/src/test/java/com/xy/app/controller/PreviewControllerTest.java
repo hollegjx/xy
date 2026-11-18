@@ -160,6 +160,30 @@ class PreviewControllerTest {
     }
 
     @Test
+    void servesBuiltVueModulesUnderTheExistingSandbox() throws Exception {
+        app.setCodeGenType("vue_project");
+        app.setGeneratedVersion(301L);
+        when(messages.selectOneById(301L)).thenReturn(version);
+        files.writeVueSource(42, 55, 301, "src/App.vue", "<template>作品</template>");
+        files.finishVueProject(42, 55, 301, Map.of("package.json", "{}", "index.html", "entry",
+                "vite.config.js", "config", "src/main.js", "main"));
+        var paths = files.prepareVueBuild(42, 55, 301);
+        var html = Jsoup.parse(new ClassPathResource("preview/isolation.html").getContentAsString(StandardCharsets.UTF_8));
+        Element style = html.selectFirst("style"), script = html.selectFirst("script");
+        Files.writeString(paths.output().resolve("app.js"), script.data());
+        Files.writeString(paths.output().resolve("index.css"), style.data());
+        style.replaceWith(new Element("link").attr("rel", "stylesheet").attr("href", "./index.css"));
+        script.replaceWith(new Element("script").attr("type", "module").attr("src", "./app.js"));
+        Files.writeString(paths.output().resolve("index.html"), html.outerHtml());
+        files.saveVuePreview(42, 55, 301, paths);
+        var response = mockMvc.perform(preview().session(session())).andExpect(status().isOk())
+                .andExpect(content().string(containsString("data:text/javascript")))
+                .andExpect(header().string("Content-Security-Policy", containsString("sandbox allow-scripts;")))
+                .andReturn().getResponse();
+        writeBrowserFixture(response, "preview-vue-browser-fixture.json");
+    }
+
+    @Test
     void rejectsMissingUnsuccessfulOrMismatchedVersionsAndReportsMissingFiles() throws Exception {
         app.setGeneratedVersion(null);
         mockMvc.perform(preview().session(session())).andExpect(status().isConflict())

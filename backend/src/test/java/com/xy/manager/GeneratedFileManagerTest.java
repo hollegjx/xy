@@ -74,6 +74,23 @@ class GeneratedFileManagerTest {
         assertThat(Files.readString(secret)).isEqualTo("private");
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = {"script_path", "style_path", "linked_script"})
+    void refusesUnsafeAssetsBeforeSavingAVuePreview(String invalid) throws Exception {
+        GeneratedFileManager manager = new GeneratedFileManager(directory);
+        manager.saveHtml(42, 55, 101, HTML);
+        Path output = Files.createDirectory(directory.resolve("output"));
+        String script = invalid.equals("script_path") ? "../app.js" : "./app.js";
+        Files.writeString(output.resolve("index.html"), HTML.replace("</head>",
+                "<script type=\"module\" src=\"" + script + "\"></script>"
+                        + (invalid.equals("style_path") ? "<link rel=\"stylesheet\" href=\"../secret.css\">" : "") + "</head>"));
+        if (invalid.equals("linked_script")) Files.createSymbolicLink(output.resolve("app.js"), directory.resolve("42/55/101/index.html"));
+        else Files.writeString(output.resolve("app.js"), "source");
+        assertThatThrownBy(() -> manager.saveVuePreview(42, 55, 101,
+                new GeneratedFileManager.VueBuildPaths(directory, output))).isInstanceOf(IOException.class);
+        assertThat(directory.resolve("42/55/101/preview.html")).doesNotExist();
+    }
+
     @Test
     void refusesToFollowASymlinkOutsideTheApplicationDirectory() throws Exception {
         Path outside = Files.createDirectory(directory.resolve("outside"));

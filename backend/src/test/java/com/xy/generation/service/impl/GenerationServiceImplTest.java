@@ -6,6 +6,7 @@ import com.xy.app.service.AppService;
 import com.xy.exception.BusinessException;
 import com.xy.generation.model.dto.GenerationRequest;
 import com.xy.manager.GeneratedFileManager;
+import com.xy.manager.VueProjectBuildManager;
 import com.xy.user.model.entity.User;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import java.util.concurrent.Executor;
@@ -31,7 +32,7 @@ class GenerationServiceImplTest {
         GenerationServiceImpl service = new GenerationServiceImpl(apps, persistence, files,
                 new StaticListableBeanFactory().getBeanProvider(StreamingChatModel.class), executor,
                 new ClassPathResource("prompts/single-html.txt"), new ClassPathResource("prompts/multi-file.txt"),
-                new ObjectMapper(), 180);
+                new ObjectMapper(), mock(VueProjectBuildManager.class), 180);
         User user = new User();
         user.setId(42L);
         when(apps.getAppById(55, user)).thenReturn(

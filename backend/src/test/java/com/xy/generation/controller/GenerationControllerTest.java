@@ -33,7 +33,10 @@ import java.nio.file.Path;
 import java.util.List;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
@@ -43,6 +46,8 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
+import org.mockito.ArgumentCaptor;
+import org.mockito.stubbing.Answer;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -63,6 +68,7 @@ import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doNothing;
+import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
@@ -110,6 +116,9 @@ class GenerationControllerTest {
     ChatHistoryMapper chatHistoryMapper;
     @MockitoBean
     VueProjectBuildManager builder;
+    @MockitoBean(name = "generationHeartbeatScheduler")
+    ScheduledExecutorService heartbeatScheduler;
+    private final ScheduledFuture<?> heartbeatTask = mock(ScheduledFuture.class);
     private long generationId;
 
     @DynamicPropertySource
@@ -119,6 +128,8 @@ class GenerationControllerTest {
 
     @BeforeEach
     void prepare() {
+        doReturn(heartbeatTask).when(heartbeatScheduler)
+                .scheduleAtFixedRate(any(Runnable.class), eq(15L), eq(15L), eq(TimeUnit.SECONDS));
         User user = new User();
         user.setId(42L);
         user.setUserRole("admin");
@@ -285,6 +296,43 @@ class GenerationControllerTest {
     }
 
     @ParameterizedTest
+    @ValueSource(strings = {"html", "multi_file", "vue_project"})
+    void silentGenerationSendsHeartbeatsForEveryMode(String mode) throws Exception {
+        when(appMapper.selectOneById(55L)).thenReturn(app(42L, mode));
+        CountDownLatch waiting = new CountDownLatch(1);
+        Answer<Void> silentModel = invocation -> {
+            if (mode.equals("vue_project")) {
+                StreamingChatResponseHandler handler = invocation.getArgument(1);
+                PartialToolCallContext context = mock(PartialToolCallContext.class);
+                when(context.streamingHandle()).thenReturn(mock(StreamingHandle.class));
+                handler.onPartialToolCall(null, context);
+            }
+            waiting.countDown();
+            return null;
+        };
+        doAnswer(silentModel).when(model).chat(anyList(), any(StreamingChatResponseHandler.class));
+        doAnswer(silentModel).when(model).chat(any(ChatRequest.class), any(StreamingChatResponseHandler.class));
+        MvcResult result = mockMvc.perform(generate().session(session())).andReturn();
+        assertThat(waiting.await(5, TimeUnit.SECONDS)).isTrue();
+        Runnable heartbeat = heartbeatTick();
+        for (int tick = 0; tick < 10; tick++) heartbeat.run();
+        verifyNoInteractions(heartbeatTask);
+        mockMvc.perform(cancel(generationId).session(session())).andExpect(status().isOk());
+        verify(heartbeatTask).cancel(false);
+        heartbeat.run();
+        String events = finish(result);
+        assertThat(events).contains("event:started", "event:cancelled").doesNotContain("event:delta");
+        assertThat(events.split(":keepalive\n\n", -1)).hasSize(11);
+        verify(persistence).cancel(generationId, "");
+    }
+
+    private Runnable heartbeatTick() {
+        ArgumentCaptor<Runnable> task = ArgumentCaptor.forClass(Runnable.class);
+        verify(heartbeatScheduler).scheduleAtFixedRate(task.capture(), eq(15L), eq(15L), eq(TimeUnit.SECONDS));
+        return task.getValue();
+    }
+
+    @ParameterizedTest
     @ValueSource(strings = {"success", "failure", "cancelled"})
     void enabledVueBuildMustFinishBeforePublishingTheSuccessfulVersion(String outcome) throws Exception {
         when(appMapper.selectOneById(55L)).thenReturn(app(42L, "vue_project"));
@@ -302,6 +350,8 @@ class GenerationControllerTest {
             verify(persistence, never()).complete(eq(55L), eq(42L), eq(generationId), any());
             var paths = (GeneratedFileManager.VueBuildPaths) invocation.getArgument(0);
             assertThat(paths.source().resolve("src/App.vue")).exists();
+            // 另一个线程在构建期间发送心跳，验证构建没有占住会话锁。
+            CompletableFuture.runAsync(heartbeatTick()).get(5, TimeUnit.SECONDS);
             if (outcome.equals("failure")) throw new java.io.IOException("private build detail");
             if (outcome.equals("cancelled")) mockMvc.perform(cancel(generationId).session(session())).andExpect(status().isOk());
             Files.writeString(paths.output().resolve("index.html"), HTML.replace("</head>",
@@ -311,7 +361,8 @@ class GenerationControllerTest {
         }).when(builder).build(any(), any());
 
         String events = finish(mockMvc.perform(generate().session(session())).andReturn());
-        assertThat(events).contains("正在构建 Vue 工程").doesNotContain("private build detail");
+        assertThat(events).contains("正在构建 Vue 工程", ":keepalive\n\n").doesNotContain("private build detail");
+        verify(heartbeatTask).cancel(false);
         if (outcome.equals("success")) {
             assertThat(events).contains("event:completed", "Vue 工程构建完成");
             assertThat(fileManager.readVuePreview(42, 55, generationId)).contains("data:text/javascript");

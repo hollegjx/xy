@@ -10,6 +10,7 @@ import com.xy.manager.VueProjectBuildManager;
 import com.xy.user.model.entity.User;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import java.util.concurrent.Executor;
+import java.util.concurrent.ScheduledExecutorService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.support.StaticListableBeanFactory;
 import org.springframework.core.io.ClassPathResource;
@@ -31,6 +32,7 @@ class GenerationServiceImplTest {
         Executor executor = mock(Executor.class);
         GenerationServiceImpl service = new GenerationServiceImpl(apps, persistence, files,
                 new StaticListableBeanFactory().getBeanProvider(StreamingChatModel.class), executor,
+                mock(ScheduledExecutorService.class),
                 new ClassPathResource("prompts/single-html.txt"), new ClassPathResource("prompts/multi-file.txt"),
                 new ObjectMapper(), mock(VueProjectBuildManager.class), 180);
         User user = new User();

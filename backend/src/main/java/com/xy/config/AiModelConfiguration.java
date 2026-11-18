@@ -5,6 +5,8 @@ import dev.langchain4j.model.openai.OpenAiStreamingChatModel;
 import java.time.Duration;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledThreadPoolExecutor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
@@ -30,5 +32,12 @@ public class AiModelConfiguration {
     @Bean(destroyMethod = "close")
     public ExecutorService generationExecutor() {
         return Executors.newVirtualThreadPerTaskExecutor();
+    }
+
+    @Bean(destroyMethod = "shutdown")
+    public ScheduledExecutorService generationHeartbeatScheduler() {
+        ScheduledThreadPoolExecutor scheduler = new ScheduledThreadPoolExecutor(1);
+        scheduler.setRemoveOnCancelPolicy(true);
+        return scheduler;
     }
 }

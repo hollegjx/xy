@@ -24,6 +24,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
+import java.util.concurrent.ScheduledExecutorService;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
@@ -41,6 +42,7 @@ public class GenerationServiceImpl implements GenerationService {
     private final VueProjectBuildManager vueBuilder;
     private final ObjectProvider<StreamingChatModel> modelProvider;
     private final Executor executor;
+    private final ScheduledExecutorService heartbeatScheduler;
     private final Map<String, String> systemPrompts;
     private final Map<String, String> vueTemplate;
     private final ObjectMapper objectMapper;
@@ -51,6 +53,7 @@ public class GenerationServiceImpl implements GenerationService {
     public GenerationServiceImpl(AppService appService, GenerationPersistence persistence,
             GeneratedFileManager fileManager, ObjectProvider<StreamingChatModel> modelProvider,
             @Qualifier("generationExecutor") Executor executor,
+            @Qualifier("generationHeartbeatScheduler") ScheduledExecutorService heartbeatScheduler,
             @Value("classpath:prompts/single-html.txt") Resource htmlPrompt,
             @Value("classpath:prompts/multi-file.txt") Resource multiFilePrompt,
             ObjectMapper objectMapper, VueProjectBuildManager vueBuilder,
@@ -60,6 +63,7 @@ public class GenerationServiceImpl implements GenerationService {
         this.fileManager = fileManager;
         this.modelProvider = modelProvider;
         this.executor = executor;
+        this.heartbeatScheduler = heartbeatScheduler;
         this.systemPrompts = Map.of(CodeGenTypeEnum.HTML.getValue(), htmlPrompt.getContentAsString(StandardCharsets.UTF_8),
                 CodeGenTypeEnum.MULTI_FILE.getValue(), multiFilePrompt.getContentAsString(StandardCharsets.UTF_8),
                 CodeGenTypeEnum.VUE_PROJECT.getValue(),
@@ -95,7 +99,7 @@ public class GenerationServiceImpl implements GenerationService {
                     : new NativeGenerationOutputHandler(
                             loginUser.getId(), appId, generationId, app.codeGenType(), fileManager, objectMapper);
             return new GenerationSession(appId, loginUser.getId(), generationId,
-                    emitter, persistence, outputHandler, () -> runningSessions.remove(appId));
+                    emitter, persistence, outputHandler, () -> runningSessions.remove(appId), heartbeatScheduler);
         });
         if (session.start()) {
             try {

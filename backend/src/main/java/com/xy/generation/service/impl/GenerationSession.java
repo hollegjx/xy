@@ -18,6 +18,9 @@ import dev.langchain4j.model.chat.response.StreamingHandle;
 import dev.langchain4j.model.output.FinishReason;
 import java.io.IOException;
 import java.util.List;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.TimeUnit;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.MediaType;
@@ -43,12 +46,15 @@ final class GenerationSession implements StreamingChatResponseHandler {
     private final GenerationPersistence persistence;
     private final OutputHandler outputHandler;
     private final Runnable release;
+    private final ScheduledExecutorService heartbeatScheduler;
     private final StringBuilder content = new StringBuilder();
     private StreamingHandle handle;
+    private ScheduledFuture<?> heartbeat;
     private boolean finished;
 
     GenerationSession(long appId, long userId, long generationId, SseEmitter emitter,
-            GenerationPersistence persistence, OutputHandler outputHandler, Runnable release) {
+            GenerationPersistence persistence, OutputHandler outputHandler, Runnable release,
+            ScheduledExecutorService heartbeatScheduler) {
         this.appId = appId;
         this.userId = userId;
         this.generationId = generationId;
@@ -56,6 +62,7 @@ final class GenerationSession implements StreamingChatResponseHandler {
         this.persistence = persistence;
         this.outputHandler = outputHandler;
         this.release = release;
+        this.heartbeatScheduler = heartbeatScheduler;
         emitter.onTimeout(() -> fail("生成超时，请重试"));
         emitter.onError(error -> fail("生成连接中断，请重试"));
         emitter.onCompletion(() -> fail("生成连接已结束，请重试"));
@@ -65,6 +72,7 @@ final class GenerationSession implements StreamingChatResponseHandler {
         if (finished) return false;
         try {
             send("started", MessageStatusEnum.RUNNING, null, null);
+            heartbeat = heartbeatScheduler.scheduleAtFixedRate(this::sendHeartbeat, 15, 15, TimeUnit.SECONDS);
             return true;
         } catch (IOException | IllegalStateException error) {
             fail("生成连接中断，请重试");
@@ -91,6 +99,7 @@ final class GenerationSession implements StreamingChatResponseHandler {
         // 与完成回调共用锁：取消先保存成功才能报告成功；保存失败时保留任务，允许重试。
         persistence.cancel(generationId, content.toString());
         finished = true;
+        stopHeartbeat();
         stopModel();
         release.run();
         finishStream("cancelled", MessageStatusEnum.CANCELLED, "生成已停止");
@@ -150,6 +159,7 @@ final class GenerationSession implements StreamingChatResponseHandler {
         }
         // 数据已经提交。即使最终通知无法送达，也不能把成功版本改成失败。
         finished = true;
+        stopHeartbeat();
         release.run();
         finishStream("completed", MessageStatusEnum.COMPLETED, outputHandler.completedMessage());
     }
@@ -170,6 +180,7 @@ final class GenerationSession implements StreamingChatResponseHandler {
     synchronized void fail(String message) {
         if (finished) return;
         finished = true;
+        stopHeartbeat();
         stopModel();
         try {
             persistence.fail(generationId, content.toString(), message);
@@ -180,6 +191,19 @@ final class GenerationSession implements StreamingChatResponseHandler {
             release.run();
         }
         finishStream("failed", MessageStatusEnum.FAILED, message);
+    }
+
+    private synchronized void sendHeartbeat() {
+        if (finished) return;
+        try {
+            emitter.send(SseEmitter.event().comment("keepalive"));
+        } catch (IOException | IllegalStateException error) {
+            fail("生成连接中断，请重试");
+        }
+    }
+
+    private void stopHeartbeat() {
+        if (heartbeat != null) heartbeat.cancel(false);
     }
 
     private void stopModel() {

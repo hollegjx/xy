@@ -25,7 +25,11 @@ const previewHeaders = {
   'Cache-Control': 'no-store',
 }
 
-for (const codeGenType of ['html', 'multi_file']) {
+for (const [codeGenType, modeLabel] of [
+  ['html', '单 HTML'],
+  ['multi_file', '多文件'],
+  ['vue_project', 'Vue 工程'],
+] as const) {
   test(`${codeGenType}：登录保留需求，创建后自动生成并预览，刷新和重新进入不重复生成`, async ({
     page,
   }) => {
@@ -162,7 +166,7 @@ for (const codeGenType of ['html', 'multi_file']) {
     await page.getByRole('button', { name: '创建应用', exact: true }).click()
     await expect(page.getByText('请描述你想创建的应用', { exact: true })).toBeVisible()
     await page.getByLabel('应用需求', { exact: true }).fill(app.initPrompt)
-    await page.getByText(codeGenType === 'html' ? '单 HTML' : '多文件', { exact: true }).click()
+    await page.getByText(modeLabel, { exact: true }).click()
     await page.getByRole('button', { name: '创建应用', exact: true }).click()
     await expect(page).toHaveURL('/user/login?redirect=/')
     expect(creates).toBe(0)
@@ -171,10 +175,16 @@ for (const codeGenType of ['html', 'multi_file']) {
     await page.getByRole('button', { name: '登录', exact: true }).click()
     await expect(page).toHaveURL('/')
     await expect(page.getByLabel('应用需求', { exact: true })).toHaveValue(app.initPrompt)
+    await expect(page.getByRole('radio', { name: modeLabel, exact: true })).toBeChecked()
     await page.getByRole('button', { name: '创建应用', exact: true }).click()
     await expect(page).toHaveURL(`/apps/${app.id}`)
     await expect(page.getByRole('heading', { name: app.appName, exact: true })).toBeVisible()
     await expect(page.getByText(app.initPrompt, { exact: true })).toBeVisible()
+    await expect(page.getByText(modeLabel, { exact: true })).toBeVisible()
+    if (codeGenType === 'vue_project') {
+      await expect(page.getByRole('button', { name: '发布应用' })).toHaveCount(0)
+      await expect(page.getByRole('button', { name: '下载源码' })).toBeEnabled()
+    }
     const frame = page.frameLocator('iframe[title="应用网站预览"]')
     await expect(frame.getByRole('heading', { name: '摄影作品集' })).toBeVisible()
     await expect(page.locator('iframe')).toHaveAttribute('sandbox', 'allow-scripts')
@@ -370,10 +380,13 @@ test('直接访问工作台先确认身份，登录后返回原地址并显示�
   await expect(page.getByText(app.initPrompt, { exact: true })).toHaveCount(0)
 })
 
-test('工作台逐段生成，停止或失败保留成功预览，预览读取失败可以重试', async ({ page }) => {
+test('Vue 工作台按流展示写文件和构建，停止或失败保留旧预览，源码版本显示未构建原因', async ({
+  page,
+}) => {
   let records: ChatHistoryVO[] = []
   let cancels = 0
   let previewError = false
+  let sourceOnly = false
   await page.route(
     (url) => url.pathname.startsWith('/api/'),
     async (route) => {
@@ -381,7 +394,9 @@ test('工作台逐段生成，停止或失败保留成功预览，预览读取�
       if (path === '/api/users/me') {
         await route.fulfill({ json: { code: 0, data: user, message: 'ok' } })
       } else if (path === `/api/apps/${app.id}`) {
-        await route.fulfill({ json: { code: 0, data: app, message: 'ok' } })
+        await route.fulfill({
+          json: { code: 0, data: { ...app, codeGenType: 'vue_project' }, message: 'ok' },
+        })
       } else if (path === `/api/apps/${app.id}/messages`) {
         await route.fulfill({
           json: { code: 0, data: { records, hasMore: false, nextCursor: null }, message: 'ok' },
@@ -397,10 +412,16 @@ test('工作台逐段生成，停止或失败保留成功预览，预览读取�
             status: 500,
             json: { code: 50000, data: null, message: '预览读取失败，请重试' },
           })
-        } else if (records.length === 0) {
+        } else if (sourceOnly || records.length === 0) {
           await route.fulfill({
             status: 409,
-            json: { code: 50001, data: null, message: '尚无成功版本' },
+            json: {
+              code: 50001,
+              data: null,
+              message: sourceOnly
+                ? '该版本尚无构建产物，请启用 Vue 构建后重新生成；源码仍可下载'
+                : '尚无成功版本',
+            },
           })
         } else {
           await route.fulfill({
@@ -471,16 +492,26 @@ test('工作台逐段生成，停止或失败保留成功预览，预览读取�
   await page.evaluate(() =>
     window.dispatchEvent(
       new CustomEvent('xy-test-generation', {
-        detail: { type: 'delta', text: '<h1>星云🌟</h1>' },
+        detail: { type: 'delta', text: '\n已写入：src/App.vue\n' },
       }),
     ),
   )
-  await expect(live.locator('pre')).toHaveText('<h1>星云🌟</h1>')
+  await expect(live.locator('pre')).toHaveText('已写入：src/App.vue')
+  await page.evaluate(() =>
+    window.dispatchEvent(
+      new CustomEvent('xy-test-generation', {
+        detail: { type: 'delta', text: '\n源码已保存，正在构建 Vue 工程…\n' },
+      }),
+    ),
+  )
+  await expect(live).toContainText('正在构建 Vue 工程')
+  await expect(page.locator('iframe')).toHaveCount(0)
   records = [
     {
       id: '101',
       messageRole: 'assistant',
-      content: '<h1>星云🌟</h1>',
+      content:
+        '已写入：src/App.vue\n源码已保存，正在构建 Vue 工程…\nVue 工程构建完成，可在线预览或下载源码。',
       status: 'completed',
       errorMessage: null,
       createTime: app.createTime,
@@ -530,6 +561,11 @@ test('工作台逐段生成，停止或失败保留成功预览，预览读取�
   await expect(page.getByRole('region', { name: '生成记录', exact: true })).toContainText('已停止')
   await expect(live).toHaveCount(0)
   await expect(page.getByRole('button', { name: '重试生成', exact: true })).toBeEnabled()
+  sourceOnly = true
+  await preview.getByRole('button', { name: '刷新预览' }).click()
+  await expect(preview).toContainText('该版本尚无构建产物，请启用 Vue 构建后重新生成；源码仍可下载')
+  await expect(page.locator('iframe')).toHaveCount(0)
+  await expect(page.getByRole('button', { name: '下载源码' })).toBeEnabled()
 })
 
 test('工作台首次生成、失败后恢复需求重试，刷新后可以继续修改', async ({ page }) => {

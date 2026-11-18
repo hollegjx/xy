@@ -18,6 +18,7 @@ import { ApiError, errorMessage } from '@/request'
 import { deleteAppForAdmin, listAppsForAdmin, updateAppFeatured } from '@/service/api/app'
 import { useLoginUserStore } from '@/stores/useLoginUserStore'
 import type { AppAdminVO } from '@/types/api'
+import { generationModes } from './generationModes'
 
 const loginUserStore = useLoginUserStore()
 const rows = ref<AppAdminVO[]>([])
@@ -303,7 +304,7 @@ onBeforeUnmount(() => {
             <span v-if="record.featured"><ATag>精选</ATag></span>
           </div>
           <ATag v-else-if="column.key === 'codeGenType'">
-            {{ text === 'html' ? '单 HTML' : '多文件' }}
+            {{ generationModes[(record as AppAdminVO).codeGenType].label }}
           </ATag>
           <ATag
             v-else-if="column.key === 'deployment'"

@@ -51,12 +51,12 @@ export const deployApp = (id: string): Promise<AppDeployVO> =>
 export const getAppPreviewUrl = (id: string): string =>
   `/api/apps/${encodeURIComponent(id)}/preview`
 
-export async function hasAppPreview(id: string): Promise<boolean> {
+export async function getPreviewUnavailableReason(id: string): Promise<string | null> {
   try {
     await requestHtml(getAppPreviewUrl(id))
-    return true
+    return null
   } catch (cause) {
-    if (cause instanceof ApiError && cause.code === 50001) return false
+    if (cause instanceof ApiError && cause.code === 50001) return cause.message
     throw cause
   }
 }

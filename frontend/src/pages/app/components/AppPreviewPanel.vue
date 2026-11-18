@@ -7,7 +7,7 @@ import {
   Skeleton as ASkeleton,
 } from 'ant-design-vue'
 import { ApiError, errorMessage } from '@/request'
-import { getAppPreviewUrl, hasAppPreview } from '@/service/api/app'
+import { getAppPreviewUrl, getPreviewUnavailableReason } from '@/service/api/app'
 import { useLoginUserStore } from '@/stores/useLoginUserStore'
 
 const props = defineProps<{ appId: string; version: string | null }>()
@@ -15,6 +15,7 @@ const loginUserStore = useLoginUserStore()
 const loading = ref(false)
 const error = ref('')
 const available = ref(false)
+const unavailableReason = ref('')
 const frameKey = ref(0)
 let revision = 0
 
@@ -24,10 +25,11 @@ async function load(): Promise<void> {
   error.value = ''
   try {
     // 先确认 HTML 可用，再让 iframe 直接加载带服务端 CSP 的地址。
-    const result = await hasAppPreview(props.appId)
+    const reason = await getPreviewUnavailableReason(props.appId)
     if (currentRevision !== revision) return
-    available.value = result
-    if (result) frameKey.value += 1
+    unavailableReason.value = reason ?? ''
+    available.value = reason === null
+    if (available.value) frameKey.value += 1
   } catch (cause) {
     if (currentRevision !== revision) return
     if (cause instanceof ApiError && cause.code === 40100) loginUserStore.setUser(null)
@@ -77,7 +79,7 @@ onBeforeUnmount(() => {
       referrerpolicy="no-referrer"
     />
     <div v-else-if="!loading && !error" class="preview-empty">
-      <AEmpty description="还没有可预览的网站"><p>生成成功后，网站将在这里展示。</p></AEmpty>
+      <AEmpty description="还没有可预览的网站"><p>{{ unavailableReason }}</p></AEmpty>
     </div>
   </div>
 </template>

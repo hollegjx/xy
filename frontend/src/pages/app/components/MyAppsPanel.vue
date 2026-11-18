@@ -13,6 +13,7 @@ import { ApiError, errorMessage } from '@/request'
 import { listMyApps } from '@/service/api/app'
 import { useLoginUserStore } from '@/stores/useLoginUserStore'
 import type { AppVO } from '@/types/api'
+import { generationModes } from '../generationModes'
 
 const router = useRouter()
 const loginUserStore = useLoginUserStore()
@@ -129,7 +130,7 @@ onBeforeUnmount(() => {
           </h3>
           <p class="app-description">{{ app.initPrompt }}</p>
           <div class="app-meta muted">
-            <span>{{ app.codeGenType === 'html' ? '单 HTML' : '多文件' }}</span>
+            <span>{{ generationModes[app.codeGenType].label }}</span>
             <span>创建于 {{ app.createTime.slice(0, 10) }}</span>
           </div>
           <div v-if="app.deployment?.deployUrl" class="published-action">

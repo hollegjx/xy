@@ -19,6 +19,7 @@ import { deleteApp, deployApp, getApp, getAppSource } from '@/service/api/app'
 import { useLoginUserStore } from '@/stores/useLoginUserStore'
 import { useAppDraftStore } from '@/stores/useAppDraftStore'
 import type { AppVO } from '@/types/api'
+import { generationModes } from './generationModes'
 
 const route = useRoute()
 const router = useRouter()
@@ -254,14 +255,18 @@ onBeforeUnmount(() => {
       <div class="source-actions" role="region" aria-label="发布与下载">
         <div class="delivery-heading">
           <div>
-            <h2>发布与分享</h2>
-            <p v-if="app.deployment" class="source-hint">
+            <h2>{{ app.codeGenType === 'vue_project' ? '工程源码' : '发布与分享' }}</h2>
+            <p v-if="app.codeGenType === 'vue_project'" class="source-hint">
+              下载最近一次成功生成的 Vue 工程。
+            </p>
+            <p v-else-if="app.deployment" class="source-hint">
               上次发布 {{ app.deployment.deployedAt.replace('T', ' ') }}，新修改需重新发布。
             </p>
             <p v-else class="source-hint">尚未发布。将最近成功生成的网站分享给别人。</p>
           </div>
           <div class="source-download">
             <AButton
+              v-if="app.codeGenType !== 'vue_project'"
               type="primary"
               shape="round"
               :loading="publishing"
@@ -325,7 +330,7 @@ onBeforeUnmount(() => {
           <dl class="app-details">
             <div>
               <dt>生成模式</dt>
-              <dd>{{ app.codeGenType === 'html' ? '单 HTML' : '多文件' }}</dd>
+              <dd>{{ generationModes[app.codeGenType].label }}</dd>
             </div>
             <div>
               <dt>创建时间</dt>

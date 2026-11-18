@@ -1,7 +1,7 @@
 import { AxiosError } from 'axios'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import request, { httpClient, requestHtml, requestStream } from '@/request'
-import { getAppSource, hasAppPreview } from '@/service/api/app'
+import { getAppSource, getPreviewUnavailableReason } from '@/service/api/app'
 import { getAppMessages } from '@/service/api/chat'
 import { generateApp } from '@/service/api/generation'
 import type { GenerationEventVO } from '@/types/api'
@@ -218,7 +218,7 @@ describe('请求客户端', () => {
     })
     await expect(requestHtml('/api/apps/55/preview')).resolves.toContain('星云')
     contentType = 'text/plain'
-    await expect(hasAppPreview('55')).rejects.toThrow('预览返回格式不正确')
+    await expect(getPreviewUnavailableReason('55')).rejects.toThrow('预览返回格式不正确')
   })
 
   it.each([
@@ -234,7 +234,11 @@ describe('请求客户端', () => {
         config,
       })
     }
-    if (status === 409) await expect(hasAppPreview('55')).resolves.toBe(false)
-    else await expect(hasAppPreview('55')).rejects.toMatchObject({ status: 500, code: 50000 })
+    if (status === 409) await expect(getPreviewUnavailableReason('55')).resolves.toBe('预览不可用')
+    else
+      await expect(getPreviewUnavailableReason('55')).rejects.toMatchObject({
+        status: 500,
+        code: 50000,
+      })
   })
 })

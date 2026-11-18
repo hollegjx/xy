@@ -14,6 +14,7 @@ import { ApiError, errorMessage } from '@/request'
 import MyAppsPanel from '@/pages/app/components/MyAppsPanel.vue'
 import FeaturedAppsPanel from '@/pages/app/components/FeaturedAppsPanel.vue'
 import { createApp } from '@/service/api/app'
+import { generationModes } from './generationModes'
 import { useAppDraftStore } from '@/stores/useAppDraftStore'
 import { useLoginUserStore } from '@/stores/useLoginUserStore'
 
@@ -111,15 +112,12 @@ onBeforeUnmount(() => {
       </AFormItem>
       <AFormItem label="生成模式" name="codeGenType">
         <ARadioGroup v-model:value="form.codeGenType" aria-label="生成模式">
-          <ARadioButton value="multi_file">多文件</ARadioButton>
-          <ARadioButton value="html">单 HTML</ARadioButton>
+          <ARadioButton v-for="(mode, key) in generationModes" :key="key" :value="key">
+            {{ mode.label }}
+          </ARadioButton>
         </ARadioGroup>
         <p class="mode-help">
-          {{
-            form.codeGenType === 'html'
-              ? '页面、样式和交互放在同一个文件中。'
-              : '页面、样式和交互分开组织，默认使用此模式。'
-          }}
+          {{ generationModes[form.codeGenType ?? 'multi_file'].hint }}
         </p>
       </AFormItem>
       <AButton

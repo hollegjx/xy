@@ -9,6 +9,7 @@ import {
 import { errorMessage } from '@/request'
 import { listFeaturedApps } from '@/service/api/app'
 import type { AppFeaturedVO } from '@/types/api'
+import { generationModes } from '../generationModes'
 
 const rows = ref<AppFeaturedVO[]>([])
 const loading = ref(false)
@@ -63,7 +64,7 @@ onBeforeUnmount(() => {
     <ul v-else class="featured-grid">
       <li v-for="app in rows" :key="app.id" class="featured-card">
         <h3>{{ app.appName }}</h3>
-        <p class="muted">{{ app.codeGenType === 'html' ? '单 HTML' : '多文件' }}</p>
+        <p class="muted">{{ generationModes[app.codeGenType].label }}</p>
         <AButton :href="app.deployUrl" target="_blank" rel="noopener noreferrer">查看作品</AButton>
       </li>
     </ul>

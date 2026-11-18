@@ -81,7 +81,7 @@ com.xy/
 
 ### 独立静态站点配置
 
-Vue 工程的构建与预览配置见下节；当前发布接口仍用于原生 HTML 和多文件网站。
+Vue 工程的构建配置见下节。发布时直接使用最近成功版本已构建的页面，不再运行 Docker；仅有源码的版本可下载，无法发布。
 
 在本地 `application.yml` 的 `xy.deployment` 中配置 `directory`（默认 `./published`）、`public-url`（静态站点来源，不含路径）和 `platform-origin`（浏览器访问平台的来源，默认 `http://localhost:5173`）。`public-url` 留空时发布返回 503，其他业务正常使用。
 

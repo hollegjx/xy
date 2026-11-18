@@ -103,10 +103,10 @@ class AppDeployControllerTest {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"html", "multi_file"})
+    @ValueSource(strings = {"html", "multi_file", "vue_project"})
     void publishesASnapshotAndOnlyUpdatesTheStableAddressOnRepublish(String mode) throws Exception {
         app.setCodeGenType(mode);
-        useVersion("html".equals(mode) ? 101 : 201);
+        useVersion(switch (mode) { case "html" -> 101; case "multi_file" -> 201; default -> 401; });
         saveVersion("第一版");
         Files.writeString(directory.resolve("generated/42/55/" + version.getId() + "/private.txt"), "私有配置");
 
@@ -138,6 +138,16 @@ class AppDeployControllerTest {
                 .andExpect(jsonPath("$.data.deployment.deployUrl").value(url))
                 .andExpect(jsonPath("$.data.deployment.publishedVersion").value(version.getId().toString()));
         verify(apps).assignDeployKey(55, 42, app.getDeployKey());
+        if ("vue_project".equals(mode)) {
+            String published = Files.readString(index);
+            long publishedVersion = version.getId();
+            useVersion(publishedVersion + 1);
+            saveVueSource();
+            mockMvc.perform(deploy().session(session())).andExpect(status().isConflict())
+                    .andExpect(jsonPath("$.code").value(50001));
+            assertThat(Files.readString(index)).isEqualTo(published);
+            assertThat(app.getPublishedVersion()).isEqualTo(publishedVersion);
+        }
     }
 
     @Test
@@ -189,10 +199,23 @@ class AppDeployControllerTest {
     private void saveVersion(String body) throws Exception {
         String html = "<!DOCTYPE html><html><head></head><body>" + body + "</body></html>";
         if ("html".equals(app.getCodeGenType())) files.saveHtml(42, 55, version.getId(), html);
-        else files.saveMultiFile(42, 55, version.getId(), Map.of("index.html",
+        else if ("vue_project".equals(app.getCodeGenType())) {
+            saveVueSource();
+            var build = files.prepareVueBuild(42, 55, version.getId());
+            Files.writeString(build.output().resolve("index.html"),
+                    html.replace("</body>", "<script src=\"./app.js\"></script></body>"));
+            Files.writeString(build.output().resolve("app.js"), "document.body.dataset.ready = 'yes';");
+            files.saveVuePreview(42, 55, version.getId(), build);
+        } else files.saveMultiFile(42, 55, version.getId(), Map.of("index.html",
                 html.replace("</head>", "<link rel=\"stylesheet\" href=\"style.css\"></head>")
                         .replace("</body>", "<script src=\"script.js\"></script></body>"),
                 "style.css", "body { color: black; }", "script.js", "window.greeting = '你好';"));
+    }
+
+    private void saveVueSource() throws Exception {
+        files.writeVueSource(42, 55, version.getId(), "src/App.vue", "<template>源码</template>");
+        files.finishVueProject(42, 55, version.getId(), Map.of("index.html", "<div id=\"app\"></div>",
+                "src/main.js", "import App from './App.vue'", "package.json", "{}", "vite.config.js", "export default {}"));
     }
 
     private Path publishedIndex() {

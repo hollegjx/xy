@@ -242,7 +242,8 @@ class GenerationControllerTest {
         mockMvc.perform(get("/api/apps/55/preview").contextPath("/api").session(session()))
                 .andExpect(status().isConflict()).andExpect(jsonPath("$.message").value("该版本尚无构建产物，请启用 Vue 构建后重新生成；源码仍可下载"));
         mockMvc.perform(post("/api/apps/55/deploy").contextPath("/api").session(session()))
-                .andExpect(status().isConflict()).andExpect(jsonPath("$.message").value("Vue 工程尚未接入发布，请下载源码"));
+                .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value(50001))
+                .andExpect(jsonPath("$.message").value("该版本尚无构建产物，请启用 Vue 构建后重新生成；源码仍可下载"));
         Files.delete(htmlPath().resolveSibling("src/App.vue"));
         mockMvc.perform(get("/api/apps/55/source").contextPath("/api").session(session()))
                 .andExpect(status().isNotFound()).andExpect(content().contentType("application/json"));

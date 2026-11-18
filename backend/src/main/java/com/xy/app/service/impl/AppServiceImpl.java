@@ -251,16 +251,11 @@ public class AppServiceImpl implements AppService {
     @Override
     public AppDeployVO deployApp(long id, User loginUser) {
         App app = getOwnedApp(id, loginUser);
-        if (CodeGenTypeEnum.VUE_PROJECT.getValue().equals(app.getCodeGenType())) {
-            throw new BusinessException(ErrorCode.OPERATION_ERROR, "Vue 工程尚未接入发布，请下载源码");
-        }
         long versionId = getSuccessfulVersion(app);
-        deployment.requireConfigured();
         String key = app.getDeployKey();
         try {
-            String html = CodeGenTypeEnum.MULTI_FILE.getValue().equals(app.getCodeGenType())
-                    ? fileManager.readMultiFilePreview(app.getUserId(), id, versionId)
-                    : fileManager.readHtml(app.getUserId(), id, versionId);
+            String html = readPublicationHtml(app, versionId);
+            deployment.requireConfigured();
             if (key == null) {
                 key = UUID.randomUUID().toString().replace("-", "");
                 if (appMapper.assignDeployKey(id, app.getUserId(), key) != 1) {
@@ -273,11 +268,25 @@ public class AppServiceImpl implements AppService {
                 throw new BusinessException(ErrorCode.SYSTEM_ERROR, "发布记录保存失败，请重试发布");
             }
             return new AppDeployVO(deployment.siteUrl(key), Long.toString(versionId), deployedAt);
-        } catch (NoSuchFileException error) {
-            throw new BusinessException(ErrorCode.NOT_FOUND_ERROR, "生成文件不存在，请重新生成");
         } catch (IOException error) {
             log.error("应用 {} 版本 {} 发布文件失败，异常类型 {}", id, versionId, error.getClass().getSimpleName());
             throw new BusinessException(ErrorCode.SYSTEM_ERROR, "发布文件失败，请检查发布目录");
+        }
+    }
+
+    private String readPublicationHtml(App app, long versionId) throws IOException {
+        CodeGenTypeEnum mode = CodeGenTypeEnum.fromValue(app.getCodeGenType());
+        try {
+            return switch (mode) {
+                case HTML -> fileManager.readHtml(app.getUserId(), app.getId(), versionId);
+                case MULTI_FILE -> fileManager.readMultiFilePreview(app.getUserId(), app.getId(), versionId);
+                case VUE_PROJECT -> fileManager.readVuePreview(app.getUserId(), app.getId(), versionId);
+            };
+        } catch (NoSuchFileException error) {
+            if (mode == CodeGenTypeEnum.VUE_PROJECT) {
+                throw new BusinessException(ErrorCode.OPERATION_ERROR, "该版本尚无构建产物，请启用 Vue 构建后重新生成；源码仍可下载");
+            }
+            throw new BusinessException(ErrorCode.NOT_FOUND_ERROR, "生成文件不存在，请重新生成");
         }
     }
 

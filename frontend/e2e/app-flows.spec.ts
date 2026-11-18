@@ -142,6 +142,15 @@ for (const [codeGenType, modeLabel] of [
               'event:started\ndata:{"generationId":"102","status":"running"}\n\n' +
               'event:completed\ndata:{"generationId":"102","status":"completed"}\n\n',
           })
+        } else if (path === `/api/apps/${app.id}/deploy`) {
+          expect(request.method()).toBe('POST')
+          await route.fulfill({
+            json: {
+              code: 0,
+              data: { deployUrl: 'https://sites.example.test/photo/', publishedVersion: '102', deployedAt: app.updateTime },
+              message: 'ok',
+            },
+          })
         } else if (path === `/api/apps/${app.id}/preview`) {
           if (generations === 0) {
             await route.fulfill({
@@ -181,12 +190,17 @@ for (const [codeGenType, modeLabel] of [
     await expect(page.getByRole('heading', { name: app.appName, exact: true })).toBeVisible()
     await expect(page.getByText(app.initPrompt, { exact: true })).toBeVisible()
     await expect(page.getByText(modeLabel, { exact: true })).toBeVisible()
-    if (codeGenType === 'vue_project') {
-      await expect(page.getByRole('button', { name: '发布应用' })).toHaveCount(0)
-      await expect(page.getByRole('button', { name: '下载源码' })).toBeEnabled()
-    }
     const frame = page.frameLocator('iframe[title="应用网站预览"]')
     await expect(frame.getByRole('heading', { name: '摄影作品集' })).toBeVisible()
+    if (codeGenType === 'vue_project') {
+      await page.getByRole('button', { name: '发布应用' }).click()
+      await expect(page.getByRole('link', { name: '查看作品' })).toHaveAttribute(
+        'href',
+        'https://sites.example.test/photo/',
+      )
+      await expect(page.getByRole('button', { name: '重新发布' })).toBeEnabled()
+      await expect(page.getByRole('button', { name: '下载源码' })).toBeEnabled()
+    }
     await expect(page.locator('iframe')).toHaveAttribute('sandbox', 'allow-scripts')
     await frame.getByRole('button', { name: '查看照片 0' }).click()
     await expect(frame.getByRole('button', { name: '查看照片 1' })).toBeVisible()

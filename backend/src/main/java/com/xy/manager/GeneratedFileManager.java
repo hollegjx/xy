@@ -127,13 +127,27 @@ public class GeneratedFileManager {
     }
 
     public String readVueSource(long userId, long appId, long generationId, String path) throws IOException {
+        Path file = resolveVueSource(userId, appId, generationId, path);
+        return readFile(file.getParent(), file.getFileName().toString());
+    }
+
+    public void deleteVueComponent(long userId, long appId, long generationId, String path) throws IOException {
+        Path file = resolveVueSource(userId, appId, generationId, path);
+        if (!path.endsWith(".vue") || path.equalsIgnoreCase("src/App.vue")) {
+            throw new IllegalArgumentException("只能删除非入口 Vue 组件");
+        }
+        if (!Files.isRegularFile(file, LinkOption.NOFOLLOW_LINKS)) throw new IOException("组件文件不可用");
+        Files.delete(file);
+    }
+
+    private Path resolveVueSource(long userId, long appId, long generationId, String path) throws IOException {
         Path relative = vueSourcePath(path);
         Path directory = versionDirectory(userId, appId, generationId);
         for (Path segment : relative.getParent()) {
             directory = directory.resolve(segment);
             if (!Files.isDirectory(directory, LinkOption.NOFOLLOW_LINKS)) throw new IOException("源码目录不可用");
         }
-        return readFile(directory, relative.getFileName().toString());
+        return directory.resolve(relative.getFileName());
     }
 
     /** 按原文精确替换；没有唯一匹配时不写文件。 */
@@ -150,10 +164,19 @@ public class GeneratedFileManager {
 
     public Map<String, String> readVueProject(long userId, long appId, long generationId) throws IOException {
         Path directory = versionDirectory(userId, appId, generationId);
+        Map<String, String> sources = readVueSources(userId, appId, generationId);
+        Map<String, String> files = new LinkedHashMap<>();
+        for (String name : VUE_TEMPLATE_NAMES) files.put(name, readFile(directory, name));
+        files.putAll(sources);
+        if (files.values().stream().anyMatch(String::isBlank)) throw new IOException("源码文件不完整");
+        return files;
+    }
+
+    public Map<String, String> readVueSources(long userId, long appId, long generationId) throws IOException {
+        Path directory = versionDirectory(userId, appId, generationId);
         Path source = directory.resolve("src");
         if (Files.isSymbolicLink(source)) throw new IOException("源码目录不可使用符号链接");
         Map<String, String> files = new LinkedHashMap<>();
-        for (String name : VUE_TEMPLATE_NAMES) files.put(name, readFile(directory, name));
         files.put("src/App.vue", readFile(source, "App.vue"));
         try (var paths = Files.walk(source)) {
             for (Path path : paths.sorted().toList()) {
@@ -168,7 +191,6 @@ public class GeneratedFileManager {
                 files.put(name, readFile(path.getParent(), path.getFileName().toString()));
             }
         }
-        if (files.values().stream().anyMatch(String::isBlank)) throw new IOException("源码文件不完整");
         return files;
     }
 

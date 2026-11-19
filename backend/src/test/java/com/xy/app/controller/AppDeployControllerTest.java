@@ -5,6 +5,9 @@ import com.xy.app.model.entity.App;
 import com.xy.chat.mapper.ChatHistoryMapper;
 import com.xy.chat.model.entity.ChatHistory;
 import com.xy.common.UserConstant;
+import com.xy.common.ErrorCode;
+import com.xy.config.DeploymentConfiguration;
+import com.xy.exception.BusinessException;
 import com.xy.manager.GeneratedFileManager;
 import com.xy.user.mapper.UserMapper;
 import com.xy.user.model.entity.User;
@@ -25,6 +28,7 @@ import org.springframework.mock.web.MockHttpSession;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 
@@ -32,6 +36,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -58,6 +63,8 @@ class AppDeployControllerTest {
     MockMvc mockMvc;
     @Autowired
     GeneratedFileManager files;
+    @MockitoSpyBean
+    DeploymentConfiguration deployment;
     @MockitoBean
     AppMapper apps;
     @MockitoBean
@@ -188,6 +195,39 @@ class AppDeployControllerTest {
         mockMvc.perform(deploy().session(session())).andExpect(status().isNotFound());
         assertThat(Files.readString(publishedIndex())).isEqualTo(oldSnapshot);
         assertThat(app.getPublishedVersion()).isEqualTo(301L);
+    }
+
+    @Test
+    void blankVueBuildKeepsThePreviouslyPublishedSnapshotAndVersion() throws Exception {
+        app.setCodeGenType("vue_project");
+        useVersion(501);
+        saveVersion("可访问的旧作品");
+        mockMvc.perform(deploy().session(session())).andExpect(status().isOk());
+        Path index = publishedIndex();
+        byte[] published = Files.readAllBytes(index);
+        useVersion(502);
+        saveVersion("新作品");
+        Path preview = directory.resolve("generated/42/55/502/preview.html");
+        for (String blank : List.of("", " \n\t")) {
+            Files.writeString(preview, blank);
+            mockMvc.perform(deploy().session(session())).andExpect(status().isInternalServerError())
+                    .andExpect(jsonPath("$.code").value(50000))
+                    .andExpect(jsonPath("$.message").value("该版本的 Vue 构建产物为空，请重新生成"));
+            assertThat(Files.readAllBytes(index)).containsExactly(published);
+            assertThat(app.getPublishedVersion()).isEqualTo(501L);
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"html", "multi_file"})
+    void unconfiguredSiteTakesPrecedenceOverMissingNativeFiles(String mode) throws Exception {
+        app.setCodeGenType(mode);
+        useVersion(601);
+        String message = "尚未配置独立静态站点，请先配置发布目录和地址";
+        doThrow(new BusinessException(ErrorCode.SERVICE_UNAVAILABLE, message)).when(deployment).requireConfigured();
+        mockMvc.perform(deploy().session(session())).andExpect(status().isServiceUnavailable())
+                .andExpect(jsonPath("$.code").value(50300)).andExpect(jsonPath("$.message").value(message));
+        verify(apps, never()).assignDeployKey(anyLong(), anyLong(), anyString());
     }
 
     private void useVersion(long id) {

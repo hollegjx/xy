@@ -254,8 +254,7 @@ public class AppServiceImpl implements AppService {
         long versionId = getSuccessfulVersion(app);
         String key = app.getDeployKey();
         try {
-            String html = readPublicationHtml(app, versionId);
-            deployment.requireConfigured();
+            String html = preparePublicationHtml(app, versionId);
             if (key == null) {
                 key = UUID.randomUUID().toString().replace("-", "");
                 if (appMapper.assignDeployKey(id, app.getUserId(), key) != 1) {
@@ -274,13 +273,23 @@ public class AppServiceImpl implements AppService {
         }
     }
 
-    private String readPublicationHtml(App app, long versionId) throws IOException {
+    private String preparePublicationHtml(App app, long versionId) throws IOException {
         CodeGenTypeEnum mode = CodeGenTypeEnum.fromValue(app.getCodeGenType());
         try {
             return switch (mode) {
-                case HTML -> fileManager.readHtml(app.getUserId(), app.getId(), versionId);
-                case MULTI_FILE -> fileManager.readMultiFilePreview(app.getUserId(), app.getId(), versionId);
-                case VUE_PROJECT -> fileManager.readVuePreview(app.getUserId(), app.getId(), versionId);
+                case VUE_PROJECT -> {
+                    String html = fileManager.readVuePreview(app.getUserId(), app.getId(), versionId);
+                    if (html.isBlank()) {
+                        throw new BusinessException(ErrorCode.SYSTEM_ERROR, "该版本的 Vue 构建产物为空，请重新生成");
+                    }
+                    deployment.requireConfigured();
+                    yield html;
+                }
+                case HTML, MULTI_FILE -> {
+                    deployment.requireConfigured();
+                    yield mode == CodeGenTypeEnum.HTML ? fileManager.readHtml(app.getUserId(), app.getId(), versionId)
+                            : fileManager.readMultiFilePreview(app.getUserId(), app.getId(), versionId);
+                }
             };
         } catch (NoSuchFileException error) {
             if (mode == CodeGenTypeEnum.VUE_PROJECT) {

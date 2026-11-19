@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
+import { readFileSync } from 'node:fs'
 import type { ChatHistoryVO } from '../src/types/api'
 
 const user = { id: '42', userAccount: 'xy_e2e', userName: '星云用户', userRole: 'user' }
@@ -147,7 +148,11 @@ for (const [codeGenType, modeLabel] of [
           await route.fulfill({
             json: {
               code: 0,
-              data: { deployUrl: 'https://sites.example.test/photo/', publishedVersion: '102', deployedAt: app.updateTime },
+              data: {
+                deployUrl: 'https://sites.example.test/photo/',
+                publishedVersion: '102',
+                deployedAt: app.updateTime,
+              },
               message: 'ok',
             },
           })
@@ -591,7 +596,14 @@ for (const mode of ['multi_file', 'vue_project'] as const) {
 async function checkFollowUp(page: Page, mode: 'multi_file' | 'vue_project') {
   const change = '把背景改为黑色，保留原有照片和按钮。'
   const nextChange = '把按钮文字改成浏览作品，保留黑色背景。'
-  const expectedPrompts = [app.initPrompt, change, change, nextChange]
+  const selected = 'button · #count · 查看照片 0'
+  const expectedPrompts = [
+    app.initPrompt,
+    change,
+    change,
+    `${nextChange}\n\n选中元素（标签、位置、页面文字）：${selected}`,
+  ]
+  const picker = readFileSync('../backend/src/main/resources/preview/element-picker.html', 'utf8')
   const updatedApp = { ...app, codeGenType: mode }
   const sent: string[] = []
   const records: ChatHistoryVO[] = []
@@ -657,7 +669,9 @@ async function checkFollowUp(page: Page, mode: 'multi_file' | 'vue_project') {
             ? {
                 contentType: 'text/html;charset=UTF-8',
                 headers: previewHeaders,
-                body: currentPreview,
+                body:
+                  currentPreview +
+                  (new URL(request.url()).searchParams.get('pick') === 'true' ? picker : ''),
               }
             : { status: 409, json: { code: 50001, data: null, message: '尚无成功版本' } },
         )
@@ -699,6 +713,11 @@ async function checkFollowUp(page: Page, mode: 'multi_file' | 'vue_project') {
   await page.reload()
   await expect(page.getByRole('button', { name: '提交需求', exact: true })).toBeEnabled()
   await expect(prompt).toHaveValue('')
+  expect(sent).toHaveLength(3)
+  await page.getByRole('button', { name: '选择元素' }).click()
+  await frame.getByRole('button', { name: '查看照片 0' }).click()
+  await expect(page.getByText(`已选元素：${selected}`)).toBeVisible()
+  await expect(frame.getByRole('button', { name: '查看照片 0' })).toBeVisible()
   expect(sent).toHaveLength(3)
   await prompt.fill(nextChange)
   await page.getByRole('button', { name: '提交需求', exact: true }).click()

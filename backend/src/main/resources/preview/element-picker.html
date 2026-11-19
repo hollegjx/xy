@@ -1,0 +1,40 @@
+<style>
+  [data-xy-hover] { outline: 2px dashed Highlight !important; cursor: crosshair !important; }
+  [data-xy-picked] { outline: 3px solid Highlight !important; }
+</style>
+<script>
+(() => {
+  if (window.parent === window) return;
+  let hovered, picked;
+  function target(event) {
+    const node = event.target;
+    return node instanceof Element && node !== document.body && document.body.contains(node) ? node : null;
+  }
+  window.addEventListener('pointerover', event => {
+    hovered?.removeAttribute('data-xy-hover');
+    hovered = target(event);
+    hovered?.setAttribute('data-xy-hover', '');
+  }, true);
+  window.addEventListener('pointerout', () => hovered?.removeAttribute('data-xy-hover'), true);
+  window.addEventListener('click', event => {
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    const node = target(event);
+    if (!node) return;
+    picked?.removeAttribute('data-xy-picked');
+    picked = node;
+    picked.setAttribute('data-xy-picked', '');
+    const parts = [];
+    for (let el = node; el && el !== document.body; el = el.parentElement) {
+      if (el.id) { parts.unshift('#' + CSS.escape(el.id)); break; }
+      const index = Array.prototype.indexOf.call(el.parentElement.children, el) + 1;
+      parts.unshift(`${CSS.escape(el.localName)}:nth-child(${index})`);
+    }
+    const text = (node.getAttribute('aria-label') || node.innerText || node.getAttribute('alt') || '').trim();
+    window.parent.postMessage({
+      type: 'xy:element-picked', tag: node.localName.slice(0, 48),
+      selector: parts.join(' > ').slice(-512), text: text.slice(0, 100)
+    }, '*');
+  }, true);
+})();
+</script>

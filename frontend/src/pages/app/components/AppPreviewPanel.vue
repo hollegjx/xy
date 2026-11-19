@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onBeforeUnmount, ref, watch } from 'vue'
+import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import {
   Alert as AAlert,
   Button as AButton,
@@ -11,6 +11,36 @@ import { getAppPreviewUrl, getPreviewUnavailableReason } from '@/service/api/app
 import { useLoginUserStore } from '@/stores/useLoginUserStore'
 
 const props = defineProps<{ appId: string; version: string | null }>()
+const emit = defineEmits<{ selection: [description: string] }>()
+const picking = ref(false)
+const frame = ref<globalThis.HTMLIFrameElement | null>(null)
+function setPicking(value: boolean): void {
+  picking.value = value
+  emit('selection', '')
+}
+function receiveSelection(event: globalThis.MessageEvent): void {
+  if (
+    !picking.value ||
+    !frame.value ||
+    event.source !== frame.value.contentWindow ||
+    event.origin !== 'null'
+  )
+    return
+  const data = event.data
+  if (
+    data?.type !== 'xy:element-picked' ||
+    typeof data.tag !== 'string' ||
+    typeof data.selector !== 'string' ||
+    typeof data.text !== 'string' ||
+    !data.tag ||
+    !data.selector ||
+    data.tag.length > 48 ||
+    data.selector.length > 512 ||
+    data.text.length > 100
+  )
+    return
+  emit('selection', `${data.tag} · ${data.selector}${data.text ? ` · ${data.text}` : ''}`)
+}
 const loginUserStore = useLoginUserStore()
 const loading = ref(false)
 const error = ref('')
@@ -21,6 +51,7 @@ let revision = 0
 
 async function load(): Promise<void> {
   const currentRevision = ++revision
+  setPicking(false)
   loading.value = true
   error.value = ''
   try {
@@ -43,7 +74,9 @@ async function load(): Promise<void> {
 }
 
 watch(() => [props.appId, props.version], load, { immediate: true })
+onMounted(() => globalThis.window.addEventListener('message', receiveSelection))
 onBeforeUnmount(() => {
+  globalThis.window.removeEventListener('message', receiveSelection)
   revision += 1
 })
 </script>
@@ -52,10 +85,14 @@ onBeforeUnmount(() => {
   <div class="preview-content" role="region" aria-label="网站预览">
     <div class="preview-heading">
       <h2>网站预览</h2>
+      <AButton v-if="available && !loading" :aria-pressed="picking" @click="setPicking(!picking)">
+        {{ picking ? '退出选择' : '选择元素' }}
+      </AButton>
       <AButton :loading="loading" :disabled="loading" @click="load">{{
         error ? '重试' : '刷新预览'
       }}</AButton>
     </div>
+    <p v-if="picking" role="status">点击预览中的元素，再在「本次需求」里描述要改什么。</p>
     <AAlert
       v-if="error"
       type="error"
@@ -72,14 +109,17 @@ onBeforeUnmount(() => {
     />
     <iframe
       v-if="available"
-      :key="frameKey"
-      :src="getAppPreviewUrl(appId)"
+      ref="frame"
+      :key="`${frameKey}:${picking}`"
+      :src="getAppPreviewUrl(appId, picking)"
       title="应用网站预览"
       sandbox="allow-scripts"
       referrerpolicy="no-referrer"
     />
     <div v-else-if="!loading && !error" class="preview-empty">
-      <AEmpty description="还没有可预览的网站"><p>{{ unavailableReason }}</p></AEmpty>
+      <AEmpty description="还没有可预览的网站"
+        ><p>{{ unavailableReason }}</p></AEmpty
+      >
     </div>
   </div>
 </template>

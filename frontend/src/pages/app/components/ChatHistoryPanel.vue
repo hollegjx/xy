@@ -16,7 +16,12 @@ import { cancelGeneration, generateApp } from '@/service/api/generation'
 import { useLoginUserStore } from '@/stores/useLoginUserStore'
 import type { ChatHistoryPageVO, GenerationEventVO, GenerationStatus } from '@/types/api'
 
-const props = defineProps<{ appId: string; initPrompt: string; autoGenerate?: boolean }>()
+const props = defineProps<{
+  appId: string
+  initPrompt: string
+  autoGenerate?: boolean
+  selection?: string
+}>()
 const emit = defineEmits<{ completed: [generationId: string] }>()
 const loginUserStore = useLoginUserStore()
 const history = ref<ChatHistoryPageVO | null>(null)
@@ -152,8 +157,15 @@ async function loadMore(): Promise<void> {
   }
 }
 
+const generationPrompt = computed(() =>
+  props.selection
+    ? `${form.prompt}\n\n选中元素（标签、位置、页面文字）：${props.selection}`
+    : form.prompt,
+)
+
 async function validatePromptLength(): Promise<void> {
-  if (Array.from(form.prompt).length > 16383) throw new Error('需求长度不能超过 16383 个字符')
+  if (Array.from(generationPrompt.value).length > 16383)
+    throw new Error('需求及选中元素合计不能超过 16383 个字符')
 }
 
 function showGenerationError(cause: unknown): void {
@@ -176,7 +188,7 @@ async function generate(): Promise<void> {
   output.value = ''
   submittedPrompt = form.prompt
   try {
-    await generateApp(props.appId, submittedPrompt, currentController.signal, (event) => {
+    await generateApp(props.appId, generationPrompt.value, currentController.signal, (event) => {
       if (!active || currentController.signal.aborted) return
       live.value = event
       output.value += event.text ?? ''
@@ -236,6 +248,7 @@ onBeforeUnmount(() => {
 <template>
   <section class="generation-panel" aria-label="生成网站">
     <AForm :model="form" layout="vertical" name="generate-app" @finish="generate">
+      <p v-if="selection" class="history-hint" aria-live="polite">已选元素：{{ selection }}</p>
       <AFormItem
         label="本次需求"
         name="prompt"

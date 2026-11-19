@@ -52,8 +52,8 @@ export const getAppSource = (id: string): Promise<Blob> =>
 export const deployApp = (id: string): Promise<AppDeployVO> =>
   request<AppDeployVO>(`/api/apps/${encodeURIComponent(id)}/deploy`, { method: 'POST' })
 
-export const getAppPreviewUrl = (id: string): string =>
-  `/api/apps/${encodeURIComponent(id)}/preview`
+export const getAppPreviewUrl = (id: string, pick = false): string =>
+  `/api/apps/${encodeURIComponent(id)}/preview${pick ? '?pick=true' : ''}`
 
 export async function getPreviewUnavailableReason(id: string): Promise<string | null> {
   try {

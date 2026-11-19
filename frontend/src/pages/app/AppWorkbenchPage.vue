@@ -33,6 +33,11 @@ const deleteOpen = ref(false)
 const deleting = ref(false)
 const deleteError = ref('')
 const panel = ref('prompt')
+const selection = ref('')
+function selectElement(description: string): void {
+  selection.value = description
+  if (description) panel.value = 'prompt'
+}
 const autoGenerate = ref(false)
 const previewVersion = ref<string | null>(null)
 const downloading = ref(false)
@@ -48,6 +53,7 @@ async function load(): Promise<void> {
   const id = String(route.params.id)
   autoGenerate.value = draftStore.consumeFirstGeneration(id)
   previewVersion.value = null
+  selection.value = ''
   app.value = null
   loading.value = true
   error.value = ''
@@ -342,6 +348,7 @@ onBeforeUnmount(() => {
             :app-id="app.id"
             :init-prompt="app.initPrompt"
             :auto-generate="autoGenerate"
+            :selection="selection"
             @completed="previewVersion = $event"
           />
         </section>
@@ -349,7 +356,12 @@ onBeforeUnmount(() => {
           class="workspace-panel preview-panel"
           :class="{ 'mobile-hidden': panel !== 'preview' }"
         >
-          <AppPreviewPanel :key="app.id" :app-id="app.id" :version="previewVersion" />
+          <AppPreviewPanel
+            :key="app.id"
+            :app-id="app.id"
+            :version="previewVersion"
+            @selection="selectElement"
+          />
         </section>
       </div>
     </template>

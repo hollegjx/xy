@@ -118,6 +118,22 @@ class PreviewControllerTest {
     }
 
     @Test
+    void servesPickerOnlyInAnOwnedSandboxedEditingPreview() throws Exception {
+        String html = "<!doctype html><html><head></head><body><h1>作品</h1></body></html>";
+        app.setGeneratedVersion(401L);
+        version.setId(401L);
+        when(messages.selectOneById(401L)).thenReturn(version);
+        files.saveHtml(42, 55, 401, html);
+        mockMvc.perform(preview().session(session()).param("pick", "true"))
+                .andExpect(status().isOk())
+                .andExpect(content().string(containsString("xy:element-picked")))
+                .andExpect(header().string("Content-Security-Policy", containsString("sandbox allow-scripts;")));
+        mockMvc.perform(preview().session(session())).andExpect(content().string(html));
+        app.setUserId(84L);
+        mockMvc.perform(preview().session(session()).param("pick", "true")).andExpect(status().isForbidden());
+    }
+
+    @Test
     void bundlesMultiFileAssetsUnderTheSameIsolationAndReportsMissingAssets() throws Exception {
         app.setCodeGenType("multi_file");
         app.setGeneratedVersion(201L);

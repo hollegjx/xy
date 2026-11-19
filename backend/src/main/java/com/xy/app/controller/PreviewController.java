@@ -10,12 +10,16 @@ import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.constraints.Positive;
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import org.springframework.core.io.ClassPathResource;
 import org.springframework.http.CacheControl;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 @Tag(name = "应用预览")
@@ -44,8 +48,12 @@ public class PreviewController {
     @GetMapping
     public ResponseEntity<String> getPreview(
             @Parameter(description = "应用 ID，必须大于 0", example = "55") @Positive @PathVariable long appId,
-            HttpServletRequest request) {
+            @Parameter(description = "工作台是否启用元素点选") @RequestParam(defaultValue = "false") boolean pick,
+            HttpServletRequest request) throws IOException {
         String html = previewService.getPreview(appId, userService.getLoginUser(request));
+        if (pick) {
+            html += new ClassPathResource("preview/element-picker.html").getContentAsString(StandardCharsets.UTF_8);
+        }
         return ResponseEntity.ok()
                 .contentType(MediaType.parseMediaType("text/html;charset=UTF-8"))
                 .cacheControl(CacheControl.noStore())

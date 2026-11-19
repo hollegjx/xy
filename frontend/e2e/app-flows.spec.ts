@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
+import { readFileSync } from 'node:fs'
 import type { ChatHistoryVO } from '../src/types/api'
 
 const user = { id: '42', userAccount: 'xy_e2e', userName: '星云用户', userRole: 'user' }
@@ -149,7 +150,11 @@ for (const [codeGenType, modeLabel] of [
           await route.fulfill({
             json: {
               code: 0,
-              data: { deployUrl: 'https://sites.example.test/photo/', publishedVersion: '102', deployedAt: app.updateTime },
+              data: {
+                deployUrl: 'https://sites.example.test/photo/',
+                publishedVersion: '102',
+                deployedAt: app.updateTime,
+              },
               message: 'ok',
             },
           })
@@ -593,7 +598,16 @@ for (const mode of ['multi_file', 'vue_project'] as const) {
 async function checkFollowUp(page: Page, mode: 'multi_file' | 'vue_project') {
   const change = '把背景改为黑色，保留原有照片和按钮。'
   const nextChange = '把按钮文字改成浏览作品，保留黑色背景。'
-  const expectedPrompts = [app.initPrompt, change, change, nextChange]
+  const selected = 'button · #detail · 查看原图'
+  const detailPreview = previewHtml.replace('</body>', `<details><summary>打开详情</summary>
+    <button id="detail" onclick="this.parentElement.open=false">查看原图</button></details></body>`)
+  const expectedPrompts = [
+    app.initPrompt,
+    change,
+    change,
+    `${nextChange}\n\n选中元素（标签、位置、页面文字）：${selected}`,
+  ]
+  const picker = readFileSync('../backend/src/main/resources/preview/element-picker.html', 'utf8')
   const updatedApp = { ...app, codeGenType: mode }
   const sent: string[] = []
   const records: ChatHistoryVO[] = []
@@ -622,9 +636,9 @@ async function checkFollowUp(page: Page, mode: 'multi_file' | 'vue_project') {
         if (status === 'completed') {
           currentPreview =
             sent.length === 1
-              ? previewHtml
-              : previewHtml.replace('<body>', '<body style="background: black; color: white">')
-          if (sent.length === 4) currentPreview = currentPreview.replace('查看照片 0', '浏览作品')
+              ? detailPreview
+              : detailPreview.replace('<body>', '<body style="background: black; color: white">')
+          if (sent.length === 4) currentPreview = currentPreview.replace('查看原图', '浏览作品')
         }
         const base = { errorMessage: null, createTime: app.createTime, updateTime: app.updateTime }
         records.push(
@@ -659,7 +673,9 @@ async function checkFollowUp(page: Page, mode: 'multi_file' | 'vue_project') {
             ? {
                 contentType: 'text/html;charset=UTF-8',
                 headers: previewHeaders,
-                body: currentPreview,
+                body:
+                  currentPreview +
+                  (new URL(request.url()).searchParams.get('pick') === 'true' ? picker : ''),
               }
             : { status: 409, json: { code: 50001, data: null, message: '尚无成功版本' } },
         )
@@ -702,9 +718,25 @@ async function checkFollowUp(page: Page, mode: 'multi_file' | 'vue_project') {
   await expect(page.getByRole('button', { name: '提交需求', exact: true })).toBeEnabled()
   await expect(prompt).toHaveValue('')
   expect(sent).toHaveLength(3)
+  const detail = frame.getByRole('button', { name: '查看原图', exact: true })
+  await frame.getByText('打开详情').click()
+  await expect(detail).toBeVisible()
+  await page.getByRole('button', { name: '选择元素' }).click()
+  await detail.click({ timeout: 3000 })
+  await expect(page.getByText(`已选元素：${selected}`)).toBeVisible()
+  await page.getByRole('button', { name: '退出选择' }).click()
+  await expect(page.getByText(`已选元素：${selected}`)).toHaveCount(0)
+  await detail.click()
+  await expect(detail).toBeHidden()
+  await frame.getByText('打开详情').click()
+  await page.getByRole('button', { name: '选择元素' }).click()
+  await detail.click()
+  await expect(page.getByText(`已选元素：${selected}`)).toBeVisible()
+  expect(sent).toHaveLength(3)
   await prompt.fill(nextChange)
   await page.getByRole('button', { name: '提交需求', exact: true }).click()
   await expect(prompt).toHaveValue('')
+  await frame.getByText('打开详情').click()
   await expect(frame.getByRole('button', { name: '浏览作品', exact: true })).toBeVisible()
   await expect(frame.locator('body')).toHaveCSS('background-color', 'rgb(0, 0, 0)')
   expect(sent).toEqual(expectedPrompts)

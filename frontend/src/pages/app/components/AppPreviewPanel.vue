@@ -14,8 +14,13 @@ const props = defineProps<{ appId: string; version: string | null }>()
 const emit = defineEmits<{ selection: [description: string] }>()
 const picking = ref(false)
 const frame = ref<globalThis.HTMLIFrameElement | null>(null)
+function syncPicking(): void {
+  // 沙箱来源不透明，消息只发给当前 iframe，内容仅是点选开关。
+  frame.value?.contentWindow?.postMessage({ type: 'xy:set-picking', enabled: picking.value }, '*')
+}
 function setPicking(value: boolean): void {
   picking.value = value
+  syncPicking()
   emit('selection', '')
 }
 function receiveSelection(event: globalThis.MessageEvent): void {
@@ -110,11 +115,12 @@ onBeforeUnmount(() => {
     <iframe
       v-if="available"
       ref="frame"
-      :key="`${frameKey}:${picking}`"
-      :src="getAppPreviewUrl(appId, picking)"
+      :key="frameKey"
+      :src="getAppPreviewUrl(appId, true)"
       title="应用网站预览"
       sandbox="allow-scripts"
       referrerpolicy="no-referrer"
+      @load="syncPicking"
     />
     <div v-else-if="!loading && !error" class="preview-empty">
       <AEmpty description="还没有可预览的网站"

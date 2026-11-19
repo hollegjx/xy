@@ -10,9 +10,11 @@ import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
+import java.util.ArrayList;
 import java.util.Base64;
-import java.util.Locale;
 import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
@@ -112,6 +114,26 @@ public class GeneratedFileManager {
             Files.writeString(directory.resolve(file.getKey()), file.getValue(), StandardCharsets.UTF_8,
                     StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE);
         }
+    }
+
+    public List<String> copyVueSources(long userId, long appId, long previousId, long generationId) throws IOException {
+        List<String> paths = new ArrayList<>();
+        for (var file : readVueProject(userId, appId, previousId).entrySet()) {
+            if (VUE_TEMPLATE_NAMES.contains(file.getKey())) continue;
+            writeVueSource(userId, appId, generationId, file.getKey(), file.getValue());
+            paths.add(file.getKey());
+        }
+        return paths;
+    }
+
+    public String readVueSource(long userId, long appId, long generationId, String path) throws IOException {
+        Path relative = vueSourcePath(path);
+        Path directory = versionDirectory(userId, appId, generationId);
+        for (Path segment : relative.getParent()) {
+            directory = directory.resolve(segment);
+            if (!Files.isDirectory(directory, LinkOption.NOFOLLOW_LINKS)) throw new IOException("源码目录不可用");
+        }
+        return readFile(directory, relative.getFileName().toString());
     }
 
     public Map<String, String> readVueProject(long userId, long appId, long generationId) throws IOException {

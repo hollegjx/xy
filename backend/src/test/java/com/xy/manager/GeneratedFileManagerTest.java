@@ -70,6 +70,8 @@ class GeneratedFileManagerTest {
                 directoryLink ? outside : secret);
         assertThatThrownBy(() -> manager.writeVueSource(42, 55, 101,
                 directoryLink ? "src/link/secret.js" : "src/link.js", "changed")).isInstanceOf(IOException.class);
+        assertThatThrownBy(() -> manager.readVueSource(42, 55, 101,
+                directoryLink ? "src/link/secret.js" : "src/link.js")).isInstanceOf(IOException.class);
         assertThatThrownBy(() -> manager.readVueSourceZip(42, 55, 101)).isInstanceOf(IOException.class);
         assertThat(Files.readString(secret)).isEqualTo("private");
     }

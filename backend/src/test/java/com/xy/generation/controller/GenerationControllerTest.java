@@ -205,7 +205,7 @@ class GenerationControllerTest {
                 assertThat(request.messages()).hasSize(5);
                 handler.onCompleteResponse(response("已完成作品集。", FinishReason.STOP));
             } else {
-                assertThat(request.toolSpecifications()).extracting("name").containsExactly("writeFile");
+                assertThat(request.toolSpecifications()).extracting("name").containsExactlyInAnyOrder("readFile", "writeFile");
                 handler.onCompleteResponse(ChatResponse.builder().finishReason(FinishReason.TOOL_EXECUTION)
                         .aiMessage(AiMessage.from(List.of(writeFile("src/App.vue", source),
                                 writeFile("src/components/Card.vue", "<template>作品集</template>")))).build());
@@ -249,22 +249,59 @@ class GenerationControllerTest {
                 .andExpect(status().isNotFound()).andExpect(content().contentType("application/json"));
     }
 
-    @ParameterizedTest
-    @ValueSource(strings = {"missing_entry", "invalid_path", "model_error", "cancelled"})
-    void incompleteOrCancelledVueOutputDoesNotBecomeASuccessfulVersion(String outcome) throws Exception {
-        App app = app(42L, "vue_project");
+    private long preparePreviousVueProject(App app) throws Exception {
         long previousId = generationId - 1000;
         app.setGeneratedVersion(previousId);
         when(appMapper.selectOneById(55L)).thenReturn(app);
         when(persistence.loadSuccessfulPrompts(55, 42, previousId)).thenReturn(List.of("旧需求"));
         fileManager.writeVueSource(42, 55, previousId, "src/App.vue", "<template>旧作品</template>");
+        fileManager.writeVueSource(42, 55, previousId, "src/Card.vue", "<template>旧卡片</template>");
         Map<String, String> template = objectMapper.readValue(
                 new ClassPathResource("templates/vue-project.json").getContentAsString(StandardCharsets.UTF_8),
                 new com.fasterxml.jackson.core.type.TypeReference<Map<String, String>>() {});
         fileManager.finishVueProject(42, 55, previousId, template);
+        return previousId;
+    }
+
+    @Test
+    void editsOneVueComponentFromThePersistedVersionWithoutRewritingOtherFiles() throws Exception {
+        long previousId = preparePreviousVueProject(app(42L, "vue_project"));
         doAnswer(invocation -> {
             ChatRequest request = invocation.getArgument(0);
-            assertThat(((AiMessage) request.messages().get(2)).text()).contains("旧作品");
+            StreamingChatResponseHandler handler = invocation.getArgument(1);
+            if (request.messages().getLast() instanceof ToolExecutionResultMessage result) {
+                if (result.toolName().equals("readFile")) {
+                    assertThat(result.text()).isEqualTo("<template>旧卡片</template>");
+                    handler.onCompleteResponse(ChatResponse.builder().finishReason(FinishReason.TOOL_EXECUTION)
+                            .aiMessage(AiMessage.from(writeFile("src/Card.vue", "<template>新卡片</template>"))).build());
+                } else handler.onCompleteResponse(response("已更新卡片", FinishReason.STOP));
+            } else {
+                assertThat(((AiMessage) request.messages().get(2)).text())
+                        .contains("src/App.vue", "src/Card.vue").doesNotContain("旧卡片", "旧作品");
+                handler.onCompleteResponse(ChatResponse.builder().finishReason(FinishReason.TOOL_EXECUTION)
+                        .aiMessage(AiMessage.from(ToolExecutionRequest.builder().name("readFile").id("read-card")
+                                .arguments("{\"relativePath\":\"src/Card.vue\"}").build())).build());
+            }
+            return null;
+        }).when(model).chat(any(ChatRequest.class), any(StreamingChatResponseHandler.class));
+
+        String events = finish(mockMvc.perform(generate().session(session())).andReturn());
+        assertThat(events).containsSubsequence("已读取：src/Card.vue", "已写入：src/Card.vue", "event:completed")
+                .doesNotContain("旧卡片", "已写入：src/App.vue");
+        assertThat(fileManager.readVueProject(42, 55, generationId))
+                .containsEntry("src/App.vue", "<template>旧作品</template>").containsEntry("src/Card.vue", "<template>新卡片</template>");
+        assertThat(fileManager.readVueProject(42, 55, previousId)).containsEntry("src/Card.vue", "<template>旧卡片</template>");
+        verify(persistence).complete(eq(55L), eq(42L), eq(generationId), any());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"no_writes", "invalid_path", "invalid_read", "model_error", "cancelled"})
+    void incompleteOrCancelledVueOutputDoesNotBecomeASuccessfulVersion(String outcome) throws Exception {
+        App app = app(42L, "vue_project");
+        long previousId = preparePreviousVueProject(app);
+        doAnswer(invocation -> {
+            ChatRequest request = invocation.getArgument(0);
+            assertThat(((AiMessage) request.messages().get(2)).text()).contains("src/App.vue");
             StreamingChatResponseHandler handler = invocation.getArgument(1);
             if (outcome.equals("cancelled")) {
                 StreamingHandle handle = mock(StreamingHandle.class);
@@ -275,7 +312,10 @@ class GenerationControllerTest {
                 verify(handle).cancel();
             }
             if (outcome.equals("model_error")) handler.onError(new IllegalStateException("private model detail"));
-            else if (outcome.equals("missing_entry")) handler.onCompleteResponse(response("完成", FinishReason.STOP));
+            else if (outcome.equals("no_writes")) handler.onCompleteResponse(response("完成", FinishReason.STOP));
+            else if (outcome.equals("invalid_read")) handler.onCompleteResponse(ChatResponse.builder()
+                    .finishReason(FinishReason.TOOL_EXECUTION).aiMessage(AiMessage.from(ToolExecutionRequest.builder()
+                            .name("readFile").id("read").arguments("{\"relativePath\":\"src/../preview.html\"}").build())).build());
             else handler.onCompleteResponse(ChatResponse.builder().finishReason(FinishReason.TOOL_EXECUTION)
                         .aiMessage(AiMessage.from(List.of(writeFile(
                                 outcome.equals("invalid_path") ? "../App.vue" : "src/App.vue", "<template>页面</template>")))).build());

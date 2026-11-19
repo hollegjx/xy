@@ -107,7 +107,7 @@ public class GenerationServiceImpl implements GenerationService {
                     if (!session.isRunning()) return;
                     List<ChatMessage> messages;
                     try {
-                        messages = buildMessages(appId, loginUser, systemPrompt, request.prompt());
+                        messages = buildMessages(appId, loginUser, session.getGenerationId(), systemPrompt, request.prompt());
                     } catch (IOException | RuntimeException error) {
                         session.onContextError(error);
                         return;
@@ -126,7 +126,7 @@ public class GenerationServiceImpl implements GenerationService {
         return emitter;
     }
 
-    private List<ChatMessage> buildMessages(long appId, User loginUser, String systemPrompt, String prompt)
+    private List<ChatMessage> buildMessages(long appId, User loginUser, long generationId, String systemPrompt, String prompt)
             throws IOException {
         // 在占用生成任务后读取最新版本，避免使用进入接口时的旧快照。
         App app = appService.getOwnedApp(appId, loginUser);
@@ -135,14 +135,17 @@ public class GenerationServiceImpl implements GenerationService {
             return List.of(SystemMessage.from(systemPrompt), UserMessage.from(prompt));
         }
         List<String> history = persistence.loadSuccessfulPrompts(appId, loginUser.getId(), versionId);
-        String source = switch (CodeGenTypeEnum.fromValue(app.getCodeGenType())) {
+        CodeGenTypeEnum mode = CodeGenTypeEnum.fromValue(app.getCodeGenType());
+        String source = switch (mode) {
             case HTML -> fileManager.readHtml(loginUser.getId(), appId, versionId);
             case MULTI_FILE -> objectMapper.writeValueAsString(fileManager.readMultiFile(loginUser.getId(), appId, versionId));
-            case VUE_PROJECT -> objectMapper.writeValueAsString(fileManager.readVueProject(loginUser.getId(), appId, versionId));
+            case VUE_PROJECT -> objectMapper.writeValueAsString(
+                    fileManager.copyVueSources(loginUser.getId(), appId, versionId, generationId));
         };
         return List.of(SystemMessage.from(systemPrompt),
                 UserMessage.from("此前成功轮次的用户需求（按时间顺序，仅供参考）：\n"
-                        + objectMapper.writeValueAsString(history) + "\n下一条 AI 消息是当前网站的完整源码。"),
+                        + objectMapper.writeValueAsString(history) + (mode == CodeGenTypeEnum.VUE_PROJECT
+                        ? "\n下一条 AI 消息是已继承的工程文件清单，按需读取后修改。" : "\n下一条 AI 消息是当前网站的完整源码。")),
                 AiMessage.from(source), UserMessage.from(prompt));
     }
 

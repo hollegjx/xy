@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test'
+import { expect, test, type Page } from '@playwright/test'
 import type { ChatHistoryVO } from '../src/types/api'
 
 const user = { id: '42', userAccount: 'xy_e2e', userName: '星云用户', userRole: 'user' }
@@ -582,10 +582,17 @@ test('Vue 工作台按流展示写文件和构建，停止或失败保留旧预�
   await expect(page.getByRole('button', { name: '下载源码' })).toBeEnabled()
 })
 
-test('工作台首次生成、失败后恢复需求重试，刷新后可以继续修改', async ({ page }) => {
+for (const mode of ['multi_file', 'vue_project'] as const) {
+  test(`${mode}：工作台首次生成、失败后恢复需求重试，刷新后可以继续修改`, async ({ page }) => {
+    await checkFollowUp(page, mode)
+  })
+}
+
+async function checkFollowUp(page: Page, mode: 'multi_file' | 'vue_project') {
   const change = '把背景改为黑色，保留原有照片和按钮。'
   const nextChange = '把按钮文字改成浏览作品，保留黑色背景。'
   const expectedPrompts = [app.initPrompt, change, change, nextChange]
+  const updatedApp = { ...app, codeGenType: mode }
   const sent: string[] = []
   const records: ChatHistoryVO[] = []
   let currentPreview = ''
@@ -597,7 +604,7 @@ test('工作台首次生成、失败后恢复需求重试，刷新后可以继�
       if (path === '/api/users/me') {
         await route.fulfill({ json: { code: 0, data: user, message: 'ok' } })
       } else if (path === `/api/apps/${app.id}`) {
-        await route.fulfill({ json: { code: 0, data: app, message: 'ok' } })
+        await route.fulfill({ json: { code: 0, data: updatedApp, message: 'ok' } })
       } else if (path === `/api/apps/${app.id}/messages`) {
         await route.fulfill({
           json: { code: 0, data: { records, hasMore: false, nextCursor: null }, message: 'ok' },
@@ -699,4 +706,4 @@ test('工作台首次生成、失败后恢复需求重试，刷新后可以继�
   await expect(frame.getByRole('button', { name: '浏览作品', exact: true })).toBeVisible()
   await expect(frame.locator('body')).toHaveCSS('background-color', 'rgb(0, 0, 0)')
   expect(sent).toEqual(expectedPrompts)
-})
+}

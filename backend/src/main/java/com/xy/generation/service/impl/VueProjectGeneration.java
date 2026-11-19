@@ -26,6 +26,10 @@ import java.util.Map;
 
 // 一次 Vue 源码生成的工具循环；任务终态和 SSE 生命周期仍由 GenerationSession 管理。
 final class VueProjectGeneration implements GenerationSession.OutputHandler {
+    private static final ToolSpecification READ_FILE = ToolSpecification.builder().name("readFile")
+            .description("读取本次工程 src 目录中已有源文件的完整内容")
+            .parameters(JsonObjectSchema.builder().addStringProperty("relativePath", "如 src/App.vue")
+                    .required("relativePath").additionalProperties(false).build()).build();
     private static final ToolSpecification WRITE_FILE = ToolSpecification.builder().name("writeFile")
             .description("在本次工程的 src 目录写入一个完整源文件，不能修改 src/main.js")
             .parameters(JsonObjectSchema.builder().addStringProperty("relativePath", "如 src/App.vue")
@@ -37,6 +41,7 @@ final class VueProjectGeneration implements GenerationSession.OutputHandler {
     private final Map<String, String> template;
     private final VueProjectBuildManager builder;
     private GeneratedFileManager.VueBuildPaths buildPaths;
+    private boolean wroteSource;
 
     VueProjectGeneration(long userId, long appId, long generationId, GeneratedFileManager files,
             ObjectMapper mapper, Map<String, String> template, VueProjectBuildManager builder) {
@@ -58,7 +63,7 @@ final class VueProjectGeneration implements GenerationSession.OutputHandler {
             GenerationSession session, StringBuilder history) {
         if (!session.isRunning()) return;
         try {
-            model.chat(ChatRequest.builder().messages(List.copyOf(messages)).toolSpecifications(WRITE_FILE).build(),
+            model.chat(ChatRequest.builder().messages(List.copyOf(messages)).toolSpecifications(READ_FILE, WRITE_FILE).build(),
                     new StreamingChatResponseHandler() {
                 @Override
                 public void onPartialResponse(String text) { session.onPartialResponse(text); }
@@ -92,20 +97,31 @@ final class VueProjectGeneration implements GenerationSession.OutputHandler {
                         if (hasTools) try {
                             messages.add(reply);
                             for (var tool : reply.toolExecutionRequests()) {
-                                if (!"writeFile".equals(tool.name())) throw new IllegalArgumentException();
                                 var args = mapper.readTree(tool.arguments());
-                                if (args == null || !args.path("relativePath").isTextual()
-                                        || !args.path("content").isTextual()) throw new IllegalArgumentException();
+                                if (args == null || !args.path("relativePath").isTextual()) throw new IllegalArgumentException();
                                 String path = args.get("relativePath").textValue();
-                                files.writeVueSource(userId, appId, generationId, path, args.get("content").textValue());
-                                String progress = "\n已写入：" + path + "\n";
+                                String result, progress;
+                                switch (tool.name()) {
+                                    case "readFile" -> {
+                                        result = files.readVueSource(userId, appId, generationId, path);
+                                        progress = "\n已读取：" + path + "\n";
+                                    }
+                                    case "writeFile" -> {
+                                        if (!args.path("content").isTextual()) throw new IllegalArgumentException();
+                                        files.writeVueSource(userId, appId, generationId, path, args.get("content").textValue());
+                                        wroteSource = true;
+                                        result = "文件已保存：" + path;
+                                        progress = "\n已写入：" + path + "\n";
+                                    }
+                                    default -> throw new IllegalArgumentException();
+                                }
                                 history.append(progress);
                                 session.onPartialResponse(progress);
                                 if (!session.isRunning()) return;
-                                messages.add(ToolExecutionResultMessage.from(tool, "文件已保存：" + path));
+                                messages.add(ToolExecutionResultMessage.from(tool, result));
                             }
                         } catch (IOException | RuntimeException error) {
-                            session.fail("Vue 工程文件写入失败，请检查工具参数和文件路径后重试");
+                            session.fail("Vue 工程文件操作失败，请检查工具参数和文件路径后重试");
                             return;
                         }
                     }
@@ -119,6 +135,10 @@ final class VueProjectGeneration implements GenerationSession.OutputHandler {
     }
 
     private void complete(GenerationSession session, StringBuilder history) {
+        if (!wroteSource) {
+            session.fail("本次未写入 Vue 源码，请重试");
+            return;
+        }
         try {
             if (builder.enabled()) {
                 synchronized (session) {

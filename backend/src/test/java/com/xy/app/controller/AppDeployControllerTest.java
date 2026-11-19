@@ -1,5 +1,6 @@
 package com.xy.app.controller;
 
+import com.mybatisflex.core.query.QueryWrapper;
 import com.xy.app.mapper.AppMapper;
 import com.xy.app.model.entity.App;
 import com.xy.chat.mapper.ChatHistoryMapper;
@@ -9,8 +10,13 @@ import com.xy.common.ErrorCode;
 import com.xy.config.DeploymentConfiguration;
 import com.xy.exception.BusinessException;
 import com.xy.manager.GeneratedFileManager;
+import com.xy.manager.AppCoverRenderer;
 import com.xy.user.mapper.UserMapper;
 import com.xy.user.model.entity.User;
+import java.io.IOException;
+import java.io.ByteArrayInputStream;
+import java.awt.Color;
+import javax.imageio.ImageIO;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.LocalDateTime;
@@ -18,6 +24,7 @@ import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
@@ -63,6 +70,8 @@ class AppDeployControllerTest {
     MockMvc mockMvc;
     @Autowired
     GeneratedFileManager files;
+    @MockitoBean
+    AppCoverRenderer covers;
     @MockitoSpyBean
     DeploymentConfiguration deployment;
     @MockitoBean
@@ -234,6 +243,68 @@ class AppDeployControllerTest {
         app.setGeneratedVersion(id);
         version.setId(id);
         when(messages.selectOneById(id)).thenReturn(version);
+    }
+
+    @Test
+    void refreshesTheFeaturedCoverWithThePublishedSnapshotAndKeepsPublishingIfCaptureFails() throws Exception {
+        app.setFeatured(true);
+        when(apps.selectListByQuery(any(QueryWrapper.class))).thenReturn(List.of(app));
+        for (long id : List.of(801L, 802L, 803L)) {
+            useVersion(id);
+            saveVersion("作品 " + id);
+            var html = files.readHtml(42, 55, id);
+            byte[] cover = { (byte) 0xff, (byte) 0xd8, (byte) id };
+            if (id == 803) when(covers.render(html)).thenThrow(new IOException("截图不可用"));
+            else when(covers.render(html)).thenReturn(cover);
+            mockMvc.perform(deploy().session(session())).andExpect(status().isOk());
+            assertThat(Files.readString(publishedIndex())).isEqualTo(html);
+            var url = "/api/apps/55/covers/" + id;
+            var list = mockMvc.perform(get("/api/apps/featured").contextPath("/api")).andExpect(status().isOk());
+            if (id == 803) {
+                list.andExpect(jsonPath("$.data[0].coverUrl").isEmpty());
+                mockMvc.perform(get(url).contextPath("/api")).andExpect(status().isNotFound());
+            } else {
+                list.andExpect(jsonPath("$.data[0].coverUrl").value(url));
+                var response = mockMvc.perform(get(url).contextPath("/api")).andExpect(status().isOk())
+                        .andReturn().getResponse();
+                assertThat(response.getContentType()).isEqualTo("image/jpeg");
+                assertThat(response.getContentAsByteArray()).isEqualTo(cover);
+                app.setFeatured(false);
+                mockMvc.perform(get(url).contextPath("/api")).andExpect(status().isNotFound());
+                app.setFeatured(true);
+            }
+            mockMvc.perform(get("/api/apps/55/covers/" + (id - 1)).contextPath("/api")).andExpect(status().isNotFound());
+        }
+    }
+
+    @Test
+    @EnabledIfEnvironmentVariable(named = "XY_TEST_DOCKER_COVER", matches = "true")
+    void rendersRepublishedFeaturedWorkInDocker() throws Exception {
+        var renderer = new AppCoverRenderer(true, System.getenv().getOrDefault("XY_TEST_DOCKER_CLI", "docker"));
+        when(covers.render(anyString())).thenAnswer(call -> renderer.render(call.getArgument(0)));
+        app.setFeatured(true);
+        when(apps.selectListByQuery(any(QueryWrapper.class))).thenReturn(List.of(app));
+        for (long id : List.of(901L, 902L)) {
+            var color = id == 901 ? Color.RED : Color.BLUE;
+            String css = id == 901 ? "red" : "blue";
+            useVersion(id);
+            saveVersion("<script>document.body.style.background='" + css + "'</script>");
+            mockMvc.perform(deploy().session(session())).andExpect(status().isOk());
+            String url = "/api/apps/55/covers/" + id;
+            mockMvc.perform(get("/api/apps/featured").contextPath("/api"))
+                    .andExpect(jsonPath("$.data[0].coverUrl").value(url));
+            var response = mockMvc.perform(get(url).contextPath("/api")).andExpect(status().isOk())
+                    .andReturn().getResponse();
+            assertThat(response.getContentType()).isEqualTo("image/jpeg");
+            var image = ImageIO.read(new ByteArrayInputStream(response.getContentAsByteArray()));
+            assertThat(image).isNotNull();
+            assertThat(image.getWidth()).isEqualTo(960);
+            assertThat(image.getHeight()).isEqualTo(540);
+            var pixel = new Color(image.getRGB(480, 270));
+            assertThat(Math.abs(pixel.getRed() - color.getRed())).isLessThan(5);
+            assertThat(Math.abs(pixel.getBlue() - color.getBlue())).isLessThan(5);
+            assertThat(pixel.getGreen()).isLessThan(5);
+        }
     }
 
     private void saveVersion(String body) throws Exception {

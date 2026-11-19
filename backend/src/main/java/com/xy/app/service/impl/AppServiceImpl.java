@@ -25,6 +25,7 @@ import com.xy.common.ErrorCode;
 import com.xy.config.DeploymentConfiguration;
 import com.xy.exception.BusinessException;
 import com.xy.manager.GeneratedFileManager;
+import com.xy.manager.AppCoverRenderer;
 import com.xy.user.model.entity.User;
 import com.xy.user.model.enums.UserRoleEnum;
 import java.io.IOException;
@@ -45,14 +46,16 @@ public class AppServiceImpl implements AppService {
     private final GeneratedFileManager fileManager;
     private final DeploymentConfiguration deployment;
     private final GenerationModeRouter modeRouter;
+    private final AppCoverRenderer coverRenderer;
 
     public AppServiceImpl(AppMapper appMapper, ChatHistoryMapper chatHistoryMapper, GeneratedFileManager fileManager,
-            DeploymentConfiguration deployment, GenerationModeRouter modeRouter) {
+            DeploymentConfiguration deployment, GenerationModeRouter modeRouter, AppCoverRenderer coverRenderer) {
         this.appMapper = appMapper;
         this.chatHistoryMapper = chatHistoryMapper;
         this.fileManager = fileManager;
         this.deployment = deployment;
         this.modeRouter = modeRouter;
+        this.coverRenderer = coverRenderer;
     }
 
     @Override
@@ -115,9 +118,27 @@ public class AppServiceImpl implements AppService {
                 .limit(6);
         return appMapper.selectListByQuery(query).stream()
                 .map(app -> new AppFeaturedVO(Long.toString(app.getId()), app.getAppName(),
-                        app.getCodeGenType(), deployment.siteUrl(app.getDeployKey())))
+                        app.getCodeGenType(), deployment.siteUrl(app.getDeployKey()),
+                        fileManager.hasCover(app.getUserId(), app.getId(), app.getPublishedVersion())
+                                ? "/api/apps/" + app.getId() + "/covers/" + app.getPublishedVersion() : null))
                 .filter(app -> app.deployUrl() != null)
                 .toList();
+    }
+
+    @Override
+    public byte[] getFeaturedCover(long id, long version) {
+        App app = appMapper.selectOneById(id);
+        if (app == null || !Boolean.TRUE.equals(app.getFeatured()) || !Long.valueOf(version).equals(app.getPublishedVersion())
+                || deployment.siteUrl(app.getDeployKey()) == null) {
+            throw new BusinessException(ErrorCode.NOT_FOUND_ERROR, "封面不存在");
+        }
+        try {
+            return fileManager.readCover(app.getUserId(), id, version);
+        } catch (NoSuchFileException missing) {
+            throw new BusinessException(ErrorCode.NOT_FOUND_ERROR, "封面不存在");
+        } catch (IOException error) {
+            throw new BusinessException(ErrorCode.SYSTEM_ERROR, "封面读取失败");
+        }
     }
 
     @Override
@@ -266,6 +287,12 @@ public class AppServiceImpl implements AppService {
             LocalDateTime deployedAt = LocalDateTime.now().withNano(0);
             if (appMapper.updateDeployment(id, app.getUserId(), key, versionId, deployedAt) != 1) {
                 throw new BusinessException(ErrorCode.SYSTEM_ERROR, "发布记录保存失败，请重试发布");
+            }
+            try {
+                byte[] jpeg = coverRenderer.render(html);
+                if (jpeg != null) fileManager.saveCover(app.getUserId(), id, versionId, jpeg);
+            } catch (IOException error) {
+                log.warn("应用 {} 版本 {} 已发布，封面未生成：{}", id, versionId, error.getClass().getSimpleName());
             }
             return new AppDeployVO(deployment.siteUrl(key), Long.toString(versionId), deployedAt);
         } catch (IOException error) {

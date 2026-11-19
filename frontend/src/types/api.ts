@@ -66,6 +66,7 @@ export interface AppFeaturedRequest {
 }
 
 export interface AppFeaturedVO {
+  coverUrl?: string | null
   id: string
   appName: string
   codeGenType: CodeGenType

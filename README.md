@@ -81,7 +81,21 @@ com.xy/
 
 ### 独立静态站点配置
 
-Vue 工程的构建配置见下节。发布时直接使用最近成功版本已构建的页面，不再运行 Docker；仅有源码的版本可下载，无法发布。
+Vue 工程的构建配置见下节。发布时直接使用最近成功版本已构建的页面，不重新构建；仅有源码的版本可下载，无法发布。
+
+**精选作品封面（可选）**：在运行后端所连接的 Docker Engine 上准备截图镜像；从仓库根目录运行：
+
+```sh
+docker build -t xy-cover:1 backend/cover-renderer
+```
+
+在后端本地 `application.yml` 的 `xy` 下设置 `cover.enabled: true`，重启后端，重新发布需要封面的作品。后端复用 `xy.vue-build.docker-executable`，无需启用 Vue 构建。截图容器断网，只从标准输入读取这次发布的页面。精选首页读取当前发布版本的 JPEG；旧作品没有截图或截图失败时照常提供作品链接。无需执行 SQL 或更改静态站点配置。
+
+镜像准备好以后，可以先在 `backend/` 运行下面的验收。它在临时目录发布两个测试版本，读取精选接口返回的 JPEG，核对尺寸及新旧页面颜色，不连接真实数据库或模型。有 Docker 命令白名单的环境，用 `XY_TEST_DOCKER_CLI` 指向后端实际使用的包装器；不要绕开白名单执行测试。
+
+```sh
+XY_TEST_DOCKER_COVER=true sh mvnw -Dtest=AppDeployControllerTest#rendersRepublishedFeaturedWorkInDocker test
+```
 
 在本地 `application.yml` 的 `xy.deployment` 中配置 `directory`（默认 `./published`）、`public-url`（静态站点来源，不含路径）和 `platform-origin`（浏览器访问平台的来源，默认 `http://localhost:5173`）。`public-url` 留空时发布返回 503，其他业务正常使用。
 

@@ -242,6 +242,33 @@ public class GeneratedFileManager {
                 StandardCharsets.UTF_8, StandardOpenOption.CREATE_NEW);
     }
 
+    public boolean hasCover(long userId, long appId, long versionId) {
+        try {
+            return Files.isRegularFile(versionDirectory(userId, appId, versionId).resolve("cover.jpg"), LinkOption.NOFOLLOW_LINKS);
+        } catch (IOException unavailable) {
+            return false;
+        }
+    }
+
+    public void saveCover(long userId, long appId, long versionId, byte[] jpeg) throws IOException {
+        Path directory = versionDirectory(userId, appId, versionId);
+        Path temporary = Files.createTempFile(directory, ".cover-", ".tmp");
+        try {
+            Files.write(temporary, jpeg);
+            Files.move(temporary, directory.resolve("cover.jpg"), StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+        } finally {
+            Files.deleteIfExists(temporary);
+        }
+    }
+
+    public byte[] readCover(long userId, long appId, long versionId) throws IOException {
+        Path file = versionDirectory(userId, appId, versionId).resolve("cover.jpg");
+        if (!Files.isRegularFile(file, LinkOption.NOFOLLOW_LINKS)) throw new NoSuchFileException("无封面");
+        try (var input = Files.newInputStream(file, LinkOption.NOFOLLOW_LINKS)) {
+            return input.readAllBytes();
+        }
+    }
+
     public String readVuePreview(long userId, long appId, long generationId) throws IOException {
         return readFile(versionDirectory(userId, appId, generationId), "preview.html");
     }

@@ -122,8 +122,14 @@ test('管理员管理应用并设置精选，访客从首页浏览公开作品�
             appName: app.appName,
             codeGenType: app.codeGenType,
             deployUrl: app.deployment!.deployUrl,
+            coverUrl: `/api/apps/${app.id}/covers/${app.deployment!.publishedVersion}`,
           }))
         await route.fulfill({ json: { code: 0, data: featured, message: 'ok' } })
+      } else if (url.pathname === `/api/apps/${deletedAppId}/covers/101`) {
+        await route.fulfill({
+          contentType: 'image/svg+xml',
+          body: '<svg xmlns="http://www.w3.org/2000/svg" width="960" height="540"/>',
+        })
       } else if (url.pathname === '/api/apps/mine') {
         await route.fulfill({
           json: {
@@ -223,6 +229,7 @@ test('管理员管理应用并设置精选，访客从首页浏览公开作品�
   ).toBeVisible()
   await expect(page.getByRole('region', { name: '我的应用', exact: true })).toHaveCount(0)
   await expect(featuredPanel.getByRole('link')).toHaveCount(1)
+  await expect(featuredPanel.locator('img.work-cover')).toHaveJSProperty('naturalWidth', 960)
   const featuredPopupPromise = page.waitForEvent('popup')
   await featuredPanel.getByRole('link', { name: '查看作品', exact: true }).click()
   const featuredPopup = await featuredPopupPromise

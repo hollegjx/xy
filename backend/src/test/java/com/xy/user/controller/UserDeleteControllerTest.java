@@ -6,6 +6,7 @@ import com.xy.app.controller.AppController;
 import com.xy.app.mapper.AppMapper;
 import com.xy.app.model.entity.App;
 import com.xy.app.model.enums.CodeGenTypeEnum;
+import com.xy.app.service.impl.GenerationModeRouter;
 import com.xy.app.service.impl.AppServiceImpl;
 import com.xy.chat.mapper.ChatHistoryMapper;
 import com.xy.common.UserConstant;
@@ -65,7 +66,7 @@ class UserDeleteControllerTest {
     void prepare() {
         files = new GeneratedFileManager(directory.resolve("generated"));
         var deployment = new DeploymentConfiguration(directory.resolve("published"), "", "http://localhost:5173");
-        var appService = new AppServiceImpl(apps, messages, files, deployment);
+        var appService = new AppServiceImpl(apps, messages, files, deployment, mock(GenerationModeRouter.class));
         var userService = new UserServiceImpl(users, mock(PasswordEncoder.class), appService,
                 new UserDeletionPersistence(users, apps));
         // 只替换数据访问；使用真实业务类和临时文件，不连接数据库，也不测试事务框架本身。

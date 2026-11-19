@@ -54,7 +54,7 @@ export type CodeGenType = 'html' | 'multi_file' | 'vue_project'
 
 export interface AppAddRequest {
   initPrompt: string
-  codeGenType?: CodeGenType
+  codeGenType?: CodeGenType | 'auto'
 }
 
 export interface AppUpdateRequest {

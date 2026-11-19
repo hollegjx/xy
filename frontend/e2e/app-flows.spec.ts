@@ -29,6 +29,7 @@ for (const [codeGenType, modeLabel] of [
   ['html', '单 HTML'],
   ['multi_file', '多文件'],
   ['vue_project', 'Vue 工程'],
+  ['auto', '自动选择'],
 ] as const) {
   test(`${codeGenType}：登录保留需求，创建后自动生成并预览，刷新和重新进入不重复生成`, async ({
     page,
@@ -81,7 +82,8 @@ for (const [codeGenType, modeLabel] of [
         } else if (path === `/api/apps/${app.id}`) {
           expect(request.method()).toBe('GET')
           reads += 1
-          await route.fulfill({ json: { code: 0, data: { ...app, codeGenType }, message: 'ok' } })
+          const actualMode = codeGenType === 'auto' ? 'vue_project' : codeGenType
+          await route.fulfill({ json: { code: 0, data: { ...app, codeGenType: actualMode }, message: 'ok' } })
         } else if (path === `/api/apps/${app.id}/messages`) {
           expect(request.method()).toBe('GET')
           const cursor = new URL(request.url()).searchParams.get('beforeId')
@@ -189,7 +191,7 @@ for (const [codeGenType, modeLabel] of [
     await expect(page).toHaveURL(`/apps/${app.id}`)
     await expect(page.getByRole('heading', { name: app.appName, exact: true })).toBeVisible()
     await expect(page.getByText(app.initPrompt, { exact: true })).toBeVisible()
-    await expect(page.getByText(modeLabel, { exact: true })).toBeVisible()
+    await expect(page.getByText(codeGenType === 'auto' ? 'Vue 工程' : modeLabel, { exact: true })).toBeVisible()
     const frame = page.frameLocator('iframe[title="应用网站预览"]')
     await expect(frame.getByRole('heading', { name: '摄影作品集' })).toBeVisible()
     if (codeGenType === 'vue_project') {

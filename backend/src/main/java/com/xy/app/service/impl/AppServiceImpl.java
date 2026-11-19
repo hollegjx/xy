@@ -44,21 +44,22 @@ public class AppServiceImpl implements AppService {
     private final ChatHistoryMapper chatHistoryMapper;
     private final GeneratedFileManager fileManager;
     private final DeploymentConfiguration deployment;
+    private final GenerationModeRouter modeRouter;
 
     public AppServiceImpl(AppMapper appMapper, ChatHistoryMapper chatHistoryMapper, GeneratedFileManager fileManager,
-            DeploymentConfiguration deployment) {
+            DeploymentConfiguration deployment, GenerationModeRouter modeRouter) {
         this.appMapper = appMapper;
         this.chatHistoryMapper = chatHistoryMapper;
         this.fileManager = fileManager;
         this.deployment = deployment;
+        this.modeRouter = modeRouter;
     }
 
     @Override
     public long createApp(AppAddRequest request, User loginUser) {
         String prompt = request.initPrompt();
         int nameLength = Math.min(12, prompt.codePointCount(0, prompt.length()));
-        CodeGenTypeEnum codeGenType = request.codeGenType() == null
-                ? CodeGenTypeEnum.MULTI_FILE : request.codeGenType();
+        CodeGenTypeEnum codeGenType = modeRouter.select(request);
 
         App app = new App();
         app.setUserId(loginUser.getId());

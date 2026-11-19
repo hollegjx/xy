@@ -6,6 +6,11 @@ import com.xy.app.model.entity.App;
 import com.xy.common.UserConstant;
 import com.xy.user.mapper.UserMapper;
 import com.xy.user.model.entity.User;
+import dev.langchain4j.data.message.AiMessage;
+import dev.langchain4j.data.message.SystemMessage;
+import dev.langchain4j.data.message.UserMessage;
+import dev.langchain4j.model.chat.ChatModel;
+import dev.langchain4j.model.chat.response.ChatResponse;
 import java.time.LocalDateTime;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -27,6 +32,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.aMapWithSize;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -58,11 +64,18 @@ class AppControllerTest {
     @MockitoBean
     private UserMapper userMapper;
 
+    @MockitoBean
+    private ChatModel routingModel;
+
     @ParameterizedTest
     @MethodSource("validApps")
     void createsAnAppForTheCurrentUserWithAnAutomaticName(String prompt, String mode,
             String expectedName, String expectedMode) throws Exception {
         existingUser();
+        if ("auto".equals(mode)) {
+            when(routingModel.chat(any(SystemMessage.class), eq(UserMessage.from(prompt))))
+                    .thenReturn(ChatResponse.builder().aiMessage(AiMessage.from(expectedMode + "\n")).build());
+        }
         when(appMapper.insert(any(App.class))).thenAnswer(invocation -> {
             App app = invocation.getArgument(0);
             app.setId(55L);
@@ -88,6 +101,7 @@ class AppControllerTest {
         assertThat(apps.getValue().getAppName()).isEqualTo(expectedName);
         assertThat(apps.getValue().getInitPrompt()).isEqualTo(prompt);
         assertThat(apps.getValue().getCodeGenType()).isEqualTo(expectedMode);
+        if (!"auto".equals(mode)) verifyNoInteractions(routingModel);
     }
 
     static Stream<Arguments> validApps() {
@@ -96,7 +110,23 @@ class AppControllerTest {
                 Arguments.of("博客", "html", "博客", "html"),
                 Arguments.of("12345678901🌟作品", "multi_file", "12345678901🌟", "multi_file"),
                 Arguments.of("生成 Vue 作品集", "vue_project", "生成 Vue 作品集", "vue_project"),
+                Arguments.of("静态邀请函", "auto", "静态邀请函", "html"),
+                Arguments.of("含分类筛选的作品集", "auto", "含分类筛选的作品集", "multi_file"),
+                Arguments.of("组件化看板", "auto", "组件化看板", "vue_project"),
                 Arguments.of("🌟".repeat(16383), null, "🌟".repeat(12), "multi_file"));
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void failedOrInvalidRoutingDoesNotCreateAnApp(boolean unavailable) throws Exception {
+        existingUser();
+        var call = when(routingModel.chat(any(SystemMessage.class), any(UserMessage.class)));
+        if (unavailable) call.thenThrow(new IllegalStateException("model unavailable"));
+        else call.thenReturn(ChatResponse.builder().aiMessage(AiMessage.from("auto")).build());
+        mockMvc.perform(post("/api/apps").contextPath("/api").session(loggedInSession())
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"initPrompt\":\"看板\",\"codeGenType\":\"auto\"}"))
+                .andExpect(status().isServiceUnavailable()).andExpect(jsonPath("$.code").value(50300));
+        verifyNoInteractions(appMapper);
     }
 
     @Test

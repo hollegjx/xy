@@ -51,7 +51,7 @@ public class AppController {
     }
 
     @Operation(summary = "创建应用", description = "需要登录；创建者取当前账号，名称取初始需求前 12 个字符，"
-            + "默认多文件模式，也可选择 html。仅保存应用并返回字符串 ID；生成由后续接口发起。")
+            + "省略模式默认多文件；auto 根据需求选定实际模式，失败不创建应用。返回字符串 ID；生成由后续接口发起。")
     @PostMapping
     public ApiResponse<String> createApp(@Valid @RequestBody AppAddRequest request,
             HttpServletRequest servletRequest) {

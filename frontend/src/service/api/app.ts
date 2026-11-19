@@ -13,7 +13,11 @@ import type {
 } from '@/types/api'
 
 export const createApp = (data: AppAddRequest): Promise<string> =>
-  request<string>('/api/apps', { method: 'POST', data })
+  request<string>('/api/apps', {
+    method: 'POST',
+    data,
+    ...(data.codeGenType === 'auto' && { timeout: 60000 }),
+  })
 
 export const getApp = (id: string): Promise<AppVO> =>
   request<AppVO>(`/api/apps/${encodeURIComponent(id)}`)

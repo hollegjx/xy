@@ -1,6 +1,8 @@
 package com.xy.config;
 
+import dev.langchain4j.model.chat.ChatModel;
 import dev.langchain4j.model.chat.StreamingChatModel;
+import dev.langchain4j.model.openai.OpenAiChatModel;
 import dev.langchain4j.model.openai.OpenAiStreamingChatModel;
 import java.time.Duration;
 import java.util.concurrent.ExecutorService;
@@ -14,6 +16,15 @@ import org.springframework.context.annotation.Configuration;
 
 @Configuration
 public class AiModelConfiguration {
+
+    @Bean
+    @ConditionalOnProperty(prefix = "xy.ai", name = "enabled", havingValue = "true")
+    public ChatModel modeRoutingModel(@Value("${xy.ai.base-url}") String baseUrl,
+            @Value("${xy.ai.api-key}") String apiKey, @Value("${xy.ai.model-name}") String modelName) {
+        return OpenAiChatModel.builder().baseUrl(baseUrl).apiKey(apiKey).modelName(modelName)
+                .timeout(Duration.ofSeconds(45)).maxRetries(0).maxCompletionTokens(512)
+                .logRequests(false).logResponses(false).build();
+    }
 
     @Bean
     @ConditionalOnProperty(prefix = "xy.ai", name = "enabled", havingValue = "true")

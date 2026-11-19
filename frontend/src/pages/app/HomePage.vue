@@ -22,6 +22,10 @@ const router = useRouter()
 const loginUserStore = useLoginUserStore()
 const draftStore = useAppDraftStore()
 const form = draftStore.draft
+const creationModes = {
+  auto: { label: '自动选择', hint: '根据这次需求选择生成模式，创建后可在工作台查看结果。' },
+  ...generationModes,
+}
 const busy = ref(false)
 const error = ref('')
 const disabled = computed(() => busy.value || loginUserStore.authAction !== null)
@@ -112,12 +116,16 @@ onBeforeUnmount(() => {
       </AFormItem>
       <AFormItem label="生成模式" name="codeGenType">
         <ARadioGroup v-model:value="form.codeGenType" aria-label="生成模式">
-          <ARadioButton v-for="(mode, key) in generationModes" :key="key" :value="key">
+          <ARadioButton v-for="(mode, key) in creationModes" :key="key" :value="key">
             {{ mode.label }}
           </ARadioButton>
         </ARadioGroup>
-        <p class="mode-help">
-          {{ generationModes[form.codeGenType ?? 'multi_file'].hint }}
+        <p class="mode-help" aria-live="polite">
+          {{
+            busy && form.codeGenType === 'auto'
+              ? '正在根据需求选择生成模式，请稍候。'
+              : creationModes[form.codeGenType ?? 'multi_file'].hint
+          }}
         </p>
       </AFormItem>
       <AButton
@@ -128,7 +136,7 @@ onBeforeUnmount(() => {
         :loading="busy"
         :disabled="disabled || loginUserStore.status !== 'ready'"
       >
-        {{ busy ? '创建中' : error ? '重试' : '创建应用' }}
+        {{ busy ? (form.codeGenType === 'auto' ? '正在选择模式' : '创建中') : error ? '重试' : '创建应用' }}
       </AButton>
       <p v-if="loginUserStore.status === 'ready' && !loginUserStore.user" class="login-hint">
         登录后即可创建，已填写的需求会在登录跳转时保留。

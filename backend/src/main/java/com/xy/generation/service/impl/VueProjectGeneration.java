@@ -35,6 +35,12 @@ final class VueProjectGeneration implements GenerationSession.OutputHandler {
             .parameters(JsonObjectSchema.builder().addStringProperty("relativePath", "如 src/App.vue")
                     .addStringProperty("content", "完整源码").required("relativePath", "content")
                     .additionalProperties(false).build()).build();
+    private static final ToolSpecification REPLACE_FRAGMENT = ToolSpecification.builder().name("replaceFragment")
+            .description("局部修改已有源文件，按原文替换唯一匹配的片段")
+            .parameters(JsonObjectSchema.builder().addStringProperty("relativePath", "如 src/App.vue")
+                    .addStringProperty("oldText", "原文件中唯一的非空片段，保留空白和换行")
+                    .addStringProperty("newText", "替换后的片段")
+                    .required("relativePath", "oldText", "newText").additionalProperties(false).build()).build();
     private final long userId, appId, generationId;
     private final GeneratedFileManager files;
     private final ObjectMapper mapper;
@@ -63,7 +69,8 @@ final class VueProjectGeneration implements GenerationSession.OutputHandler {
             GenerationSession session, StringBuilder history) {
         if (!session.isRunning()) return;
         try {
-            model.chat(ChatRequest.builder().messages(List.copyOf(messages)).toolSpecifications(READ_FILE, WRITE_FILE).build(),
+            model.chat(ChatRequest.builder().messages(List.copyOf(messages))
+                    .toolSpecifications(READ_FILE, WRITE_FILE, REPLACE_FRAGMENT).build(),
                     new StreamingChatResponseHandler() {
                 @Override
                 public void onPartialResponse(String text) { session.onPartialResponse(text); }
@@ -112,6 +119,18 @@ final class VueProjectGeneration implements GenerationSession.OutputHandler {
                                         wroteSource = true;
                                         result = "文件已保存：" + path;
                                         progress = "\n已写入：" + path + "\n";
+                                    }
+                                    case "replaceFragment" -> {
+                                        if (!args.path("oldText").isTextual() || !args.path("newText").isTextual())
+                                            throw new IllegalArgumentException();
+                                        if (!files.replaceVueSourceFragment(userId, appId, generationId, path,
+                                                args.get("oldText").textValue(), args.get("newText").textValue())) {
+                                            session.fail("原代码片段未找到或匹配多处，未替换，请重试");
+                                            return;
+                                        }
+                                        wroteSource = true;
+                                        result = "已局部修改：" + path;
+                                        progress = "\n" + result + "\n";
                                     }
                                     default -> throw new IllegalArgumentException();
                                 }

@@ -26,6 +26,19 @@ class GeneratedFileManagerTest {
     Path directory;
 
     @Test
+    void preservesTheOtherButtonAndLineEndingsWhenReplacingLiteralText() throws Exception {
+        GeneratedFileManager manager = new GeneratedFileManager(directory);
+        String first = "<button id=\"first\">查看</button>\r\n";
+        String second = "<button id=\"second\">查看</button>\r\n";
+        manager.writeVueSource(42, 55, 101, "src/App.vue", first + second);
+        assertThat(manager.replaceVueSourceFragment(42, 55, 101, "src/App.vue", "查看", "浏览")).isFalse();
+        assertThat(manager.replaceVueSourceFragment(42, 55, 101, "src/App.vue", "id=\"second\">查看",
+                "id=\"second\">查看 $5 作品")).isTrue();
+        assertThat(manager.readVueSource(42, 55, 101, "src/App.vue"))
+                .isEqualTo(first + "<button id=\"second\">查看 $5 作品</button>\r\n");
+    }
+
+    @Test
     void savesFencedHtmlUnderItsOwnerAppAndVersionWithoutOverwriting() throws Exception {
         GeneratedFileManager store = new GeneratedFileManager(directory);
         store.saveHtml(42, 55, 101, "```html\n" + HTML + "\n```");

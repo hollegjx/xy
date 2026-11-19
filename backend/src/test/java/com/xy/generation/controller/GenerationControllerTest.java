@@ -205,7 +205,8 @@ class GenerationControllerTest {
                 assertThat(request.messages()).hasSize(5);
                 handler.onCompleteResponse(response("已完成作品集。", FinishReason.STOP));
             } else {
-                assertThat(request.toolSpecifications()).extracting("name").containsExactlyInAnyOrder("readFile", "writeFile");
+                assertThat(request.toolSpecifications()).extracting("name")
+                        .containsExactlyInAnyOrder("readFile", "writeFile", "replaceFragment");
                 handler.onCompleteResponse(ChatResponse.builder().finishReason(FinishReason.TOOL_EXECUTION)
                         .aiMessage(AiMessage.from(List.of(writeFile("src/App.vue", source),
                                 writeFile("src/components/Card.vue", "<template>作品集</template>")))).build());
@@ -273,7 +274,7 @@ class GenerationControllerTest {
                 if (result.toolName().equals("readFile")) {
                     assertThat(result.text()).isEqualTo("<template>旧卡片</template>");
                     handler.onCompleteResponse(ChatResponse.builder().finishReason(FinishReason.TOOL_EXECUTION)
-                            .aiMessage(AiMessage.from(writeFile("src/Card.vue", "<template>新卡片</template>"))).build());
+                            .aiMessage(AiMessage.from(replaceCardFragment("旧卡片", "新卡片"))).build());
                 } else handler.onCompleteResponse(response("已更新卡片", FinishReason.STOP));
             } else {
                 assertThat(((AiMessage) request.messages().get(2)).text())
@@ -286,12 +287,38 @@ class GenerationControllerTest {
         }).when(model).chat(any(ChatRequest.class), any(StreamingChatResponseHandler.class));
 
         String events = finish(mockMvc.perform(generate().session(session())).andReturn());
-        assertThat(events).containsSubsequence("已读取：src/Card.vue", "已写入：src/Card.vue", "event:completed")
+        assertThat(events).containsSubsequence("已读取：src/Card.vue", "已局部修改：src/Card.vue", "event:completed")
                 .doesNotContain("旧卡片", "已写入：src/App.vue");
         assertThat(fileManager.readVueProject(42, 55, generationId))
                 .containsEntry("src/App.vue", "<template>旧作品</template>").containsEntry("src/Card.vue", "<template>新卡片</template>");
         assertThat(fileManager.readVueProject(42, 55, previousId)).containsEntry("src/Card.vue", "<template>旧卡片</template>");
         verify(persistence).complete(eq(55L), eq(42L), eq(generationId), any());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"不存在", "template"})
+    void unmatchedOrAmbiguousFragmentKeepsBothVersionsUnchanged(String oldText) throws Exception {
+        App app = app(42L, "vue_project");
+        long previous = preparePreviousVueProject(app);
+        doAnswer(invocation -> {
+            StreamingChatResponseHandler handler = invocation.getArgument(1);
+            handler.onCompleteResponse(ChatResponse.builder().finishReason(FinishReason.TOOL_EXECUTION)
+                    .aiMessage(AiMessage.from(replaceCardFragment(oldText, "替换后的内容"))).build());
+            return null;
+        }).when(model).chat(any(ChatRequest.class), any(StreamingChatResponseHandler.class));
+        String events = finish(mockMvc.perform(generate().session(session())).andReturn());
+        assertThat(events).contains("event:failed", "原代码片段未找到或匹配多处").doesNotContain("event:completed");
+        for (long id : List.of(previous, generationId)) {
+            assertThat(fileManager.readVueSource(42, 55, id, "src/Card.vue")).isEqualTo("<template>旧卡片</template>");
+        }
+        assertThat(app.getGeneratedVersion()).isEqualTo(previous);
+        verify(persistence, never()).complete(eq(55L), eq(42L), eq(generationId), any());
+    }
+
+    private ToolExecutionRequest replaceCardFragment(String oldText, String newText) throws Exception {
+        return ToolExecutionRequest.builder().id("edit-card").name("replaceFragment")
+                .arguments(objectMapper.writeValueAsString(Map.of("relativePath", "src/Card.vue",
+                        "oldText", oldText, "newText", newText))).build();
     }
 
     @ParameterizedTest

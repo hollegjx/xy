@@ -136,6 +136,18 @@ public class GeneratedFileManager {
         return readFile(directory, relative.getFileName().toString());
     }
 
+    /** 按原文精确替换；没有唯一匹配时不写文件。 */
+    public boolean replaceVueSourceFragment(long userId, long appId, long generationId, String path,
+            String oldText, String newText) throws IOException {
+        if (oldText.isEmpty() || oldText.equals(newText)) throw new IllegalArgumentException("替换内容无效");
+        String source = readVueSource(userId, appId, generationId, path);
+        int start = source.indexOf(oldText);
+        if (start < 0 || source.indexOf(oldText, start + 1) >= 0) return false;
+        writeVueSource(userId, appId, generationId, path,
+                source.substring(0, start) + newText + source.substring(start + oldText.length()));
+        return true;
+    }
+
     public Map<String, String> readVueProject(long userId, long appId, long generationId) throws IOException {
         Path directory = versionDirectory(userId, appId, generationId);
         Path source = directory.resolve("src");

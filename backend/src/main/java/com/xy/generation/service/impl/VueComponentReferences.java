@@ -5,8 +5,10 @@ import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
 import java.util.regex.Pattern;
-import org.jsoup.Jsoup;
 import org.jsoup.nodes.Element;
+import org.jsoup.parser.Parser;
+import org.jsoup.parser.Tag;
+import org.jsoup.parser.TagSet;
 
 /** 只检查本轮删除的组件与最终源码之间的字面量引用，不执行生成代码。 */
 final class VueComponentReferences {
@@ -20,6 +22,8 @@ final class VueComponentReferences {
             "?", "~", "&", "|", "^", "+", "-", "*", "%", "/", "<", ">", "return", "throw", "case", "yield",
             "await", "typeof", "void", "delete", "in", "instanceof");
     private static final Pattern INTERPOLATION = Pattern.compile("\\{\\{(.*?)}}", Pattern.DOTALL);
+    private static final Set<String> VOID_ELEMENTS = Set.of("area", "base", "br", "col", "embed", "hr",
+            "img", "input", "link", "meta", "param", "source", "track", "wbr");
 
     static String findError(Map<String, String> sources, Set<String> deleted) {
         var missing = new HashSet<>(deleted);
@@ -31,7 +35,7 @@ final class VueComponentReferences {
             if (path.endsWith(".js")) {
                 target = importedTarget(path, file.getValue(), missing);
             } else if (path.endsWith(".vue")) {
-                for (var block : Jsoup.parseBodyFragment(file.getValue()).body().children()) {
+                for (var block : parseVueBlocks(file.getValue()).children()) {
                     if (block.hasAttr("src")) target = resolve(path, block.attr("src"), missing);
                     if (target == null && block.normalName().equals("script"))
                         target = importedTarget(path, block.data(), missing);
@@ -43,6 +47,17 @@ final class VueComponentReferences {
             if (target != null) return path + " 仍引用已删除组件 " + target + "，请清理引用后重试";
         }
         return null;
+    }
+
+    private static Element parseVueBlocks(String source) {
+        // SFC 按源码中的 /> 闭合元素，不经过浏览器 HTML 的纠错和补标签。
+        var tags = new TagSet().onNewTag(tag -> {
+            String name = tag.name();
+            if (VOID_ELEMENTS.contains(name)) tag.set(Tag.Void);
+            else if (name.equals("script") || name.equals("style")) tag.set(Tag.Data);
+            else if (name.equals("textarea") || name.equals("title")) tag.set(Tag.RcData);
+        });
+        return Parser.xmlParser().tagSet(tags).parseInput(source, "");
     }
 
     private static String templateTarget(String path, Element template, Set<String> missing) {

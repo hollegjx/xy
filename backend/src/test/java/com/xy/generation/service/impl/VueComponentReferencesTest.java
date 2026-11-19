@@ -27,6 +27,17 @@ class VueComponentReferencesTest {
     }
 
     @Test
+    void distinguishesFormTextFromTemplateExpressionsAfterVoidInputs() {
+        String form = """
+                <template><form><textarea><button @click="import('./components/Card.vue')">示例</button></textarea>
+                <input v-pre><button @click="import('./components/Save.vue')">保存</button></form></template>
+                """;
+        assertThat(VueComponentReferences.findError(Map.of("src/App.vue", form), Set.of(CARD))).isNull();
+        assertThat(VueComponentReferences.findError(Map.of("src/App.vue", form), Set.of("src/components/Save.vue")))
+                .contains("src/components/Save.vue");
+    }
+
+    @Test
     void checksTheFinalTreeAndIgnoresCommentsTextAndDifferentComponentsOfTheSameName() {
         String code = """
                 <template><p title="import('./components/Card.vue')">import Card from './components/Card.vue'</p>

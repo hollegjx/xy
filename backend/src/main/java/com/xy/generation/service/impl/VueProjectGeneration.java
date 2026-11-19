@@ -21,8 +21,10 @@ import dev.langchain4j.model.chat.response.StreamingChatResponseHandler;
 import dev.langchain4j.model.output.FinishReason;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 // 一次 Vue 源码生成的工具循环；任务终态和 SSE 生命周期仍由 GenerationSession 管理。
 final class VueProjectGeneration implements GenerationSession.OutputHandler {
@@ -35,13 +37,24 @@ final class VueProjectGeneration implements GenerationSession.OutputHandler {
             .parameters(JsonObjectSchema.builder().addStringProperty("relativePath", "如 src/App.vue")
                     .addStringProperty("content", "完整源码").required("relativePath", "content")
                     .additionalProperties(false).build()).build();
+    private static final ToolSpecification REPLACE_FRAGMENT = ToolSpecification.builder().name("replaceFragment")
+            .description("局部修改已有源文件，按原文替换唯一匹配的片段")
+            .parameters(JsonObjectSchema.builder().addStringProperty("relativePath", "如 src/App.vue")
+                    .addStringProperty("oldText", "原文件中唯一的非空片段，保留空白和换行")
+                    .addStringProperty("newText", "替换后的片段")
+                    .required("relativePath", "oldText", "newText").additionalProperties(false).build()).build();
+    private static final ToolSpecification DELETE_COMPONENT = ToolSpecification.builder().name("deleteComponent")
+            .description("删除本次工程中不再使用的非入口 .vue 组件，须先清理对它的引用")
+            .parameters(JsonObjectSchema.builder().addStringProperty("relativePath", "如 src/components/Notice.vue")
+                    .required("relativePath").additionalProperties(false).build()).build();
     private final long userId, appId, generationId;
     private final GeneratedFileManager files;
     private final ObjectMapper mapper;
     private final Map<String, String> template;
     private final VueProjectBuildManager builder;
     private GeneratedFileManager.VueBuildPaths buildPaths;
-    private boolean wroteSource;
+    private boolean changedSource;
+    private final Set<String> deletedComponents = new HashSet<>();
 
     VueProjectGeneration(long userId, long appId, long generationId, GeneratedFileManager files,
             ObjectMapper mapper, Map<String, String> template, VueProjectBuildManager builder) {
@@ -63,7 +76,8 @@ final class VueProjectGeneration implements GenerationSession.OutputHandler {
             GenerationSession session, StringBuilder history) {
         if (!session.isRunning()) return;
         try {
-            model.chat(ChatRequest.builder().messages(List.copyOf(messages)).toolSpecifications(READ_FILE, WRITE_FILE).build(),
+            model.chat(ChatRequest.builder().messages(List.copyOf(messages))
+                    .toolSpecifications(READ_FILE, WRITE_FILE, REPLACE_FRAGMENT, DELETE_COMPONENT).build(),
                     new StreamingChatResponseHandler() {
                 @Override
                 public void onPartialResponse(String text) { session.onPartialResponse(text); }
@@ -109,9 +123,28 @@ final class VueProjectGeneration implements GenerationSession.OutputHandler {
                                     case "writeFile" -> {
                                         if (!args.path("content").isTextual()) throw new IllegalArgumentException();
                                         files.writeVueSource(userId, appId, generationId, path, args.get("content").textValue());
-                                        wroteSource = true;
+                                        changedSource = true;
                                         result = "文件已保存：" + path;
                                         progress = "\n已写入：" + path + "\n";
+                                    }
+                                    case "replaceFragment" -> {
+                                        if (!args.path("oldText").isTextual() || !args.path("newText").isTextual())
+                                            throw new IllegalArgumentException();
+                                        if (!files.replaceVueSourceFragment(userId, appId, generationId, path,
+                                                args.get("oldText").textValue(), args.get("newText").textValue())) {
+                                            session.fail("原代码片段未找到或匹配多处，未替换，请重试");
+                                            return;
+                                        }
+                                        changedSource = true;
+                                        result = "已局部修改：" + path;
+                                        progress = "\n" + result + "\n";
+                                    }
+                                    case "deleteComponent" -> {
+                                        files.deleteVueComponent(userId, appId, generationId, path);
+                                        deletedComponents.add(path);
+                                        changedSource = true;
+                                        result = "已删除组件：" + path;
+                                        progress = "\n" + result + "\n";
                                     }
                                     default -> throw new IllegalArgumentException();
                                 }
@@ -135,11 +168,25 @@ final class VueProjectGeneration implements GenerationSession.OutputHandler {
     }
 
     private void complete(GenerationSession session, StringBuilder history) {
-        if (!wroteSource) {
+        if (!changedSource) {
             session.fail("本次未写入 Vue 源码，请重试");
             return;
         }
         try {
+            if (!deletedComponents.isEmpty()) {
+                String message;
+                try {
+                    message = VueComponentReferences.findError(
+                            files.readVueSources(userId, appId, generationId), deletedComponents);
+                } catch (IOException error) {
+                    session.fail("无法读取本次工程源码以检查组件引用，请重试");
+                    return;
+                }
+                if (message != null) {
+                    session.fail(message);
+                    return;
+                }
+            }
             if (builder.enabled()) {
                 synchronized (session) {
                     if (!session.isRunning()) return;

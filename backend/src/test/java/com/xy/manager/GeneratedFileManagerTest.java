@@ -26,6 +26,19 @@ class GeneratedFileManagerTest {
     Path directory;
 
     @Test
+    void preservesTheOtherButtonAndLineEndingsWhenReplacingLiteralText() throws Exception {
+        GeneratedFileManager manager = new GeneratedFileManager(directory);
+        String first = "<button id=\"first\">查看</button>\r\n";
+        String second = "<button id=\"second\">查看</button>\r\n";
+        manager.writeVueSource(42, 55, 101, "src/App.vue", first + second);
+        assertThat(manager.replaceVueSourceFragment(42, 55, 101, "src/App.vue", "查看", "浏览")).isFalse();
+        assertThat(manager.replaceVueSourceFragment(42, 55, 101, "src/App.vue", "id=\"second\">查看",
+                "id=\"second\">查看 $5 作品")).isTrue();
+        assertThat(manager.readVueSource(42, 55, 101, "src/App.vue"))
+                .isEqualTo(first + "<button id=\"second\">查看 $5 作品</button>\r\n");
+    }
+
+    @Test
     void savesFencedHtmlUnderItsOwnerAppAndVersionWithoutOverwriting() throws Exception {
         GeneratedFileManager store = new GeneratedFileManager(directory);
         store.saveHtml(42, 55, 101, "```html\n" + HTML + "\n```");
@@ -55,6 +68,18 @@ class GeneratedFileManagerTest {
     }
 
     @ParameterizedTest
+    @ValueSource(strings = {"src/App.vue", "src/app.vue", "src/main.js", "src/../src/App.vue"})
+    void componentDeletionKeepsProjectEntries(String path) throws Exception {
+        GeneratedFileManager manager = new GeneratedFileManager(directory);
+        manager.writeVueSource(42, 55, 101, "src/App.vue", "<template>首页</template>");
+        manager.finishVueProject(42, 55, 101, Map.of("src/main.js", "main"));
+        assertThatThrownBy(() -> manager.deleteVueComponent(42, 55, 101, path))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThat(manager.readVueSource(42, 55, 101, "src/App.vue")).isEqualTo("<template>首页</template>");
+        assertThat(manager.readVueSource(42, 55, 101, "src/main.js")).isEqualTo("main");
+    }
+
+    @ParameterizedTest
     @ValueSource(booleans = {true, false})
     void vueToolsAndDownloadsRejectLinkedSourceDirectoriesAndFiles(boolean directoryLink) throws Exception {
         GeneratedFileManager manager = new GeneratedFileManager(directory);
@@ -65,13 +90,13 @@ class GeneratedFileManagerTest {
         manager.finishVueProject(42, 55, 101, template);
         assertThat(manager.readVueProject(42, 55, 101)).containsEntry("src/App.vue", "<template>新内容</template>");
         Path outside = Files.createDirectory(directory.resolve("outside"));
-        Path secret = Files.writeString(outside.resolve("secret.js"), "private");
-        Files.createSymbolicLink(directory.resolve("42/55/101/src/link" + (directoryLink ? "" : ".js")),
+        Path secret = Files.writeString(outside.resolve("Card.vue"), "private");
+        String linkedPath = directoryLink ? "src/link/Card.vue" : "src/link.vue";
+        Files.createSymbolicLink(directory.resolve("42/55/101/src/link" + (directoryLink ? "" : ".vue")),
                 directoryLink ? outside : secret);
-        assertThatThrownBy(() -> manager.writeVueSource(42, 55, 101,
-                directoryLink ? "src/link/secret.js" : "src/link.js", "changed")).isInstanceOf(IOException.class);
-        assertThatThrownBy(() -> manager.readVueSource(42, 55, 101,
-                directoryLink ? "src/link/secret.js" : "src/link.js")).isInstanceOf(IOException.class);
+        assertThatThrownBy(() -> manager.writeVueSource(42, 55, 101, linkedPath, "changed")).isInstanceOf(IOException.class);
+        assertThatThrownBy(() -> manager.readVueSource(42, 55, 101, linkedPath)).isInstanceOf(IOException.class);
+        assertThatThrownBy(() -> manager.deleteVueComponent(42, 55, 101, linkedPath)).isInstanceOf(IOException.class);
         assertThatThrownBy(() -> manager.readVueSourceZip(42, 55, 101)).isInstanceOf(IOException.class);
         assertThat(Files.readString(secret)).isEqualTo("private");
     }

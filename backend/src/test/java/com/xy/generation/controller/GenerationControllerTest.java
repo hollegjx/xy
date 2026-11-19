@@ -27,6 +27,7 @@ import dev.langchain4j.model.chat.response.StreamingChatResponseHandler;
 import dev.langchain4j.model.chat.response.StreamingHandle;
 import dev.langchain4j.model.output.FinishReason;
 import java.io.ByteArrayInputStream;
+import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -205,7 +206,8 @@ class GenerationControllerTest {
                 assertThat(request.messages()).hasSize(5);
                 handler.onCompleteResponse(response("已完成作品集。", FinishReason.STOP));
             } else {
-                assertThat(request.toolSpecifications()).extracting("name").containsExactlyInAnyOrder("readFile", "writeFile");
+                assertThat(request.toolSpecifications()).extracting("name")
+                        .containsExactlyInAnyOrder("readFile", "writeFile", "replaceFragment", "deleteComponent");
                 handler.onCompleteResponse(ChatResponse.builder().finishReason(FinishReason.TOOL_EXECUTION)
                         .aiMessage(AiMessage.from(List.of(writeFile("src/App.vue", source),
                                 writeFile("src/components/Card.vue", "<template>作品集</template>")))).build());
@@ -231,13 +233,7 @@ class GenerationControllerTest {
         byte[] archive = mockMvc.perform(get("/api/apps/55/source").contextPath("/api").session(session()))
                 .andExpect(status().isOk()).andExpect(content().contentType("application/zip"))
                 .andReturn().getResponse().getContentAsByteArray();
-        Map<String, String> actual = new LinkedHashMap<>();
-        try (var zip = new ZipInputStream(new ByteArrayInputStream(archive), StandardCharsets.UTF_8)) {
-            for (var entry = zip.getNextEntry(); entry != null; entry = zip.getNextEntry()) {
-                actual.put(entry.getName(), new String(zip.readAllBytes(), StandardCharsets.UTF_8));
-            }
-        }
-        assertThat(actual).containsOnlyKeys("package.json", "index.html", "vite.config.js", "src/main.js",
+        assertThat(unzipSources(archive)).containsOnlyKeys("package.json", "index.html", "vite.config.js", "src/main.js",
                 "src/App.vue", "src/components/Card.vue").containsEntry("src/App.vue", source);
         mockMvc.perform(get("/api/apps/55/preview").contextPath("/api").session(session()))
                 .andExpect(status().isConflict()).andExpect(jsonPath("$.message").value("该版本尚无构建产物，请启用 Vue 构建后重新生成；源码仍可下载"));
@@ -250,11 +246,15 @@ class GenerationControllerTest {
     }
 
     private long preparePreviousVueProject(App app) throws Exception {
+        return preparePreviousVueProject(app, "<template>旧作品</template>");
+    }
+
+    private long preparePreviousVueProject(App app, String appSource) throws Exception {
         long previousId = generationId - 1000;
         app.setGeneratedVersion(previousId);
         when(appMapper.selectOneById(55L)).thenReturn(app);
         when(persistence.loadSuccessfulPrompts(55, 42, previousId)).thenReturn(List.of("旧需求"));
-        fileManager.writeVueSource(42, 55, previousId, "src/App.vue", "<template>旧作品</template>");
+        fileManager.writeVueSource(42, 55, previousId, "src/App.vue", appSource);
         fileManager.writeVueSource(42, 55, previousId, "src/Card.vue", "<template>旧卡片</template>");
         Map<String, String> template = objectMapper.readValue(
                 new ClassPathResource("templates/vue-project.json").getContentAsString(StandardCharsets.UTF_8),
@@ -273,7 +273,7 @@ class GenerationControllerTest {
                 if (result.toolName().equals("readFile")) {
                     assertThat(result.text()).isEqualTo("<template>旧卡片</template>");
                     handler.onCompleteResponse(ChatResponse.builder().finishReason(FinishReason.TOOL_EXECUTION)
-                            .aiMessage(AiMessage.from(writeFile("src/Card.vue", "<template>新卡片</template>"))).build());
+                            .aiMessage(AiMessage.from(replaceCardFragment("旧卡片", "新卡片"))).build());
                 } else handler.onCompleteResponse(response("已更新卡片", FinishReason.STOP));
             } else {
                 assertThat(((AiMessage) request.messages().get(2)).text())
@@ -286,12 +286,117 @@ class GenerationControllerTest {
         }).when(model).chat(any(ChatRequest.class), any(StreamingChatResponseHandler.class));
 
         String events = finish(mockMvc.perform(generate().session(session())).andReturn());
-        assertThat(events).containsSubsequence("已读取：src/Card.vue", "已写入：src/Card.vue", "event:completed")
+        assertThat(events).containsSubsequence("已读取：src/Card.vue", "已局部修改：src/Card.vue", "event:completed")
                 .doesNotContain("旧卡片", "已写入：src/App.vue");
         assertThat(fileManager.readVueProject(42, 55, generationId))
                 .containsEntry("src/App.vue", "<template>旧作品</template>").containsEntry("src/Card.vue", "<template>新卡片</template>");
         assertThat(fileManager.readVueProject(42, 55, previousId)).containsEntry("src/Card.vue", "<template>旧卡片</template>");
         verify(persistence).complete(eq(55L), eq(42L), eq(generationId), any());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"不存在", "template"})
+    void unmatchedOrAmbiguousFragmentKeepsBothVersionsUnchanged(String oldText) throws Exception {
+        App app = app(42L, "vue_project");
+        long previous = preparePreviousVueProject(app);
+        doAnswer(invocation -> {
+            StreamingChatResponseHandler handler = invocation.getArgument(1);
+            handler.onCompleteResponse(ChatResponse.builder().finishReason(FinishReason.TOOL_EXECUTION)
+                    .aiMessage(AiMessage.from(replaceCardFragment(oldText, "替换后的内容"))).build());
+            return null;
+        }).when(model).chat(any(ChatRequest.class), any(StreamingChatResponseHandler.class));
+        String events = finish(mockMvc.perform(generate().session(session())).andReturn());
+        assertThat(events).contains("event:failed", "原代码片段未找到或匹配多处").doesNotContain("event:completed");
+        for (long id : List.of(previous, generationId)) {
+            assertThat(fileManager.readVueSource(42, 55, id, "src/Card.vue")).isEqualTo("<template>旧卡片</template>");
+        }
+        assertThat(app.getGeneratedVersion()).isEqualTo(previous);
+        verify(persistence, never()).complete(eq(55L), eq(42L), eq(generationId), any());
+    }
+
+    private ToolExecutionRequest replaceCardFragment(String oldText, String newText) throws Exception {
+        return ToolExecutionRequest.builder().id("edit-card").name("replaceFragment")
+                .arguments(objectMapper.writeValueAsString(Map.of("relativePath", "src/Card.vue",
+                        "oldText", oldText, "newText", newText))).build();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "<script setup>import Card from './Card.vue'</script><template><Card/></template>",
+            "<template><button @click=\"import('./Card.vue')\">打开</button></template>",
+            "<template><form><textarea /><component :is=\"() => import('./Card.vue')\" /></form></template>",
+            "<script setup>const hasApostrophe = /'/;\nimport Card from './Card.vue'</script><template><Card/></template>"
+    })
+    void deletingAStillImportedComponentFailsWithoutBuildingOrReplacingTheDownload(String source) throws Exception {
+        App app = app(42L, "vue_project");
+        long previous = preparePreviousVueProject(app, source);
+        doAnswer(invocation -> {
+            ChatRequest request = invocation.getArgument(0);
+            StreamingChatResponseHandler handler = invocation.getArgument(1);
+            if (request.messages().getLast() instanceof ToolExecutionResultMessage) {
+                handler.onCompleteResponse(response("完成", FinishReason.STOP));
+            } else {
+                handler.onCompleteResponse(ChatResponse.builder().finishReason(FinishReason.TOOL_EXECUTION)
+                        .aiMessage(AiMessage.from(ToolExecutionRequest.builder().id("remove").name("deleteComponent")
+                                .arguments("{\"relativePath\":\"src/Card.vue\"}").build())).build());
+            }
+            return null;
+        }).when(model).chat(any(ChatRequest.class), any(StreamingChatResponseHandler.class));
+        String events = finish(mockMvc.perform(generate().session(session())).andReturn());
+        assertThat(events).contains("event:failed", "src/App.vue", "仍引用已删除组件 src/Card.vue")
+                .doesNotContain("event:completed");
+        verify(persistence, never()).complete(eq(55L), eq(42L), eq(generationId), any());
+        assertThat(app.getGeneratedVersion()).isEqualTo(previous);
+        ChatHistory saved = new ChatHistory();
+        saved.setAppId(55L);
+        saved.setUserId(42L);
+        saved.setMessageRole("assistant");
+        saved.setStatus("completed");
+        when(chatHistoryMapper.selectOneById(previous)).thenReturn(saved);
+        byte[] download = mockMvc.perform(get("/api/apps/55/source").contextPath("/api").session(session()))
+                .andExpect(status().isOk()).andExpect(content().contentType("application/zip"))
+                .andReturn().getResponse().getContentAsByteArray();
+        assertThat(unzipSources(download))
+                .containsEntry("src/App.vue", source).containsEntry("src/Card.vue", "<template>旧卡片</template>");
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void removesComponentOnlyFromNewVueVersion(boolean referenced) throws Exception {
+        String updated = "<template><main>首页</main></template>";
+        String original = referenced ? "<script setup>import Card from './Card.vue'</script><template><Card/></template>" : updated;
+        long previousId = preparePreviousVueProject(app(42L, "vue_project"), original);
+        var deletion = ToolExecutionRequest.builder().id("remove-card").name("deleteComponent")
+                .arguments("{\"relativePath\":\"src/Card.vue\"}").build();
+        doAnswer(invocation -> {
+            ChatRequest request = invocation.getArgument(0);
+            StreamingChatResponseHandler handler = invocation.getArgument(1);
+            if (request.messages().getLast() instanceof ToolExecutionResultMessage) {
+                handler.onCompleteResponse(response("完成", FinishReason.STOP));
+            } else {
+                var tools = referenced ? List.of(deletion, writeFile("src/App.vue", updated)) : List.of(deletion);
+                handler.onCompleteResponse(ChatResponse.builder().finishReason(FinishReason.TOOL_EXECUTION)
+                        .aiMessage(AiMessage.from(tools)).build());
+            }
+            return null;
+        }).when(model).chat(any(ChatRequest.class), any(StreamingChatResponseHandler.class));
+        String events = finish(mockMvc.perform(generate().session(session())).andReturn());
+        assertThat(events).containsSubsequence("已删除组件：src/Card.vue", "event:completed");
+        assertThat(unzipSources(fileManager.readVueSourceZip(42, 55, generationId)))
+                .containsEntry("src/App.vue", updated).doesNotContainKey("src/Card.vue");
+        assertThat(fileManager.readVueProject(42, 55, previousId))
+                .containsEntry("src/App.vue", original).containsKey("src/Card.vue");
+        verify(persistence).complete(eq(55L), eq(42L), eq(generationId), any());
+    }
+
+    private static Map<String, String> unzipSources(byte[] archive) throws IOException {
+        var entries = new LinkedHashMap<String, String>();
+        try (var zip = new ZipInputStream(new ByteArrayInputStream(archive), StandardCharsets.UTF_8)) {
+            for (var entry = zip.getNextEntry(); entry != null; entry = zip.getNextEntry()) {
+                entries.put(entry.getName(), new String(zip.readAllBytes(), StandardCharsets.UTF_8));
+            }
+        }
+        return entries;
     }
 
     @ParameterizedTest

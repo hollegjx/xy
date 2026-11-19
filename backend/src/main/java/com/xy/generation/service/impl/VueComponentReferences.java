@@ -6,12 +6,20 @@ import java.util.Map;
 import java.util.Set;
 import java.util.regex.Pattern;
 import org.jsoup.Jsoup;
+import org.jsoup.nodes.Element;
 
 /** 只检查本轮删除的组件与最终源码之间的字面量引用，不执行生成代码。 */
 final class VueComponentReferences {
     private static final Pattern JS_TOKEN = Pattern.compile(
             "//[^\\r\\n]*|/\\*[\\s\\S]*?(?:\\*/|\\z)|'(?:[^'\\\\]++|\\\\[\\s\\S])*+'"
             + "|\"(?:[^\"\\\\]++|\\\\[\\s\\S])*+\"|`(?:[^`\\\\]++|\\\\[\\s\\S])*+`|[\\w$]+|\\S");
+    // 转义符和字符组中的 / 都不是正则结束符。
+    private static final Pattern REGEXP = Pattern.compile(
+            "/(?:\\\\[^\\r\\n]|\\[(?:\\\\[^\\r\\n]|[^\\]\\\\\\r\\n])*+\\]|[^/\\[\\\\\\r\\n]++)++/[a-zA-Z]*");
+    private static final Set<String> EXPRESSION_PREFIX = Set.of("", "=", "(", "[", "{", ",", ":", ";", "!",
+            "?", "~", "&", "|", "^", "+", "-", "*", "%", "/", "<", ">", "return", "throw", "case", "yield",
+            "await", "typeof", "void", "delete", "in", "instanceof");
+    private static final Pattern INTERPOLATION = Pattern.compile("\\{\\{(.*?)}}", Pattern.DOTALL);
 
     static String findError(Map<String, String> sources, Set<String> deleted) {
         var missing = new HashSet<>(deleted);
@@ -27,10 +35,34 @@ final class VueComponentReferences {
                     if (block.hasAttr("src")) target = resolve(path, block.attr("src"), missing);
                     if (target == null && block.normalName().equals("script"))
                         target = importedTarget(path, block.data(), missing);
+                    if (target == null && block.normalName().equals("template"))
+                        target = templateTarget(path, block, missing);
                     if (target != null) break;
                 }
             }
             if (target != null) return path + " 仍引用已删除组件 " + target + "，请清理引用后重试";
+        }
+        return null;
+    }
+
+    private static String templateTarget(String path, Element template, Set<String> missing) {
+        for (var element : template.getAllElements()) {
+            if (element.closest("[v-pre]") != null) continue;
+            for (var attribute : element.attributes()) {
+                String key = attribute.getKey();
+                if (key.startsWith("v-") || key.startsWith(":") || key.startsWith("@")
+                        || key.startsWith("#") || key.startsWith(".")) {
+                    String target = importedTarget(path, attribute.getValue(), missing);
+                    if (target != null) return target;
+                }
+            }
+            for (var text : element.textNodes()) {
+                var expressions = INTERPOLATION.matcher(text.getWholeText());
+                while (expressions.find()) {
+                    String target = importedTarget(path, expressions.group(1), missing);
+                    if (target != null) return target;
+                }
+            }
         }
         return null;
     }
@@ -41,6 +73,13 @@ final class VueComponentReferences {
         while (tokens.find()) {
             String token = tokens.group();
             if (token.startsWith("//") || token.startsWith("/*")) continue;
+            if (token.equals("/") && EXPRESSION_PREFIX.contains(previous)) {
+                var regexp = REGEXP.matcher(script).region(tokens.start(), script.length());
+                if (regexp.lookingAt()) {
+                    tokens.region(regexp.end(), script.length());
+                    token = "<regexp>";
+                }
+            }
             if (pending != null && (token.equals(")") || token.equals(","))) return pending;
             pending = null;
             char first = token.charAt(0);

@@ -320,10 +320,14 @@ class GenerationControllerTest {
                         "oldText", oldText, "newText", newText))).build();
     }
 
-    @Test
-    void deletingAStillImportedComponentFailsWithoutBuildingOrReplacingTheDownload() throws Exception {
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "<script setup>import Card from './Card.vue'</script><template><Card/></template>",
+            "<template><button @click=\"import('./Card.vue')\">打开</button></template>",
+            "<script setup>const hasApostrophe = /'/;\nimport Card from './Card.vue'</script><template><Card/></template>"
+    })
+    void deletingAStillImportedComponentFailsWithoutBuildingOrReplacingTheDownload(String source) throws Exception {
         App app = app(42L, "vue_project");
-        String source = "<script setup>import Card from './Card.vue'</script><template><Card/></template>";
         long previous = preparePreviousVueProject(app, source);
         doAnswer(invocation -> {
             ChatRequest request = invocation.getArgument(0);

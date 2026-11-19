@@ -21,12 +21,20 @@ class VueComponentReferencesTest {
     }
 
     @Test
+    void checksInterpolationsWithinNestedTemplates() {
+        String code = "<template><template v-if=\"show\"><p>{{ import('./components/Card.vue') }}</p></template></template>";
+        assertThat(VueComponentReferences.findError(Map.of("src/App.vue", code), Set.of(CARD))).contains(CARD);
+    }
+
+    @Test
     void checksTheFinalTreeAndIgnoresCommentsTextAndDifferentComponentsOfTheSameName() {
         String code = """
-                <template><p>import Card from './components/Card.vue'</p></template>
+                <template><p title="import('./components/Card.vue')">import Card from './components/Card.vue'</p>
+                <div v-pre><span>{{ import('./components/Card.vue') }}</span></div></template>
                 <script setup>
                 // import './components/Card.vue'
                 const example = "import Card from './components/Card.vue'"
+                const pattern = /import '.\\/components\\/Card.vue'/
                 /* export { default } from './components/Card.vue' */
                 import Other from './other/Card.vue'
                 </script>

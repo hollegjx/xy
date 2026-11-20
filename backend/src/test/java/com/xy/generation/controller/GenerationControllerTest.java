@@ -214,7 +214,7 @@ class GenerationControllerTest {
                 handler.onCompleteResponse(response("已完成作品集。", FinishReason.STOP));
             } else {
                 assertThat(request.toolSpecifications()).extracting("name")
-                        .containsExactlyInAnyOrder("readFile", "writeFile", "replaceFragment", "deleteComponent", "findPhoto");
+                        .containsExactlyInAnyOrder("readFile", "writeFile", "replaceFragment", "deleteComponent", "findPhoto", "selectIllustration");
                 handler.onCompleteResponse(ChatResponse.builder().finishReason(FinishReason.TOOL_EXECUTION)
                         .aiMessage(AiMessage.from(List.of(writeFile("src/App.vue", source),
                                 writeFile("src/components/Card.vue", "<template>作品集</template>")))).build());
@@ -269,7 +269,7 @@ class GenerationControllerTest {
                                 .arguments("{\"keywords\":\"latte\"}").build())).build());
             } else if (result.toolName().equals("findPhoto")) {
                 assertThat(result.text()).contains(found ? "xy-photo.json" : "无图布局").doesNotContain("base64");
-                assertThat(request.toolSpecifications()).extracting("name").doesNotContain("findPhoto");
+                assertThat(request.toolSpecifications()).extracting("name").doesNotContain("findPhoto").contains("selectIllustration");
                 handler.onCompleteResponse(ChatResponse.builder().finishReason(FinishReason.TOOL_EXECUTION)
                         .aiMessage(AiMessage.from(writeFile("src/App.vue", source))).build());
             } else handler.onCompleteResponse(response("完成", FinishReason.STOP));
@@ -289,6 +289,47 @@ class GenerationControllerTest {
             assertThat(fileManager.copyVueSources(42, 55, generationId, next)).contains("xy-photo.json");
             assertThat(Files.readString(directory.resolve("42/55/" + next + "/xy-photo.json"))).isEqualTo(json);
         } else assertThat(zip).doesNotContainKey("xy-photo.json");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"reading", "teamwork", "analytics", "../outside"})
+    void illustrationIsOptionalAndShippedInsideTheVueProject(String theme) throws Exception {
+        when(appMapper.selectOneById(55L)).thenReturn(app(42L, "vue_project"));
+        String label = Map.of("reading", "学习阅读", "teamwork", "团队协作", "analytics", "数据分析").get(theme);
+        String component = "src/components/XyIllustration.vue";
+        String page = label == null ? "<template>首页</template>" : """
+                <script setup>import XyIllustration from './components/XyIllustration.vue'</script>
+                <template><XyIllustration /></template>""";
+        doAnswer(invocation -> {
+            ChatRequest request = invocation.getArgument(0);
+            StreamingChatResponseHandler handler = invocation.getArgument(1);
+            if (!(request.messages().getLast() instanceof ToolExecutionResultMessage result)) {
+                handler.onCompleteResponse(ChatResponse.builder().finishReason(FinishReason.TOOL_EXECUTION)
+                        .aiMessage(AiMessage.from(ToolExecutionRequest.builder().id("select").name("selectIllustration")
+                                .arguments(objectMapper.writeValueAsString(Map.of("theme", theme))).build())).build());
+            } else if ("selectIllustration".equals(result.toolName())) {
+                assertThat(result.text()).contains(label == null ? "不要引用" : "./components/XyIllustration.vue");
+                assertThat(request.toolSpecifications()).extracting("name").doesNotContain("selectIllustration").contains("findPhoto");
+                handler.onCompleteResponse(ChatResponse.builder().finishReason(FinishReason.TOOL_EXECUTION)
+                        .aiMessage(AiMessage.from(writeFile("src/App.vue", page))).build());
+            } else {
+                assertThat(request.toolSpecifications()).extracting("name").doesNotContain("findPhoto", "selectIllustration");
+                handler.onCompleteResponse(response("完成", FinishReason.STOP));
+            }
+            return null;
+        }).when(model).chat(any(ChatRequest.class), any(StreamingChatResponseHandler.class));
+        String events = finish(mockMvc.perform(generate().session(session())).andReturn());
+        assertThat(events).containsSubsequence(label == null ? "没有匹配的内置插画" : "已准备插画：" + label, "event:completed");
+        var zip = unzipSources(fileManager.readVueSourceZip(42, 55, generationId));
+        assertThat(zip).containsEntry("src/App.vue", page);
+        if (label == null) assertThat(zip).doesNotContainKey(component);
+        else {
+            assertThat(zip.get(component)).contains("<svg", label);
+            long nextId = IDS.incrementAndGet();
+            fileManager.copyVueSources(42, 55, generationId, nextId);
+            assertThat(fileManager.readVueSource(42, 55, nextId, component)).isEqualTo(zip.get(component));
+        }
+        verifyNoInteractions(photoSearch);
     }
 
     private long preparePreviousVueProject(App app) throws Exception {
@@ -322,7 +363,7 @@ class GenerationControllerTest {
                             .aiMessage(AiMessage.from(replaceCardFragment("旧卡片", "新卡片"))).build());
                 } else handler.onCompleteResponse(response("已更新卡片", FinishReason.STOP));
             } else {
-                assertThat(request.toolSpecifications()).extracting("name").doesNotContain("findPhoto");
+                assertThat(request.toolSpecifications()).extracting("name").doesNotContain("findPhoto", "selectIllustration");
                 assertThat(((AiMessage) request.messages().get(2)).text())
                         .contains("src/App.vue", "src/Card.vue").doesNotContain("旧卡片", "旧作品");
                 handler.onCompleteResponse(ChatResponse.builder().finishReason(FinishReason.TOOL_EXECUTION)

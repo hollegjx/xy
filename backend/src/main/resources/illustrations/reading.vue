@@ -1,0 +1,15 @@
+<template>
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 240" role="img" aria-label="学习阅读：摊开的书与书签">
+    <rect x="6" y="6" width="388" height="228" rx="22" fill="#f5f0e5"/>
+    <circle cx="291" cy="76" r="42" fill="#e5bb74"/>
+    <g stroke="#333c38" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M49 151l123-41 124 23v41l-125 34-122-28z" fill="#91b7a9"/>
+      <path d="M56 146l116-39 116 23v34l-117 32-115-27z" fill="#fffaf0"/>
+      <path d="M73 141l91 21m-92-12l92 21m14 8l93-26" fill="none"/>
+      <path d="M68 92q47-14 102 14 31-30 98-33l11 73q-56 1-101 32-49-31-109-28z" fill="#fffdf7"/>
+      <path d="M170 106l8 72m-93-66q35-5 64 11m-62 2q32-4 62 11m54-27q19-13 40-16m-38 29q21-14 41-17" fill="none"/>
+      <path d="M219 82l13-4 6 42-9-5-6 10z" fill="#c67154"/>
+      <path d="M312 140l16-33m-4 9q-14-4-12-17 14 2 12 17zm-5 12q14 1 20-12-13-2-20 12z" fill="#709a83"/>
+    </g>
+  </svg>
+</template>

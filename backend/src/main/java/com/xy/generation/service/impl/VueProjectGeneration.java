@@ -61,6 +61,7 @@ final class VueProjectGeneration implements GenerationSession.OutputHandler {
     private final boolean qualityCheck;
     private VueGenerationWorkflow workflow;
     private GeneratedFileManager.VueBuildPaths buildPaths;
+    private boolean choosingAssets, photoRequested, illustrationRequested;
     private boolean changedSource;
     private final Set<String> deletedComponents = new HashSet<>();
 
@@ -80,6 +81,8 @@ final class VueProjectGeneration implements GenerationSession.OutputHandler {
 
     @Override
     public void generate(StreamingChatModel model, List<ChatMessage> messages, GenerationSession session) {
+        // 已有成功版本的上下文含上一版工程清单；修改时沿用复制过来的素材。
+        choosingAssets = messages.stream().noneMatch(AiMessage.class::isInstance);
         var conversation = new ArrayList<>(messages);
         var history = new StringBuilder();
         if (!qualityCheck) {
@@ -109,10 +112,11 @@ final class VueProjectGeneration implements GenerationSession.OutputHandler {
             GenerationSession session, StringBuilder history, Runnable done) {
         if (!session.isRunning()) return;
         try {
-            // 已有成功版本的上下文包含上一版工程清单（AI 消息）；修复和工具续轮也不重新选图。
-            boolean offerPhoto = messages.stream().noneMatch(AiMessage.class::isInstance);
+            boolean offerPhoto = choosingAssets && !changedSource && !photoRequested;
+            boolean offerIllustration = choosingAssets && !changedSource && !illustrationRequested;
             var tools = new ArrayList<>(List.of(READ_FILE, WRITE_FILE, REPLACE_FRAGMENT, DELETE_COMPONENT));
             if (offerPhoto) tools.add(FIND_PHOTO);
+            if (offerIllustration) tools.add(VueIllustrations.TOOL);
             model.chat(ChatRequest.builder().messages(List.copyOf(messages)).toolSpecifications(tools).build(),
                     new StreamingChatResponseHandler() {
                 @Override
@@ -143,6 +147,7 @@ final class VueProjectGeneration implements GenerationSession.OutputHandler {
                     if (offerPhoto && reply.hasToolExecutionRequests()) {
                         var request = reply.toolExecutionRequests().stream().filter(t -> "findPhoto".equals(t.name())).findFirst();
                         if (request.isPresent()) {
+                            photoRequested = true;
                             try {
                                 photoResult = collectPhoto(request.get().arguments(), session, history);
                             } catch (IOException error) {
@@ -162,6 +167,16 @@ final class VueProjectGeneration implements GenerationSession.OutputHandler {
                                 if ("findPhoto".equals(tool.name())) {
                                     messages.add(ToolExecutionResultMessage.from(tool, photoResult == null
                                             ? "本轮不再搜索照片，请沿用工程已有素材或无图布局。" : photoResult));
+                                    continue;
+                                }
+                                if ("selectIllustration".equals(tool.name())) {
+                                    String result = "本轮不再选择插画，沿用已有素材或继续编写页面。";
+                                    if (offerIllustration && !illustrationRequested && !changedSource) {
+                                        illustrationRequested = true;
+                                        result = selectIllustration(tool.arguments(), session, history);
+                                    }
+                                    messages.add(ToolExecutionResultMessage.from(tool, result));
+                                    if (!session.isRunning()) return;
                                     continue;
                                 }
                                 var args = mapper.readTree(tool.arguments());
@@ -210,7 +225,10 @@ final class VueProjectGeneration implements GenerationSession.OutputHandler {
                             session.fail("Vue 工程文件操作失败，请检查工具参数和文件路径后重试");
                             return;
                         }
-                        else messages.add(reply);
+                        else {
+                            choosingAssets = false;
+                            messages.add(reply);
+                        }
                     }
                     if (hasTools) next(model, messages, session, history, done);
                     else done.run();
@@ -219,6 +237,24 @@ final class VueProjectGeneration implements GenerationSession.OutputHandler {
         } catch (RuntimeException error) {
             session.onError(error);
         }
+    }
+
+    private String selectIllustration(String arguments, GenerationSession session, StringBuilder history) throws IOException {
+        var selected = VueIllustrations.select(mapper, arguments);
+        String progress, result;
+        if (selected.isPresent()) {
+            var illustration = selected.get();
+            files.writeVueSource(userId, appId, generationId, VueIllustrations.COMPONENT, illustration.source());
+            progress = "已准备插画：" + illustration.label();
+            result = progress + "。请在 src/App.vue 中 import XyIllustration from './components/XyIllustration.vue'，"
+                    + "在适当位置使用 <XyIllustration />。该组件已存在，无须重写。";
+        } else {
+            progress = "没有匹配的内置插画，继续生成。";
+            result = progress + "不要引用未提供的插画组件。";
+        }
+        history.append('\n').append(progress).append('\n');
+        session.onPartialResponse("\n" + progress + "\n");
+        return result;
     }
 
     private String collectPhoto(String arguments, GenerationSession session, StringBuilder history) throws IOException {

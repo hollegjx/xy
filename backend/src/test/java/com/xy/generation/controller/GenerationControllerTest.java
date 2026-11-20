@@ -203,6 +203,79 @@ class GenerationControllerTest {
         verify(persistence, never()).fail(eq(generationId), any(), any());
     }
 
+    @ParameterizedTest
+    @CsvSource({"html,reading,false", "multi_file,teamwork,false", "multi_file,analytics,true", "html,none,true"})
+    void firstNativeGenerationEmbedsOnlySelectedIllustrationsInTheReviewedAndDownloadedPage(
+            String mode, String theme, boolean quality) throws Exception {
+        boolean multi = mode.equals("multi_file"), useArt = !theme.equals("none");
+        App app = app(42L, mode);
+        when(appMapper.selectOneById(55L)).thenReturn(app);
+        String prompt = useArt ? "在首屏使用匹配主题的插画" : "只要文字，不要插画";
+        when(persistence.start(55L, 42L, prompt)).thenReturn(generationId);
+        var files = new LinkedHashMap<>(multi ? multiFiles() : Map.of("index.html", HTML));
+        String slot = "<!--xy:illustration:" + theme + "-->";
+        String literal = "const example = '<!--xy:illustration:reading-->';";
+        String html = files.get("index.html").replace("你好", "<figure>" + (useArt ? slot : "只要文字") + "</figure>"
+                + "<code>&lt;!--xy:illustration:reading--&gt;</code>" + (multi ? "" : "<script>" + literal + "</script>"));
+        files.put("index.html", html);
+        if (multi) files.put("script.js", literal);
+        String raw = multi ? objectMapper.writeValueAsString(files) : html;
+        var expected = new LinkedHashMap<>(files);
+        if (useArt) {
+            String svg = new ClassPathResource("illustrations/" + theme + ".svg").getContentAsString(StandardCharsets.UTF_8).strip();
+            expected.put("index.html", html.replace("<figure>" + slot + "</figure>", "<figure>" + svg + "</figure>"));
+        }
+        String firstOutput = multi ? objectMapper.writeValueAsString(expected) : expected.get("index.html");
+        boolean repair = quality && useArt;
+        if (repair) expected.compute("index.html", (key, text) -> text.replace("摄影作品集", "数据看板"));
+        String output = multi ? objectMapper.writeValueAsString(expected) : expected.get("index.html");
+        var writes = new AtomicInteger();
+        var checks = new AtomicInteger();
+        doAnswer(call -> {
+            List<ChatMessage> messages = call.getArgument(0);
+            assertThat(((SystemMessage) messages.getFirst()).text()).contains("xy:illustration:reading", "不要插画");
+            boolean initial = writes.incrementAndGet() == 1;
+            if (initial) assertThat(((UserMessage) messages.getLast()).singleText()).isEqualTo(prompt);
+            else assertThat(((AiMessage) messages.get(messages.size() - 2)).text()).isEqualTo(firstOutput);
+            call.<StreamingChatResponseHandler>getArgument(1).onCompleteResponse(response(initial ? raw : output, FinishReason.STOP));
+            return null;
+        }).when(model).chat(anyList(), any(StreamingChatResponseHandler.class));
+        doAnswer(call -> {
+            ChatRequest review = call.getArgument(0);
+            boolean initial = checks.incrementAndGet() == 1;
+            assertThat(((UserMessage) review.messages().getLast()).singleText()).endsWith(initial ? firstOutput : output);
+            call.<StreamingChatResponseHandler>getArgument(1).onCompleteResponse(response(
+                    repair && initial ? "{\"isValid\":false,\"errors\":[\"修改标题\"],\"suggestions\":[]}"
+                            : "{\"isValid\":true,\"errors\":[],\"suggestions\":[]}", FinishReason.STOP));
+            return null;
+        }).when(model).chat(any(ChatRequest.class), any(StreamingChatResponseHandler.class));
+        var saved = new ChatHistory();
+        saved.setAppId(55L);
+        saved.setUserId(42L);
+        saved.setMessageRole("assistant");
+        saved.setStatus("completed");
+        when(chatHistoryMapper.selectOneById(generationId)).thenReturn(saved);
+        doAnswer(call -> { app.setGeneratedVersion(generationId); return null; })
+                .when(persistence).complete(55L, 42L, generationId, output);
+
+        String events = finish(mockMvc.perform(generate().session(session()).content(objectMapper.writeValueAsString(
+                Map.of("prompt", prompt, "qualityCheck", quality)))).andReturn());
+        assertThat(events).contains("event:completed").doesNotContain("event:failed");
+        assertThat(writes.get()).isEqualTo(repair ? 2 : 1);
+        assertThat(checks.get()).isEqualTo(repair ? 2 : quality ? 1 : 0);
+        if (useArt) assertThat(events).containsSubsequence("已嵌入主题插画", "event:completed");
+        else assertThat(events).doesNotContain("已嵌入主题插画");
+        if (quality) assertThat(events).contains("检查通过");
+        byte[] zip = mockMvc.perform(get("/api/apps/55/source").contextPath("/api").session(session()))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsByteArray();
+        assertThat(unzipSources(zip)).isEqualTo(expected);
+        String preview = mockMvc.perform(get("/api/apps/55/preview").contextPath("/api").session(session()))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+        if (useArt) assertThat(preview).contains("<svg", "aria-label=").doesNotContain("<figure>" + slot);
+        else assertThat(preview).contains("<figure>只要文字</figure>").doesNotContain("<svg");
+        verifyNoInteractions(photoSearch, builder);
+    }
+
     @Test
     void vueToolsSaveSourceBeforeCompletionAndDeliverAZipWithoutEnablingPreviewOrDeploy() throws Exception {
         App app = app(42L, "vue_project");
@@ -1172,6 +1245,7 @@ class GenerationControllerTest {
         boolean secondCheck = outcome.equals("repaired") || outcome.equals("failed");
         assertThat(checks).hasSize(secondCheck ? 2 : 1);
         assertThat(writes).hasSize(secondCheck || outcome.equals("cancel_repair") ? 2 : 1);
+        assertThat(((SystemMessage) writes.getFirst().getFirst()).text()).doesNotContain("xy:illustration:");
         if (writes.size() == 2) {
             var repair = writes.getLast();
             assertThat(((AiMessage) repair.get(repair.size() - 2)).text()).isEqualTo(draft);

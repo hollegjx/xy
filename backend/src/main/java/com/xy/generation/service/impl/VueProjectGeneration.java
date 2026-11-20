@@ -136,7 +136,7 @@ final class VueProjectGeneration implements GenerationSession.OutputHandler {
             boolean offerLogo = choosingAssets && !changedSource && !logoRequested;
             var tools = new ArrayList<>(List.of(READ_FILE, WRITE_FILE, REPLACE_FRAGMENT, DELETE_COMPONENT));
             if (offerPhoto) tools.add(FIND_PHOTO);
-            if (offerIllustration) tools.add(VueIllustrations.TOOL);
+            if (offerIllustration) tools.add(ThemeIllustrations.TOOL);
             if (offerDiagram) tools.add(VueArchitectureDiagram.TOOL);
             if (offerLogo) tools.add(VueBrandLogo.TOOL);
             model.chat(
@@ -356,12 +356,12 @@ final class VueProjectGeneration implements GenerationSession.OutputHandler {
     }
 
     private String selectIllustration(String arguments, GenerationSession session, StringBuilder history, VueAssetPrompt assets) throws IOException {
-        var selected = VueIllustrations.select(mapper, arguments);
+        var selected = ThemeIllustrations.select(mapper, arguments);
         String progress, result;
         if (selected.isPresent()) {
             var illustration = selected.get();
-            files.writeVueSource(userId, appId, generationId, VueIllustrations.COMPONENT, illustration.source());
-            assets.add(VueIllustrations.COMPONENT, "主题插画", illustration.label() + "主题，在对应介绍区域使用该组件");
+            files.writeVueSource(userId, appId, generationId, ThemeIllustrations.VUE_COMPONENT, illustration.vueSource());
+            assets.add(ThemeIllustrations.VUE_COMPONENT, "主题插画", illustration.label() + "主题，在对应介绍区域使用该组件");
             progress = "已准备插画：" + illustration.label();
             result = progress + "。请在 src/App.vue 中 import XyIllustration from './components/XyIllustration.vue'，"
                     + "在适当位置使用 <XyIllustration />。该组件已存在，无须重写。";

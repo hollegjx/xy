@@ -1,4 +1,3 @@
-<template>
   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 240" role="img" aria-label="学习阅读：摊开的书与书签">
     <rect x="6" y="6" width="388" height="228" rx="22" fill="#f5f0e5"/>
     <circle cx="291" cy="76" r="42" fill="#e5bb74"/>
@@ -12,4 +11,3 @@
       <path d="M312 140l16-33m-4 9q-14-4-12-17 14 2 12 17zm-5 12q14 1 20-12-13-2-20 12z" fill="#709a83"/>
     </g>
   </svg>
-</template>

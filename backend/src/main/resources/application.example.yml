@@ -27,6 +27,8 @@ xy:
     base-url: https://YOUR_MODEL_GATEWAY/v1
     api-key: CHANGE_ME
     model-name: gpt-6.1-sol
+    # 可填同一网关支持的轻量模型，仅用于创建应用时的「自动选择」；留空沿用 model-name。
+    routing-model-name: ''
     timeout-seconds: 180
     max-completion-tokens: 16384
   generation:

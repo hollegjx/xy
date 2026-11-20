@@ -31,7 +31,7 @@ final class VueArchitectureDiagram {
     record Diagram(List<String> nodes, List<Edge> edges) {}
 
     static String findError(ObjectMapper mapper, Map<String, String> sources) {
-        if (!sources.containsKey(COMPONENT)) return null;
+        if (!VueComponentReferences.references(sources, DATA)) return null;
         try {
             parse(mapper, sources.get(DATA));
             return null;

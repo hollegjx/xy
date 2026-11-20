@@ -10,7 +10,7 @@ import org.jsoup.parser.Parser;
 import org.jsoup.parser.Tag;
 import org.jsoup.parser.TagSet;
 
-/** 只检查本轮删除的组件与最终源码之间的字面量引用，不执行生成代码。 */
+/** 从最终 Vue / JS 源码识别直接的本地模块引用，不执行生成代码。 */
 final class VueComponentReferences {
     private static final Pattern JS_TOKEN = Pattern.compile(
             "//[^\\r\\n]*|/\\*[\\s\\S]*?(?:\\*/|\\z)|'(?:[^'\\\\]++|\\\\[\\s\\S])*+'"
@@ -29,22 +29,39 @@ final class VueComponentReferences {
         var missing = new HashSet<>(deleted);
         missing.removeAll(sources.keySet()); // 同一轮也可以恢复同一路径。
         if (missing.isEmpty()) return null;
+        var ref = firstReference(sources, missing);
+        return ref == null ? null : ref.importer() + " 仍引用已删除组件 " + ref.target() + "，请清理引用后重试";
+    }
+
+    static boolean references(Map<String, String> sources, String target) {
+        var paths = Set.of(target);
+        if (target.endsWith(".json") && sources.containsKey(target)) {
+            String stem = target.substring(0, target.length() - ".json".length());
+            // 固定工程中，省略扩展名时 Vite 先解析同名 .js，再解析 .json。
+            if (!sources.containsKey(stem + ".js")) paths = Set.of(target, stem);
+        }
+        return firstReference(sources, paths) != null;
+    }
+
+    private record Reference(String importer, String target) {}
+
+    private static Reference firstReference(Map<String, String> sources, Set<String> targets) {
         for (var file : sources.entrySet()) {
             String path = file.getKey();
             String target = null;
             if (path.endsWith(".js")) {
-                target = importedTarget(path, file.getValue(), missing);
+                target = importedTarget(path, file.getValue(), targets);
             } else if (path.endsWith(".vue")) {
                 for (var block : parseVueBlocks(file.getValue()).children()) {
-                    if (block.hasAttr("src")) target = resolve(path, block.attr("src"), missing);
+                    if (block.hasAttr("src")) target = resolve(path, block.attr("src"), targets);
                     if (target == null && block.normalName().equals("script"))
-                        target = importedTarget(path, block.data(), missing);
+                        target = importedTarget(path, block.data(), targets);
                     if (target == null && block.normalName().equals("template"))
-                        target = templateTarget(path, block, missing);
+                        target = templateTarget(path, block, targets);
                     if (target != null) break;
                 }
             }
-            if (target != null) return path + " 仍引用已删除组件 " + target + "，请清理引用后重试";
+            if (target != null) return new Reference(path, target);
         }
         return null;
     }
@@ -60,21 +77,21 @@ final class VueComponentReferences {
         return Parser.xmlParser().tagSet(tags).parseInput(source, "");
     }
 
-    private static String templateTarget(String path, Element template, Set<String> missing) {
+    private static String templateTarget(String path, Element template, Set<String> targets) {
         for (var element : template.getAllElements()) {
             if (element.closest("[v-pre]") != null) continue;
             for (var attribute : element.attributes()) {
                 String key = attribute.getKey();
                 if (key.startsWith("v-") || key.startsWith(":") || key.startsWith("@")
                         || key.startsWith("#") || key.startsWith(".")) {
-                    String target = importedTarget(path, attribute.getValue(), missing);
+                    String target = importedTarget(path, attribute.getValue(), targets);
                     if (target != null) return target;
                 }
             }
             for (var text : element.textNodes()) {
                 var expressions = INTERPOLATION.matcher(text.getWholeText());
                 while (expressions.find()) {
-                    String target = importedTarget(path, expressions.group(1), missing);
+                    String target = importedTarget(path, expressions.group(1), targets);
                     if (target != null) return target;
                 }
             }
@@ -82,7 +99,7 @@ final class VueComponentReferences {
         return null;
     }
 
-    private static String importedTarget(String path, String script, Set<String> missing) {
+    private static String importedTarget(String path, String script, Set<String> targets) {
         String previous = "", beforePrevious = "", pending = null;
         var tokens = JS_TOKEN.matcher(script);
         while (tokens.find()) {
@@ -101,10 +118,10 @@ final class VueComponentReferences {
             if (token.length() >= 2 && (first == '\'' || first == '"' || first == '`')) {
                 String specifier = token.substring(1, token.length() - 1);
                 if (previous.equals("from") || previous.equals("import")) {
-                    String target = resolve(path, specifier, missing);
+                    String target = resolve(path, specifier, targets);
                     if (target != null) return target;
                 } else if (previous.equals("(") && (beforePrevious.equals("import") || beforePrevious.equals("require"))) {
-                    pending = resolve(path, specifier, missing);
+                    pending = resolve(path, specifier, targets);
                 }
             }
             beforePrevious = previous;
@@ -113,15 +130,15 @@ final class VueComponentReferences {
         return null;
     }
 
-    private static String resolve(String importer, String specifier, Set<String> missing) {
+    private static String resolve(String importer, String specifier, Set<String> targets) {
         String name = specifier.split("[?#]", 2)[0];
-        if (!name.endsWith(".vue") || name.indexOf('\0') >= 0) return null;
+        if (name.indexOf('\0') >= 0) return null;
         Path resolved;
         if (name.startsWith("/src/")) resolved = Path.of(name.substring(1));
         else if (name.startsWith("./") || name.startsWith("../")) resolved = Path.of(importer).resolveSibling(name);
         else return null;
         String target = resolved.normalize().toString().replace('\\', '/');
-        return missing.contains(target) ? target : null;
+        return targets.contains(target) ? target : null;
     }
 
     private VueComponentReferences() {}

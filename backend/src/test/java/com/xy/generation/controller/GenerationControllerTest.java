@@ -214,7 +214,8 @@ class GenerationControllerTest {
                 handler.onCompleteResponse(response("已完成作品集。", FinishReason.STOP));
             } else {
                 assertThat(request.toolSpecifications()).extracting("name")
-                        .containsExactlyInAnyOrder("readFile", "writeFile", "replaceFragment", "deleteComponent", "findPhoto", "selectIllustration", "drawArchitecture");
+                        .containsExactlyInAnyOrder("readFile", "writeFile", "replaceFragment", "deleteComponent",
+                                "findPhoto", "selectIllustration", "drawArchitecture", "generateLogo");
                 handler.onCompleteResponse(ChatResponse.builder().finishReason(FinishReason.TOOL_EXECUTION)
                         .aiMessage(AiMessage.from(List.of(writeFile("src/App.vue", source),
                                 writeFile("src/components/Card.vue", "<template>作品集</template>")))).build());
@@ -365,7 +366,7 @@ class GenerationControllerTest {
                 handler.onCompleteResponse(ChatResponse.builder().finishReason(FinishReason.TOOL_EXECUTION)
                         .aiMessage(AiMessage.from(writeFile("src/App.vue", page))).build());
             } else {
-                assertThat(request.toolSpecifications()).extracting("name").doesNotContain("findPhoto", "selectIllustration", "drawArchitecture");
+                assertThat(request.toolSpecifications()).extracting("name").doesNotContain("findPhoto", "selectIllustration", "drawArchitecture", "generateLogo");
                 handler.onCompleteResponse(response("完成", FinishReason.STOP));
             }
             return null;
@@ -382,6 +383,103 @@ class GenerationControllerTest {
             assertThat(fileManager.readVueSource(42, 55, nextId, component)).isEqualTo(zip.get(component));
         }
         verifyNoInteractions(photoSearch);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"designed", "hourglass", "invalid", "skip", "dangling"})
+    void brandLogoIsAnOptionalLocalComponentThatCanBeEditedNextTurn(String outcome) throws Exception {
+        App app = app(42L, "vue_project");
+        when(appMapper.selectOneById(55L)).thenReturn(app);
+        String component = "src/components/XyLogo.vue", brand = "云帆书店";
+        String prompt = switch (outcome) {
+            case "skip" -> "只显示云帆书店文字，不要 Logo";
+            case "hourglass" -> "为云帆书店画一个深蓝色沙漏 Logo";
+            default -> "为云帆书店画深蓝色帆与橙色太阳的 Logo";
+        };
+        when(persistence.start(55L, 42L, prompt)).thenReturn(generationId);
+        String design = """
+                {"name":"云帆书店","layers":[{"shape":"circle","color":"#E7A340","coordinates":[75,24,11]},
+                {"shape":"polygon","color":"#24516B","coordinates":[19,66,54,12,54,66]},
+                {"shape":"line","color":"#24516B","coordinates":[14,74,28,84,67,84,84,70]}]}""";
+        String withLogo = "<script setup>import XyLogo from './components/XyLogo.vue'</script>"
+                + "<template><header><XyLogo/><span>云帆书店</span></header></template>";
+        String textOnly = "<template><header>云帆书店</header></template>";
+        boolean hourglass = outcome.equals("hourglass");
+        boolean valid = outcome.equals("designed") || hourglass;
+        String arguments = hourglass ? """
+                {"name":"云帆书店","layers":[{"shape":"polygon","color":"#24516B","coordinates":[10,10,90,10,10,90,90,90]}]}"""
+                : valid ? design : design.replace("19,66,54,12,54,66", "10,10,20,20,30,30");
+        doAnswer(call -> {
+            ChatRequest request = call.getArgument(0);
+            StreamingChatResponseHandler handler = call.getArgument(1);
+            ToolExecutionRequest tool;
+            if (!(request.messages().getLast() instanceof ToolExecutionResultMessage result)) {
+                tool = outcome.equals("skip") ? writeFile("src/App.vue", textOnly) :
+                        ToolExecutionRequest.builder().name("generateLogo").id("logo")
+                                .arguments(arguments).build();
+            } else if ("generateLogo".equals(result.toolName())) {
+                tool = writeFile("src/App.vue", result.text().contains("./components/XyLogo.vue") || outcome.equals("dangling")
+                        ? withLogo : textOnly);
+            } else {
+                handler.onCompleteResponse(response("页面完成", FinishReason.STOP));
+                return null;
+            }
+            handler.onCompleteResponse(ChatResponse.builder().finishReason(FinishReason.TOOL_EXECUTION)
+                    .aiMessage(AiMessage.from(tool)).build());
+            return null;
+        }).when(model).chat(any(ChatRequest.class), any(StreamingChatResponseHandler.class));
+        String events = finish(mockMvc.perform(generate().session(session())
+                .content(objectMapper.writeValueAsString(Map.of("prompt", prompt)))).andReturn());
+        if (outcome.equals("dangling")) {
+            assertThat(events).contains("event:failed", "仍引用不存在的 XyLogo.vue").doesNotContain("event:completed");
+            verify(persistence, never()).complete(eq(55L), eq(42L), eq(generationId), any());
+            return;
+        }
+        assertThat(events).contains("event:completed").doesNotContain("event:failed");
+        var zip = unzipSources(fileManager.readVueSourceZip(42, 55, generationId));
+        if (!valid) {
+            assertThat(zip).containsEntry("src/App.vue", textOnly).doesNotContainKey(component);
+            assertThat(events).doesNotContain("已生成品牌 Logo");
+            if (outcome.equals("invalid")) assertThat(events).contains("改用品牌文字");
+            return;
+        }
+        assertThat(events).contains("已生成品牌 Logo");
+        assertThat(zip).containsEntry("src/App.vue", withLogo);
+        String original = zip.get(component);
+        var svg = org.jsoup.Jsoup.parse(original).selectFirst("svg");
+        assertThat(svg.attr("aria-label")).isEqualTo(brand);
+        if (hourglass) {
+            assertThat(svg.selectFirst("polygon").attr("points")).isEqualTo("10,10 90,10 10,90 90,90");
+            return;
+        }
+        assertThat(svg.selectFirst("polygon").attr("points")).isEqualTo("19,66 54,12 54,66");
+        assertThat(svg.selectFirst("circle").attr("fill")).isEqualTo("#E7A340");
+        assertThat(svg.selectFirst("polyline").attr("stroke")).isEqualTo("#24516B");
+
+        app.setGeneratedVersion(generationId);
+        long next = IDS.incrementAndGet();
+        String change = "把太阳改为红色";
+        when(persistence.start(55L, 42L, change)).thenReturn(next);
+        doAnswer(call -> {
+            ChatRequest request = call.getArgument(0);
+            StreamingChatResponseHandler handler = call.getArgument(1);
+            if (request.messages().getLast() instanceof ToolExecutionResultMessage) {
+                handler.onCompleteResponse(response("已改色", FinishReason.STOP));
+            } else {
+                var edit = ToolExecutionRequest.builder().name("replaceFragment").id("recolor")
+                        .arguments(objectMapper.writeValueAsString(Map.of("relativePath", component,
+                                "oldText", "#E7A340", "newText", "#B14234"))).build();
+                handler.onCompleteResponse(ChatResponse.builder().finishReason(FinishReason.TOOL_EXECUTION)
+                        .aiMessage(AiMessage.from(edit)).build());
+            }
+            return null;
+        }).when(model).chat(any(ChatRequest.class), any(StreamingChatResponseHandler.class));
+        String updated = finish(mockMvc.perform(generate().session(session())
+                .content(objectMapper.writeValueAsString(Map.of("prompt", change)))).andReturn());
+        assertThat(updated).contains("已局部修改：" + component, "event:completed").doesNotContain("已生成品牌 Logo");
+        assertThat(unzipSources(fileManager.readVueSourceZip(42, 55, next)))
+                .containsEntry(component, original.replace("#E7A340", "#B14234")).containsEntry("src/App.vue", withLogo);
+        assertThat(fileManager.readVueSource(42, 55, generationId, component)).isEqualTo(original);
     }
 
     @ParameterizedTest
@@ -449,17 +547,18 @@ class GenerationControllerTest {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"dangling", "dangling-before-build", "mismatched-whitespace", "renamed-together"})
+    @ValueSource(strings = {"dangling", "dangling-before-build", "mismatched-whitespace", "renamed-together",
+            "renamed-component", "renamed-component-together"})
     void onlyPromotesDiagramEditsWhoseFinalEdgesStillConnect(String edit) throws Exception {
         String data = "src/components/xy-architecture.json", component = "src/components/XyArchitecture.vue";
         String graph = "{\"nodes\":[\"浏览器\",\"接口\"],\"edges\":[{\"from\":\"浏览器\",\"to\":\"接口\"}]}";
         App app = app(42L, "vue_project");
-        long previous = preparePreviousVueProject(app,
-                "<script setup>import Graph from './components/XyArchitecture.vue'</script><template><Graph/></template>");
-        fileManager.writeVueSource(42, 55, previous, component,
-                new ClassPathResource("diagrams/XyArchitecture.vue").getContentAsString(StandardCharsets.UTF_8));
+        String page = "<script setup>import Graph from './components/XyArchitecture.vue'</script><template><Graph/></template>";
+        String renderer = new ClassPathResource("diagrams/XyArchitecture.vue").getContentAsString(StandardCharsets.UTF_8);
+        long previous = preparePreviousVueProject(app, page);
+        fileManager.writeVueSource(42, 55, previous, component, renderer);
         fileManager.writeVueSource(42, 55, previous, data, graph);
-        boolean both = edit.equals("renamed-together");
+        boolean both = edit.endsWith("-together"), renameComponent = edit.startsWith("renamed-component");
         when(builder.enabled()).thenReturn(edit.equals("dangling-before-build"));
         doAnswer(call -> {
             ChatRequest request = call.getArgument(0);
@@ -468,8 +567,14 @@ class GenerationControllerTest {
                 String changed = graph.replace("接口\"", "网关\"");
                 if (edit.equals("mismatched-whitespace")) changed = changed.replace("网关\"]", " 网关 \"]");
                 else changed = changed.replace("\"to\":\"网关\"", "\"to\":\"接口\"");
+                var edits = renameComponent ? List.of(
+                        writeFile("src/components/SystemDiagram.vue", renderer),
+                        writeFile("src/App.vue", page.replace("XyArchitecture", "SystemDiagram")),
+                        ToolExecutionRequest.builder().id("remove-old").name("deleteComponent")
+                                .arguments(objectMapper.writeValueAsString(Map.of("relativePath", component))).build(),
+                        writeFile(data, changed)) : List.of(writeFile(data, changed));
                 handler.onCompleteResponse(ChatResponse.builder().finishReason(FinishReason.TOOL_EXECUTION)
-                        .aiMessage(AiMessage.from(writeFile(data, changed))).build());
+                        .aiMessage(AiMessage.from(edits)).build());
             } else if (both && result.toolName().equals("writeFile")) {
                 var fixEdge = ToolExecutionRequest.builder().name("replaceFragment").id("rename-edge")
                         .arguments(objectMapper.writeValueAsString(Map.of("relativePath", data,
@@ -482,14 +587,48 @@ class GenerationControllerTest {
         String events = finish(mockMvc.perform(generate().session(session())).andReturn());
         if (both) {
             assertThat(events).contains("event:completed").doesNotContain("event:failed");
-            assertThat(unzipSources(fileManager.readVueSourceZip(42, 55, generationId)))
-                    .containsEntry(data, graph.replace("接口", "网关"));
+            var zip = unzipSources(fileManager.readVueSourceZip(42, 55, generationId));
+            assertThat(zip).containsEntry(data, graph.replace("接口", "网关"));
+            if (renameComponent) assertThat(zip).containsEntry("src/components/SystemDiagram.vue", renderer)
+                    .doesNotContainKey(component);
         } else {
             assertThat(events).contains("event:failed", "xy-architecture.json", "连线").doesNotContain("event:completed");
             verify(persistence, never()).complete(eq(55L), eq(42L), eq(generationId), any());
             verify(builder, never()).build(any(), any());
-            assertThat(unzipSources(fileManager.readVueSourceZip(42, 55, app.getGeneratedVersion()))).containsEntry(data, graph);
+            assertThat(unzipSources(fileManager.readVueSourceZip(42, 55, app.getGeneratedVersion())))
+                    .containsEntry(data, graph).containsEntry(component, renderer).containsEntry("src/App.vue", page);
         }
+    }
+
+    @Test
+    void sameNamedComponentWithoutDiagramDataCanComplete() throws Exception {
+        App app = app(42L, "vue_project");
+        when(appMapper.selectOneById(55L)).thenReturn(app);
+        String component = "src/components/XyArchitecture.vue";
+        String ordinary = """
+                <script setup>
+                // 下面只是注释：import graph from './xy-architecture.json'
+                import labels from './labels/xy-architecture.json'
+                </script>
+                <template><p>{{ labels.caption }}</p></template>""";
+        String page = "<script setup>import Caption from './components/XyArchitecture.vue'</script><template><Caption/></template>";
+        doAnswer(call -> {
+            ChatRequest request = call.getArgument(0);
+            StreamingChatResponseHandler handler = call.getArgument(1);
+            if (request.messages().getLast() instanceof ToolExecutionResultMessage) {
+                handler.onCompleteResponse(response("完成", FinishReason.STOP));
+            } else {
+                var edits = List.of(writeFile(component, ordinary), writeFile("src/App.vue", page),
+                        writeFile("src/components/labels/xy-architecture.json", "{\"caption\":\"Browser → API\"}"));
+                handler.onCompleteResponse(ChatResponse.builder().finishReason(FinishReason.TOOL_EXECUTION)
+                        .aiMessage(AiMessage.from(edits)).build());
+            }
+            return null;
+        }).when(model).chat(any(ChatRequest.class), any(StreamingChatResponseHandler.class));
+        String events = finish(mockMvc.perform(generate().session(session())).andReturn());
+        assertThat(events).contains("event:completed").doesNotContain("event:failed");
+        assertThat(unzipSources(fileManager.readVueSourceZip(42, 55, generationId)))
+                .containsEntry(component, ordinary).containsEntry("src/App.vue", page).doesNotContainKey("src/components/xy-architecture.json");
     }
 
     private long preparePreviousVueProject(App app, String appSource) throws Exception {
@@ -519,7 +658,7 @@ class GenerationControllerTest {
                             .aiMessage(AiMessage.from(replaceCardFragment("旧卡片", "新卡片"))).build());
                 } else handler.onCompleteResponse(response("已更新卡片", FinishReason.STOP));
             } else {
-                assertThat(request.toolSpecifications()).extracting("name").doesNotContain("findPhoto", "selectIllustration", "drawArchitecture");
+                assertThat(request.toolSpecifications()).extracting("name").doesNotContain("findPhoto", "selectIllustration", "drawArchitecture", "generateLogo");
                 assertThat(((AiMessage) request.messages().get(2)).text())
                         .contains("src/App.vue", "src/Card.vue").doesNotContain("旧卡片", "旧作品");
                 handler.onCompleteResponse(ChatResponse.builder().finishReason(FinishReason.TOOL_EXECUTION)

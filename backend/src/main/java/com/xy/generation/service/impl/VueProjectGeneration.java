@@ -64,7 +64,7 @@ final class VueProjectGeneration implements GenerationSession.OutputHandler {
     private final boolean qualityCheck;
     private VueGenerationWorkflow workflow;
     private GeneratedFileManager.VueBuildPaths buildPaths;
-    private boolean choosingAssets, photoRequested, illustrationRequested;
+    private boolean choosingAssets, photoRequested, illustrationRequested, logoRequested;
     private int remainingDiagramAttempts = 2;
     private boolean changedSource;
     private final Set<String> deletedComponents = new HashSet<>();
@@ -119,10 +119,12 @@ final class VueProjectGeneration implements GenerationSession.OutputHandler {
             boolean offerPhoto = choosingAssets && !changedSource && !photoRequested;
             boolean offerIllustration = choosingAssets && !changedSource && !illustrationRequested;
             boolean offerDiagram = choosingAssets && !changedSource && remainingDiagramAttempts > 0;
+            boolean offerLogo = choosingAssets && !changedSource && !logoRequested;
             var tools = new ArrayList<>(List.of(READ_FILE, WRITE_FILE, REPLACE_FRAGMENT, DELETE_COMPONENT));
             if (offerPhoto) tools.add(FIND_PHOTO);
             if (offerIllustration) tools.add(VueIllustrations.TOOL);
             if (offerDiagram) tools.add(VueArchitectureDiagram.TOOL);
+            if (offerLogo) tools.add(VueBrandLogo.TOOL);
             model.chat(ChatRequest.builder().messages(List.copyOf(messages)).toolSpecifications(tools).build(),
                     new StreamingChatResponseHandler() {
                 @Override
@@ -189,6 +191,16 @@ final class VueProjectGeneration implements GenerationSession.OutputHandler {
                                     String result = offerDiagram && !changedSource && remainingDiagramAttempts > 0
                                             ? drawArchitecture(tool.arguments(), session, history)
                                             : "本轮不再绘制架构图，沿用已有图或用文字说明关系。";
+                                    messages.add(ToolExecutionResultMessage.from(tool, result));
+                                    if (!session.isRunning()) return;
+                                    continue;
+                                }
+                                if ("generateLogo".equals(tool.name())) {
+                                    String result = "本轮不再绘制 Logo，请沿用已有标志或品牌文字。";
+                                    if (offerLogo && !logoRequested && !changedSource) {
+                                        logoRequested = true;
+                                        result = generateLogo(tool.arguments(), session, history);
+                                    }
                                     messages.add(ToolExecutionResultMessage.from(tool, result));
                                     if (!session.isRunning()) return;
                                     continue;
@@ -276,6 +288,22 @@ final class VueProjectGeneration implements GenerationSession.OutputHandler {
                 + "在页面相应位置使用 <XyArchitecture />。组件及关系数据已保存，无须重写。";
     }
 
+    private String generateLogo(String arguments, GenerationSession session, StringBuilder history) throws IOException {
+        var source = VueBrandLogo.render(mapper, arguments);
+        String progress, result;
+        if (source.isPresent()) {
+            files.writeVueSource(userId, appId, generationId, VueBrandLogo.COMPONENT, source.get());
+            progress = "已生成品牌 Logo。";
+            result = "在 src/App.vue 中 import XyLogo from './components/XyLogo.vue'，并在品牌区使用 <XyLogo />。";
+        } else {
+            progress = "Logo 图形无效，改用品牌文字。";
+            result = "未生成 Logo 组件，请显示品牌名称，不要引用 XyLogo.vue。";
+        }
+        history.append('\n').append(progress).append('\n');
+        session.onPartialResponse("\n" + progress + "\n");
+        return result;
+    }
+
     private String selectIllustration(String arguments, GenerationSession session, StringBuilder history) throws IOException {
         var selected = VueIllustrations.select(mapper, arguments);
         String progress, result;
@@ -332,8 +360,12 @@ final class VueProjectGeneration implements GenerationSession.OutputHandler {
         try {
             var sources = files.readVueSources(userId, appId, generationId);
             String graphError = VueArchitectureDiagram.findError(mapper, sources);
-            if (graphError != null || deletedComponents.isEmpty()) return graphError;
-            return VueComponentReferences.findError(sources, deletedComponents);
+            if (graphError != null) return graphError;
+            if (logoRequested && !sources.containsKey(VueBrandLogo.COMPONENT)
+                    && VueComponentReferences.references(sources, VueBrandLogo.COMPONENT)) {
+                return "页面仍引用不存在的 XyLogo.vue，请改用品牌文字或补全组件后重试";
+            }
+            return deletedComponents.isEmpty() ? null : VueComponentReferences.findError(sources, deletedComponents);
         } catch (NoSuchFileException missing) {
             return invalidOutputMessage();
         } catch (IOException error) {

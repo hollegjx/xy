@@ -1,5 +1,6 @@
 package com.xy.generation.service.impl;
 
+import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
 import org.junit.jupiter.api.Test;
@@ -18,6 +19,16 @@ class VueComponentReferencesTest {
     void resolvesLiteralModuleReferencesFromNestedJsFiles(String code) {
         assertThat(VueComponentReferences.findError(Map.of("src/pages/cards.js", code), Set.of(CARD)))
                 .contains("src/pages/cards.js", CARD);
+    }
+
+    @Test
+    void extensionlessReexportUsesJsonUnlessASiblingJsModuleResolvesFirst() {
+        String data = "src/components/xy-architecture.json";
+        var sources = new HashMap<>(Map.of(data, "{}",
+                "src/pages/graph.js", "export { default as graph } from '../components/xy-architecture'"));
+        assertThat(VueComponentReferences.references(sources, data)).isTrue();
+        sources.put("src/components/xy-architecture.js", "export default {}");
+        assertThat(VueComponentReferences.references(sources, data)).isFalse();
     }
 
     @Test

@@ -40,6 +40,7 @@ public class GenerationServiceImpl implements GenerationService {
     private final GenerationPersistence persistence;
     private final GeneratedFileManager fileManager;
     private final VueProjectBuildManager vueBuilder;
+    private final OpenversePhotoSearch photoSearch;
     private final ObjectProvider<StreamingChatModel> modelProvider;
     private final Executor executor;
     private final ScheduledExecutorService heartbeatScheduler;
@@ -56,7 +57,7 @@ public class GenerationServiceImpl implements GenerationService {
             @Qualifier("generationHeartbeatScheduler") ScheduledExecutorService heartbeatScheduler,
             @Value("classpath:prompts/single-html.txt") Resource htmlPrompt,
             @Value("classpath:prompts/multi-file.txt") Resource multiFilePrompt,
-            ObjectMapper objectMapper, VueProjectBuildManager vueBuilder,
+            ObjectMapper objectMapper, VueProjectBuildManager vueBuilder, OpenversePhotoSearch photoSearch,
             @Value("${xy.ai.timeout-seconds:180}") long timeoutSeconds) throws IOException {
         this.appService = appService;
         this.persistence = persistence;
@@ -73,6 +74,7 @@ public class GenerationServiceImpl implements GenerationService {
                 new TypeReference<Map<String, String>>() {});
         this.objectMapper = objectMapper;
         this.vueBuilder = vueBuilder;
+        this.photoSearch = photoSearch;
         this.timeoutMillis = Math.multiplyExact(timeoutSeconds, 1000);
     }
 
@@ -100,7 +102,7 @@ public class GenerationServiceImpl implements GenerationService {
             long generationId = persistence.start(appId, loginUser.getId(), request.prompt());
             GenerationSession.OutputHandler outputHandler = CodeGenTypeEnum.VUE_PROJECT.getValue().equals(app.codeGenType())
                     ? new VueProjectGeneration(loginUser.getId(), appId, generationId, fileManager, objectMapper,
-                            vueTemplate, vueBuilder, qualityCheck)
+                            vueTemplate, vueBuilder, qualityCheck, photoSearch)
                     : new NativeGenerationOutputHandler(
                             loginUser.getId(), appId, generationId, app.codeGenType(), fileManager, objectMapper);
             return new GenerationSession(appId, loginUser.getId(), generationId,

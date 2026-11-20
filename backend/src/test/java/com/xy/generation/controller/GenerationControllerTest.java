@@ -7,6 +7,7 @@ import com.xy.chat.mapper.ChatHistoryMapper;
 import com.xy.chat.model.entity.ChatHistory;
 import com.xy.common.UserConstant;
 import com.xy.generation.service.impl.GenerationPersistence;
+import com.xy.generation.service.impl.OpenversePhotoSearch;
 import com.xy.manager.GeneratedFileManager;
 import com.xy.manager.VueProjectBuildManager;
 import com.xy.user.mapper.UserMapper;
@@ -120,6 +121,8 @@ class GenerationControllerTest {
     @MockitoBean
     ChatHistoryMapper chatHistoryMapper;
     @MockitoBean
+    OpenversePhotoSearch photoSearch;
+    @MockitoBean
     VueProjectBuildManager builder;
     @MockitoBean(name = "generationHeartbeatScheduler")
     ScheduledExecutorService heartbeatScheduler;
@@ -211,7 +214,7 @@ class GenerationControllerTest {
                 handler.onCompleteResponse(response("已完成作品集。", FinishReason.STOP));
             } else {
                 assertThat(request.toolSpecifications()).extracting("name")
-                        .containsExactlyInAnyOrder("readFile", "writeFile", "replaceFragment", "deleteComponent");
+                        .containsExactlyInAnyOrder("readFile", "writeFile", "replaceFragment", "deleteComponent", "findPhoto");
                 handler.onCompleteResponse(ChatResponse.builder().finishReason(FinishReason.TOOL_EXECUTION)
                         .aiMessage(AiMessage.from(List.of(writeFile("src/App.vue", source),
                                 writeFile("src/components/Card.vue", "<template>作品集</template>")))).build());
@@ -249,6 +252,45 @@ class GenerationControllerTest {
                 .andExpect(status().isNotFound()).andExpect(content().contentType("application/json"));
     }
 
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void optionalPhotoReachesSourceZipBuildAndNextVersionOrFallsBack(boolean found) throws Exception {
+        when(appMapper.selectOneById(55L)).thenReturn(app(42L, "vue_project"));
+        var photo = new OpenversePhotoSearch.Photo("data:image/jpeg;base64,test", "https://www.flickr.com/photos/xy/123", "CC0");
+        when(photoSearch.find("latte")).thenReturn(found ? java.util.Optional.of(photo) : java.util.Optional.empty());
+        String source = found ? "<script setup>import photo from '../xy-photo.json'</script><template><img :src='photo.src'></template>"
+                : "<template>咖啡店</template>";
+        doAnswer(invocation -> {
+            ChatRequest request = invocation.getArgument(0);
+            StreamingChatResponseHandler handler = invocation.getArgument(1);
+            if (!(request.messages().getLast() instanceof ToolExecutionResultMessage result)) {
+                handler.onCompleteResponse(ChatResponse.builder().finishReason(FinishReason.TOOL_EXECUTION)
+                        .aiMessage(AiMessage.from(ToolExecutionRequest.builder().name("findPhoto").id("photo")
+                                .arguments("{\"keywords\":\"latte\"}").build())).build());
+            } else if (result.toolName().equals("findPhoto")) {
+                assertThat(result.text()).contains(found ? "xy-photo.json" : "无图布局").doesNotContain("base64");
+                assertThat(request.toolSpecifications()).extracting("name").doesNotContain("findPhoto");
+                handler.onCompleteResponse(ChatResponse.builder().finishReason(FinishReason.TOOL_EXECUTION)
+                        .aiMessage(AiMessage.from(writeFile("src/App.vue", source))).build());
+            } else handler.onCompleteResponse(response("完成", FinishReason.STOP));
+            return null;
+        }).when(model).chat(any(ChatRequest.class), any(StreamingChatResponseHandler.class));
+
+        String events = finish(mockMvc.perform(generate().session(session())).andReturn());
+        assertThat(events).containsSubsequence("正在查找内容配图", found ? "已准备本地内容配图" : "未取得可用配图", "event:completed");
+        var zip = unzipSources(fileManager.readVueSourceZip(42, 55, generationId));
+        assertThat(zip).containsEntry("src/App.vue", source);
+        if (found) {
+            String json = objectMapper.writeValueAsString(photo);
+            assertThat(zip).containsEntry("xy-photo.json", json);
+            var inputs = fileManager.prepareVueBuild(42, 55, generationId);
+            assertThat(Files.readString(inputs.source().resolve("xy-photo.json"))).isEqualTo(json);
+            long next = IDS.incrementAndGet();
+            assertThat(fileManager.copyVueSources(42, 55, generationId, next)).contains("xy-photo.json");
+            assertThat(Files.readString(directory.resolve("42/55/" + next + "/xy-photo.json"))).isEqualTo(json);
+        } else assertThat(zip).doesNotContainKey("xy-photo.json");
+    }
+
     private long preparePreviousVueProject(App app) throws Exception {
         return preparePreviousVueProject(app, "<template>旧作品</template>");
     }
@@ -280,6 +322,7 @@ class GenerationControllerTest {
                             .aiMessage(AiMessage.from(replaceCardFragment("旧卡片", "新卡片"))).build());
                 } else handler.onCompleteResponse(response("已更新卡片", FinishReason.STOP));
             } else {
+                assertThat(request.toolSpecifications()).extracting("name").doesNotContain("findPhoto");
                 assertThat(((AiMessage) request.messages().get(2)).text())
                         .contains("src/App.vue", "src/Card.vue").doesNotContain("旧卡片", "旧作品");
                 handler.onCompleteResponse(ChatResponse.builder().finishReason(FinishReason.TOOL_EXECUTION)

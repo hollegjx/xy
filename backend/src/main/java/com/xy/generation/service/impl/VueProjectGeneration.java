@@ -24,6 +24,7 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 
 // 一次 Vue 源码生成的工具循环；任务终态和 SSE 生命周期仍由 GenerationSession 管理。
@@ -47,6 +48,11 @@ final class VueProjectGeneration implements GenerationSession.OutputHandler {
             .description("删除本次工程中不再使用的非入口 .vue 组件，须先清理对它的引用")
             .parameters(JsonObjectSchema.builder().addStringProperty("relativePath", "如 src/components/Notice.vue")
                     .required("relativePath").additionalProperties(false).build()).build();
+    private static final ToolSpecification FIND_PHOTO = ToolSpecification.builder().name("findPhoto")
+            .description("首次创建需要内容照片的页面时，在写文件前单独调用一次。只传通用图片主题，不传用户原文、姓名或联系方式")
+            .parameters(JsonObjectSchema.builder().addStringProperty("keywords", "一到五个英文主题单词，如 latte")
+                    .required("keywords").additionalProperties(false).build()).build();
+    private final OpenversePhotoSearch photoSearch;
     private final long userId, appId, generationId;
     private final GeneratedFileManager files;
     private final ObjectMapper mapper;
@@ -59,7 +65,8 @@ final class VueProjectGeneration implements GenerationSession.OutputHandler {
     private final Set<String> deletedComponents = new HashSet<>();
 
     VueProjectGeneration(long userId, long appId, long generationId, GeneratedFileManager files,
-            ObjectMapper mapper, Map<String, String> template, VueProjectBuildManager builder, boolean qualityCheck) {
+            ObjectMapper mapper, Map<String, String> template, VueProjectBuildManager builder, boolean qualityCheck,
+            OpenversePhotoSearch photoSearch) {
         this.userId = userId;
         this.appId = appId;
         this.generationId = generationId;
@@ -68,6 +75,7 @@ final class VueProjectGeneration implements GenerationSession.OutputHandler {
         this.template = template;
         this.builder = builder;
         this.qualityCheck = qualityCheck;
+        this.photoSearch = photoSearch;
     }
 
     @Override
@@ -82,6 +90,9 @@ final class VueProjectGeneration implements GenerationSession.OutputHandler {
                 () -> {
                     var sources = new java.util.LinkedHashMap<>(template);
                     sources.putAll(files.readVueSources(userId, appId, generationId));
+                    if (files.hasVuePhoto(userId, appId, generationId)) {
+                        sources.put(GeneratedFileManager.VUE_PHOTO, "{\"src\":\"data:image/jpeg;base64,…\",\"license\":\"CC0\"}");
+                    }
                     return sources;
                 }, done -> next(model, conversation, session, history, done),
                 () -> complete(session, history), text -> {
@@ -98,8 +109,11 @@ final class VueProjectGeneration implements GenerationSession.OutputHandler {
             GenerationSession session, StringBuilder history, Runnable done) {
         if (!session.isRunning()) return;
         try {
-            model.chat(ChatRequest.builder().messages(List.copyOf(messages))
-                    .toolSpecifications(READ_FILE, WRITE_FILE, REPLACE_FRAGMENT, DELETE_COMPONENT).build(),
+            // 已有成功版本的上下文包含上一版工程清单（AI 消息）；修复和工具续轮也不重新选图。
+            boolean offerPhoto = messages.stream().noneMatch(AiMessage.class::isInstance);
+            var tools = new ArrayList<>(List.of(READ_FILE, WRITE_FILE, REPLACE_FRAGMENT, DELETE_COMPONENT));
+            if (offerPhoto) tools.add(FIND_PHOTO);
+            model.chat(ChatRequest.builder().messages(List.copyOf(messages)).toolSpecifications(tools).build(),
                     new StreamingChatResponseHandler() {
                 @Override
                 public void onPartialResponse(String text) { session.onPartialResponse(text); }
@@ -119,20 +133,37 @@ final class VueProjectGeneration implements GenerationSession.OutputHandler {
                 public void onError(Throwable error) { session.onError(error); }
                 @Override
                 public void onCompleteResponse(ChatResponse response) {
+                    if (!session.isRunning()) return;
+                    if (response.finishReason() != FinishReason.STOP && response.finishReason() != FinishReason.TOOL_EXECUTION) {
+                        session.fail("模型未正常完成输出，请重试");
+                        return;
+                    }
+                    AiMessage reply = response.aiMessage();
+                    String photoResult = null;
+                    if (offerPhoto && reply.hasToolExecutionRequests()) {
+                        var request = reply.toolExecutionRequests().stream().filter(t -> "findPhoto".equals(t.name())).findFirst();
+                        if (request.isPresent()) {
+                            try {
+                                photoResult = collectPhoto(request.get().arguments(), session, history);
+                            } catch (IOException error) {
+                                session.fail("无法保存本次工程的配图，请重试");
+                                return;
+                            }
+                        }
+                    }
                     boolean hasTools;
                     synchronized (session) {
                         if (!session.isRunning()) return;
-                        if (response.finishReason() != FinishReason.STOP
-                                && response.finishReason() != FinishReason.TOOL_EXECUTION) {
-                            session.fail("模型未正常完成输出，请重试");
-                            return;
-                        }
-                        AiMessage reply = response.aiMessage();
                         if (reply.text() != null) history.append(reply.text());
                         hasTools = reply.hasToolExecutionRequests();
                         if (hasTools) try {
                             messages.add(reply);
                             for (var tool : reply.toolExecutionRequests()) {
+                                if ("findPhoto".equals(tool.name())) {
+                                    messages.add(ToolExecutionResultMessage.from(tool, photoResult == null
+                                            ? "本轮不再搜索照片，请沿用工程已有素材或无图布局。" : photoResult));
+                                    continue;
+                                }
                                 var args = mapper.readTree(tool.arguments());
                                 if (args == null || !args.path("relativePath").isTextual()) throw new IllegalArgumentException();
                                 String path = args.get("relativePath").textValue();
@@ -187,6 +218,34 @@ final class VueProjectGeneration implements GenerationSession.OutputHandler {
             });
         } catch (RuntimeException error) {
             session.onError(error);
+        }
+    }
+
+    private String collectPhoto(String arguments, GenerationSession session, StringBuilder history) throws IOException {
+        if (!session.isRunning()) return "";
+        session.onPartialResponse("\n正在查找内容配图…\n");
+        String keywords = "";
+        try {
+            var args = mapper.readTree(arguments);
+            if (args != null) keywords = args.path("keywords").asText("");
+        } catch (com.fasterxml.jackson.core.JsonProcessingException | IllegalArgumentException ignored) {
+            // 非必要素材：工具参数不完整时仍可生成无图布局。
+        }
+        // 图库访问可能较慢，不能占用负责心跳和取消的 session 锁。
+        Optional<OpenversePhotoSearch.Photo> photo = photoSearch.find(keywords);
+        synchronized (session) {
+            if (!session.isRunning()) return "";
+            String result;
+            if (photo.isPresent()) {
+                files.saveVuePhoto(userId, appId, generationId, mapper.writeValueAsString(photo.get()));
+                result = "已保存内容配图：xy-photo.json（CC0）。在 src/App.vue 通过 import photo from '../xy-photo.json' 引入，用 <img :src=\"photo.src\"> 展示。";
+            } else {
+                result = "未取得可用配图，继续生成无图布局，请勿引用图片文件或外链。";
+            }
+            String progress = photo.isPresent() ? "\n已准备本地内容配图。\n" : "\n未取得可用配图，继续生成。\n";
+            history.append(progress);
+            session.onPartialResponse(progress);
+            return result;
         }
     }
 

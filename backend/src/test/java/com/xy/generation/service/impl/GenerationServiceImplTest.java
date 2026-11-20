@@ -34,7 +34,7 @@ class GenerationServiceImplTest {
                 new StaticListableBeanFactory().getBeanProvider(StreamingChatModel.class), executor,
                 mock(ScheduledExecutorService.class),
                 new ClassPathResource("prompts/single-html.txt"), new ClassPathResource("prompts/multi-file.txt"),
-                new ObjectMapper(), mock(VueProjectBuildManager.class), 180);
+                new ObjectMapper(), mock(VueProjectBuildManager.class), mock(OpenversePhotoSearch.class), 180);
         User user = new User();
         user.setId(42L);
         when(apps.getAppById(55, user)).thenReturn(

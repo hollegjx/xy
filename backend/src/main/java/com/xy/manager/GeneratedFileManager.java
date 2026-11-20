@@ -33,6 +33,7 @@ public class GeneratedFileManager {
     private static final Pattern BODY = Pattern.compile("(?is)<body\\b[^>]*>(.*?)</body\\s*>");
     private static final Set<String> MULTI_FILE_NAMES = Set.of("index.html", "style.css", "script.js");
     private static final Set<String> VUE_TEMPLATE_NAMES = Set.of("package.json", "index.html", "vite.config.js", "src/main.js");
+    public static final String VUE_PHOTO = "xy-photo.json";
     private final Path root;
 
     public GeneratedFileManager(@Value("${xy.generation.output-directory:./generated}") Path root) {
@@ -116,11 +117,21 @@ public class GeneratedFileManager {
         }
     }
 
+    public void saveVuePhoto(long userId, long appId, long generationId, String json) throws IOException {
+        Files.writeString(createVersionDirectory(userId, appId, generationId).resolve(VUE_PHOTO),
+                json, StandardCharsets.UTF_8, StandardOpenOption.CREATE_NEW);
+    }
+
+    public boolean hasVuePhoto(long userId, long appId, long generationId) throws IOException {
+        return !Files.notExists(versionDirectory(userId, appId, generationId).resolve(VUE_PHOTO), LinkOption.NOFOLLOW_LINKS);
+    }
+
     public List<String> copyVueSources(long userId, long appId, long previousId, long generationId) throws IOException {
         List<String> paths = new ArrayList<>();
         for (var file : readVueProject(userId, appId, previousId).entrySet()) {
             if (VUE_TEMPLATE_NAMES.contains(file.getKey())) continue;
-            writeVueSource(userId, appId, generationId, file.getKey(), file.getValue());
+            if (VUE_PHOTO.equals(file.getKey())) saveVuePhoto(userId, appId, generationId, file.getValue());
+            else writeVueSource(userId, appId, generationId, file.getKey(), file.getValue());
             paths.add(file.getKey());
         }
         return paths;
@@ -167,6 +178,7 @@ public class GeneratedFileManager {
         Map<String, String> sources = readVueSources(userId, appId, generationId);
         Map<String, String> files = new LinkedHashMap<>();
         for (String name : VUE_TEMPLATE_NAMES) files.put(name, readFile(directory, name));
+        if (hasVuePhoto(userId, appId, generationId)) files.put(VUE_PHOTO, readFile(directory, VUE_PHOTO));
         files.putAll(sources);
         if (files.values().stream().anyMatch(String::isBlank)) throw new IOException("源码文件不完整");
         return files;

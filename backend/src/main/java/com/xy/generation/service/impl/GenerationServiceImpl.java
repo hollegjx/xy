@@ -101,7 +101,7 @@ public class GenerationServiceImpl implements GenerationService {
                     ? new VueProjectGeneration(loginUser.getId(), appId, generationId, fileManager, objectMapper,
                             vueTemplate, vueBuilder, qualityCheck, photoSearch, executor)
                     : new NativeGenerationOutputHandler(
-                            loginUser.getId(), appId, generationId, app.codeGenType(), fileManager, objectMapper, qualityCheck);
+                            loginUser.getId(), appId, generationId, app.codeGenType(), fileManager, objectMapper, qualityCheck, photoSearch);
             return new GenerationSession(appId, loginUser.getId(), generationId,
                     emitter, persistence, outputHandler, () -> runningSessions.remove(appId), heartbeatScheduler);
         });

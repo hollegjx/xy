@@ -277,6 +277,172 @@ class GenerationControllerTest {
     }
 
     @Test
+    void cancellingDuringNativePhotoLookupKeepsHeartbeatsAndIgnoresTheLatePhoto() throws Exception {
+        var searching = new CountDownLatch(1);
+        var release = new CountDownLatch(1);
+        var callbackFinished = new CountDownLatch(1);
+        when(photoSearch.find("coffee")).thenAnswer(call -> {
+            searching.countDown();
+            if (!release.await(5, TimeUnit.SECONDS)) throw new AssertionError("图库一直未释放");
+            return java.util.Optional.of(new OpenversePhotoSearch.Photo("data:image/jpeg;base64,late", "source", "CC0"));
+        });
+        doAnswer(call -> {
+            call.<StreamingChatResponseHandler>getArgument(1).onCompleteResponse(response(
+                    HTML.replace("你好", "<img data-xy-photo='coffee' alt='咖啡'>"), FinishReason.STOP));
+            callbackFinished.countDown();
+            return null;
+        }).when(model).chat(anyList(), any(StreamingChatResponseHandler.class));
+
+        var result = mockMvc.perform(generate().session(session())
+                .content("{\"prompt\":\"摄影作品集\",\"qualityCheck\":true}")).andReturn();
+        try {
+            assertThat(searching.await(3, TimeUnit.SECONDS)).isTrue();
+            var tick = ArgumentCaptor.forClass(Runnable.class);
+            verify(heartbeatScheduler).scheduleAtFixedRate(tick.capture(), eq(15L), eq(15L), eq(TimeUnit.SECONDS));
+            tick.getValue().run();
+            mockMvc.perform(cancel(generationId).session(session())).andExpect(status().isOk());
+        } finally {
+            release.countDown();
+        }
+        assertThat(callbackFinished.await(3, TimeUnit.SECONDS)).isTrue();
+        assertThat(finish(result)).containsSubsequence("正在查找内容配图", ":keepalive", "event:cancelled")
+                .doesNotContain("已准备本地内容配图", "event:completed");
+        assertThat(htmlPath()).doesNotExist();
+        verify(model, never()).chat(any(ChatRequest.class), any());
+        verify(persistence, never()).complete(eq(55L), eq(42L), eq(generationId), any());
+    }
+
+    @ParameterizedTest
+    @CsvSource({"html,coffee,false", "multi_file,coffee,true", "html,private name,false"})
+    void unavailableNativePhotoLeavesReadableTextAndDoesNotSearchForFreeText(String mode, String theme, boolean unavailable) throws Exception {
+        boolean multi = mode.equals("multi_file");
+        when(appMapper.selectOneById(55L)).thenReturn(app(42L, mode));
+        if (unavailable) when(photoSearch.find("coffee")).thenThrow(new IllegalStateException("图库服务不可用"));
+        String img = "<img id='hero' class='cover' hidden aria-live='polite' data-panel='hero' srcset='lost.jpg' data-xy-photo='" + theme + "' alt='咖啡 &lt;b&gt;'>";
+        String script = "<script>const example = \"<img data-xy-photo='travel'>\"</script>";
+        var files = new LinkedHashMap<>(multi ? multiFiles() : Map.of("index.html", HTML));
+        files.compute("index.html", (key, value) -> value.replace("你好", img + script));
+        String page = multi ? objectMapper.writeValueAsString(files) : files.get("index.html");
+        doAnswer(call -> {
+            call.<StreamingChatResponseHandler>getArgument(1).onCompleteResponse(response(page, FinishReason.STOP));
+            return null;
+        }).when(model).chat(anyList(), any(StreamingChatResponseHandler.class));
+        boolean quality = theme.equals("coffee");
+        doAnswer(call -> {
+            var messages = call.<ChatRequest>getArgument(0).messages();
+            assertThat(((SystemMessage) messages.getFirst()).text()).contains("允许保留替代文字");
+            assertThat(((UserMessage) messages.getLast()).singleText()).contains("data-xy-photo-unavailable", "coffee");
+            call.<StreamingChatResponseHandler>getArgument(1).onCompleteResponse(response(
+                    "{\"isValid\":true,\"errors\":[],\"suggestions\":[]}", FinishReason.STOP));
+            return null;
+        }).when(model).chat(any(ChatRequest.class), any(StreamingChatResponseHandler.class));
+        String events = finish(mockMvc.perform(generate().session(session()).content(objectMapper.writeValueAsString(
+                Map.of("prompt", "摄影作品集", "qualityCheck", quality)))).andReturn());
+        assertThat(events).contains("event:completed").doesNotContain("event:failed");
+        String html = unzipSources(fileManager.readSourceZip(42L, 55L, generationId, multi)).get("index.html");
+        assertThat(html).contains(script);
+        var body = org.jsoup.Jsoup.parse(html).body();
+        var fallback = body.expectFirst("span#hero.cover[hidden][aria-live=polite][data-panel=hero]");
+        assertThat(fallback.text()).isEqualTo("咖啡 <b>");
+        assertThat(fallback.hasAttr("srcset")).isFalse();
+        assertThat(body.select("img, b")).isEmpty();
+        if (theme.equals("coffee")) {
+            verify(photoSearch).find("coffee");
+            assertThat(events).contains("未取得可用配图");
+        } else verifyNoInteractions(photoSearch);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"html", "multi_file"})
+    void nativePhotoStaysOfflineAcrossDownloadReviewRepairAndFollowup(String mode) throws Exception {
+        boolean multi = mode.equals("multi_file");
+        var app = app(42L, mode);
+        when(appMapper.selectOneById(55L)).thenReturn(app);
+        var bytes = new java.io.ByteArrayOutputStream();
+        javax.imageio.ImageIO.write(new java.awt.image.BufferedImage(3, 2, java.awt.image.BufferedImage.TYPE_INT_RGB), "jpeg", bytes);
+        String src = "data:image/jpeg;base64," + java.util.Base64.getEncoder().encodeToString(bytes.toByteArray());
+        String credit = "https://www.flickr.com/photos/xy/123";
+        when(photoSearch.find("coffee")).thenReturn(java.util.Optional.of(new OpenversePhotoSearch.Photo(src, credit, "CC0")));
+        var files = new LinkedHashMap<>(multi ? multiFiles() : Map.of("index.html", HTML));
+        String slot = multi ? "<img DATA-XY-PHOTO='coffee' alt='咖啡豆'>" : "<img data-xy-photo='coffee' alt='咖啡豆'>";
+        String picture = "<picture><source id='wide' media='(min-width: 768px)' srcset='coffee-wide.jpg'>" + slot + "</picture>";
+        String other = "<picture><source id='other' srcset='other.svg'><img alt='示例'></picture>";
+        files.compute("index.html", (key, value) -> value.replace("你好", "<figure>" + picture + "</figure>" + other));
+        String page = multi ? objectMapper.writeValueAsString(files) : files.get("index.html");
+        String followup = "给照片加署名";
+        long secondId = IDS.incrementAndGet();
+        when(persistence.start(55, 42, followup)).thenReturn(secondId);
+        var writes = new AtomicInteger();
+        var checks = new AtomicInteger();
+        doAnswer(call -> {
+            List<ChatMessage> messages = call.getArgument(0);
+            assertThat(messages.toString()).doesNotContain(src);
+            assertThat(((SystemMessage) messages.getFirst()).text()).contains("data-xy-photo");
+            String result = page;
+            if (writes.incrementAndGet() > 1) {
+                String compact = messages.stream().filter(AiMessage.class::isInstance).map(AiMessage.class::cast)
+                        .map(AiMessage::text).findFirst().orElseThrow();
+                assertThat(compact).contains(credit, "CC0", "data-xy-photo").doesNotContain("base64,");
+                result = ((UserMessage) messages.getLast()).singleText().equals(followup)
+                        ? compact.replace("</figure>", "<figcaption>来源：Flickr · CC0</figcaption></figure>")
+                        : compact.replace("<title>", "<title>咖啡 · ");
+            }
+            var handler = call.<StreamingChatResponseHandler>getArgument(1);
+            handler.onPartialResponse(result);
+            handler.onCompleteResponse(response(result, FinishReason.STOP));
+            return null;
+        }).when(model).chat(anyList(), any(StreamingChatResponseHandler.class));
+        doAnswer(call -> {
+            var messages = call.<ChatRequest>getArgument(0).messages();
+            assertThat(((UserMessage) messages.getLast()).singleText()).contains(credit, "CC0").doesNotContain("base64,");
+            boolean repair = checks.incrementAndGet() == 1 && multi;
+            call.<StreamingChatResponseHandler>getArgument(1).onCompleteResponse(response(repair
+                    ? "{\"isValid\":false,\"errors\":[\"请补全标题\"],\"suggestions\":[]}"
+                    : "{\"isValid\":true,\"errors\":[],\"suggestions\":[]}", FinishReason.STOP));
+            return null;
+        }).when(model).chat(any(ChatRequest.class), any(StreamingChatResponseHandler.class));
+        var completed = new ChatHistory();
+        completed.setAppId(55L);
+        completed.setUserId(42L);
+        completed.setMessageRole("assistant");
+        completed.setStatus("completed");
+        when(chatHistoryMapper.selectOneById(generationId)).thenReturn(completed);
+        when(chatHistoryMapper.selectOneById(secondId)).thenReturn(completed);
+        doAnswer(call -> {
+            assertThat(call.<String>getArgument(3)).contains(credit, "CC0").doesNotContain("base64,");
+            app.setGeneratedVersion(call.getArgument(2));
+            return null;
+        }).when(persistence).complete(eq(55L), eq(42L), any(Long.class), any());
+
+        for (String prompt : List.of("摄影作品集", followup)) {
+            String events = finish(mockMvc.perform(generate().session(session()).content(objectMapper.writeValueAsString(
+                    Map.of("prompt", prompt, "qualityCheck", multi || prompt.equals(followup))))).andReturn());
+            assertThat(events).contains("event:completed").doesNotContain("event:failed", "base64,");
+            if (prompt.equals(followup)) assertThat(events).doesNotContain("正在查找内容配图");
+            else assertThat(events).contains("已准备本地内容配图");
+            var zip = unzipSources(mockMvc.perform(get("/api/apps/55/source").contextPath("/api").session(session()))
+                    .andExpect(status().isOk()).andReturn().getResponse().getContentAsByteArray());
+            assertThat(zip.keySet()).isEqualTo(files.keySet());
+            String preview = mockMvc.perform(get("/api/apps/55/preview").contextPath("/api").session(session()))
+                    .andExpect(status().isOk()).andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+            for (String html : List.of(zip.get("index.html"), preview)) {
+                var document = org.jsoup.Jsoup.parse(html);
+                assertThat(document.expectFirst("#wide").attr("srcset")).isEmpty();
+                assertThat(document.expectFirst("#other").attr("srcset")).isEqualTo("other.svg");
+                var image = document.expectFirst("figure > picture > img");
+                assertThat(image.attr("alt")).isEqualTo("咖啡豆");
+                assertThat(image.attr("src")).isEqualTo(src);
+                assertThat(image.attr("data-xy-source")).isEqualTo(credit);
+                assertThat(image.attr("data-xy-license")).isEqualTo("CC0");
+                if (prompt.equals(followup)) assertThat(html).contains("<figcaption>来源：Flickr · CC0</figcaption>");
+            }
+        }
+        verify(photoSearch).find("coffee");
+        assertThat(writes).hasValue(multi ? 3 : 2);
+        assertThat(checks).hasValue(multi ? 3 : 1);
+    }
+
+    @Test
     void vueToolsSaveSourceBeforeCompletionAndDeliverAZipWithoutEnablingPreviewOrDeploy() throws Exception {
         App app = app(42L, "vue_project");
         when(appMapper.selectOneById(55L)).thenReturn(app);

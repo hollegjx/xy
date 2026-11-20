@@ -33,11 +33,12 @@ final class NativeGenerationOutputHandler implements GenerationSession.OutputHan
     private final ObjectMapper mapper;
     private final ObjectReader multiFileReader;
     private final boolean qualityCheck;
+    private final NativeContentPhoto photo;
     private GenerationQualityWorkflow workflow;
     private ChatResponse candidate;
 
     NativeGenerationOutputHandler(long userId, long appId, long generationId, String codeGenType,
-            GeneratedFileManager fileManager, ObjectMapper objectMapper, boolean qualityCheck) {
+            GeneratedFileManager fileManager, ObjectMapper objectMapper, boolean qualityCheck, OpenversePhotoSearch photoSearch) {
         this.userId = userId;
         this.appId = appId;
         this.generationId = generationId;
@@ -45,6 +46,7 @@ final class NativeGenerationOutputHandler implements GenerationSession.OutputHan
         this.fileManager = fileManager;
         this.mapper = objectMapper;
         this.qualityCheck = qualityCheck;
+        this.photo = new NativeContentPhoto(photoSearch);
         this.multiFileReader = objectMapper.readerFor(JsonNode.class)
                 .with(JsonParser.Feature.STRICT_DUPLICATE_DETECTION)
                 .with(DeserializationFeature.FAIL_ON_TRAILING_TOKENS);
@@ -52,17 +54,27 @@ final class NativeGenerationOutputHandler implements GenerationSession.OutputHan
 
     @Override
     public void generate(StreamingChatModel model, List<ChatMessage> messages, GenerationSession session) {
-        String previousSource = messages.stream().filter(AiMessage.class::isInstance)
-                .map(AiMessage.class::cast).map(AiMessage::text).findFirst().orElse(null);
-        boolean first = previousSource == null;
         var conversation = new ArrayList<>(messages);
-        if (first) {
+        String previousSource = null;
+        for (int i = 0; i < conversation.size(); i++) {
+            if (!(conversation.get(i) instanceof AiMessage previous)) continue;
+            try {
+                previousSource = editIndex(previous.text(), photo::inherit);
+            } catch (IOException error) {
+                session.onContextError(error);
+                return;
+            }
+            conversation.set(i, AiMessage.from(previousSource));
+            break;
+        }
+        boolean first = previousSource == null;
+        if (first || photo.available()) {
             var system = (SystemMessage) conversation.getFirst();
-            conversation.set(0, SystemMessage.from(system.text() + "\n" + ThemeIllustrations.HTML_HINT));
+            String hint = first ? ThemeIllustrations.HTML_HINT + "\n" + NativeContentPhoto.HTML_HINT : NativeContentPhoto.EDIT_HINT;
+            conversation.set(0, SystemMessage.from(system.text() + "\n" + hint));
         }
         if (!qualityCheck) {
-            if (first) model.chat(conversation, receiveCandidate(session, true, session::onCompleteResponse));
-            else GenerationSession.OutputHandler.super.generate(model, messages, session);
+            model.chat(conversation, receiveCandidate(session, first, session::onCompleteResponse));
             return;
         }
         workflow = new GenerationQualityWorkflow(mode, model, mapper, session, conversation, previousSource,
@@ -87,35 +99,41 @@ final class NativeGenerationOutputHandler implements GenerationSession.OutputHan
                 return;
             }
             try {
-                var prepared = first ? embedIllustrations(response, session) : response;
-                if (session.isRunning()) next.accept(prepared);
+                String original = response.aiMessage().text();
+                String output = editIndex(original, html -> {
+                    if (first) {
+                        var illustrated = ThemeIllustrations.embedInBody(html);
+                        if (!illustrated.labels().isEmpty()) session.onPartialResponse("\n候选页面已嵌入主题插画："
+                                + String.join("、", illustrated.labels()) + "。\n");
+                        html = illustrated.html();
+                    }
+                    return photo.prepare(html, first, session);
+                });
+                if (session.isRunning()) next.accept(original.equals(output) ? response
+                        : response.toBuilder().aiMessage(AiMessage.from(output)).build());
             } catch (IOException error) {
-                session.fail("未能嵌入内置插画，请重试");
+                session.fail("未能准备页面素材，请重试");
             }
         });
     }
 
-    private ChatResponse embedIllustrations(ChatResponse response, GenerationSession session) throws IOException {
-        String html = response.aiMessage().text();
-        Map<String, String> files = null;
-        if (mode == CodeGenTypeEnum.MULTI_FILE) {
-            try {
-                files = parseMultiFile(html);
-            } catch (IllegalArgumentException invalid) {
-                return response; // 不完整的候选仍可进入质检修复；保存时沿用原有文件校验。
-            }
-            html = files.get("index.html");
-            if (html == null) return response;
+    @FunctionalInterface
+    private interface HtmlEdit { String apply(String html) throws IOException; }
+
+    private String editIndex(String output, HtmlEdit edit) throws IOException {
+        if (mode != CodeGenTypeEnum.MULTI_FILE) return edit.apply(output);
+        Map<String, String> files;
+        try {
+            files = parseMultiFile(output);
+        } catch (IllegalArgumentException invalid) {
+            return output; // 不完整的候选仍可进入质检修复；保存时沿用原有文件校验。
         }
-        var embedded = ThemeIllustrations.embedInBody(html);
-        if (embedded.labels().isEmpty()) return response;
-        String output = embedded.html();
-        if (files != null) {
-            files.put("index.html", output);
-            output = mapper.writeValueAsString(files);
-        }
-        session.onPartialResponse("\n候选页面已嵌入主题插画：" + String.join("、", embedded.labels()) + "。\n");
-        return response.toBuilder().aiMessage(AiMessage.from(output)).build();
+        String html = files.get("index.html");
+        if (html == null) return output;
+        String edited = edit.apply(html);
+        if (html.equals(edited)) return output;
+        files.put("index.html", edited);
+        return mapper.writeValueAsString(files);
     }
 
     @Override
@@ -124,9 +142,11 @@ final class NativeGenerationOutputHandler implements GenerationSession.OutputHan
     @Override
     public void save(String output) throws IOException {
         if (mode == CodeGenTypeEnum.MULTI_FILE) {
-            fileManager.saveMultiFile(userId, appId, generationId, parseMultiFile(output));
+            var files = parseMultiFile(output);
+            files.computeIfPresent("index.html", (key, html) -> photo.embed(html));
+            fileManager.saveMultiFile(userId, appId, generationId, files);
         } else {
-            fileManager.saveHtml(userId, appId, generationId, output);
+            fileManager.saveHtml(userId, appId, generationId, photo.embed(output));
         }
     }
 

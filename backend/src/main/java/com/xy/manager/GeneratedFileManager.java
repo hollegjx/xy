@@ -126,6 +126,10 @@ public class GeneratedFileManager {
         return !Files.notExists(versionDirectory(userId, appId, generationId).resolve(VUE_PHOTO), LinkOption.NOFOLLOW_LINKS);
     }
 
+    public String readVuePhoto(long userId, long appId, long generationId) throws IOException {
+        return readFile(versionDirectory(userId, appId, generationId), VUE_PHOTO);
+    }
+
     public List<String> copyVueSources(long userId, long appId, long previousId, long generationId) throws IOException {
         List<String> paths = new ArrayList<>();
         for (var file : readVueProject(userId, appId, previousId).entrySet()) {

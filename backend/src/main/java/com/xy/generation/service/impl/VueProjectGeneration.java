@@ -20,17 +20,20 @@ import dev.langchain4j.model.chat.response.PartialToolCallContext;
 import dev.langchain4j.model.chat.response.StreamingChatResponseHandler;
 import dev.langchain4j.model.output.FinishReason;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.NoSuchFileException;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import org.springframework.core.io.ClassPathResource;
 
 // 一次 Vue 源码生成的工具循环；任务终态和 SSE 生命周期仍由 GenerationSession 管理。
 final class VueProjectGeneration implements GenerationSession.OutputHandler {
     private static final ToolSpecification READ_FILE = ToolSpecification.builder().name("readFile")
-            .description("读取本次工程 src 目录中已有源文件的完整内容")
+            .description("读取 src 下的源码；读取已有 xy-photo.json 时只返回照片来源和许可")
             .parameters(JsonObjectSchema.builder().addStringProperty("relativePath", "如 src/App.vue")
                     .required("relativePath").additionalProperties(false).build()).build();
     private static final ToolSpecification WRITE_FILE = ToolSpecification.builder().name("writeFile")
@@ -49,9 +52,9 @@ final class VueProjectGeneration implements GenerationSession.OutputHandler {
             .parameters(JsonObjectSchema.builder().addStringProperty("relativePath", "如 src/components/Notice.vue")
                     .required("relativePath").additionalProperties(false).build()).build();
     private static final ToolSpecification FIND_PHOTO = ToolSpecification.builder().name("findPhoto")
-            .description("首次创建需要内容照片的页面时，在写文件前单独调用一次。只传通用图片主题，不传用户原文、姓名或联系方式")
-            .parameters(JsonObjectSchema.builder().addStringProperty("keywords", "一到五个英文主题单词，如 latte")
-                    .required("keywords").additionalProperties(false).build()).build();
+            .description("首次创建需要内容照片的页面时，在写文件前单独选择一次公开主题，无合适主题时跳过")
+            .parameters(JsonObjectSchema.builder().addEnumProperty("theme", OpenversePhotoSearch.themes(), "预设照片主题")
+                    .required("theme").additionalProperties(false).build()).build();
     private final OpenversePhotoSearch photoSearch;
     private final long userId, appId, generationId;
     private final GeneratedFileManager files;
@@ -62,6 +65,7 @@ final class VueProjectGeneration implements GenerationSession.OutputHandler {
     private VueGenerationWorkflow workflow;
     private GeneratedFileManager.VueBuildPaths buildPaths;
     private boolean choosingAssets, photoRequested, illustrationRequested;
+    private int remainingDiagramAttempts = 2;
     private boolean changedSource;
     private final Set<String> deletedComponents = new HashSet<>();
 
@@ -94,7 +98,7 @@ final class VueProjectGeneration implements GenerationSession.OutputHandler {
                     var sources = new java.util.LinkedHashMap<>(template);
                     sources.putAll(files.readVueSources(userId, appId, generationId));
                     if (files.hasVuePhoto(userId, appId, generationId)) {
-                        sources.put(GeneratedFileManager.VUE_PHOTO, "{\"src\":\"data:image/jpeg;base64,…\",\"license\":\"CC0\"}");
+                        sources.put(GeneratedFileManager.VUE_PHOTO, readPhotoAttribution());
                     }
                     return sources;
                 }, done -> next(model, conversation, session, history, done),
@@ -114,9 +118,11 @@ final class VueProjectGeneration implements GenerationSession.OutputHandler {
         try {
             boolean offerPhoto = choosingAssets && !changedSource && !photoRequested;
             boolean offerIllustration = choosingAssets && !changedSource && !illustrationRequested;
+            boolean offerDiagram = choosingAssets && !changedSource && remainingDiagramAttempts > 0;
             var tools = new ArrayList<>(List.of(READ_FILE, WRITE_FILE, REPLACE_FRAGMENT, DELETE_COMPONENT));
             if (offerPhoto) tools.add(FIND_PHOTO);
             if (offerIllustration) tools.add(VueIllustrations.TOOL);
+            if (offerDiagram) tools.add(VueArchitectureDiagram.TOOL);
             model.chat(ChatRequest.builder().messages(List.copyOf(messages)).toolSpecifications(tools).build(),
                     new StreamingChatResponseHandler() {
                 @Override
@@ -179,13 +185,22 @@ final class VueProjectGeneration implements GenerationSession.OutputHandler {
                                     if (!session.isRunning()) return;
                                     continue;
                                 }
+                                if ("drawArchitecture".equals(tool.name())) {
+                                    String result = offerDiagram && !changedSource && remainingDiagramAttempts > 0
+                                            ? drawArchitecture(tool.arguments(), session, history)
+                                            : "本轮不再绘制架构图，沿用已有图或用文字说明关系。";
+                                    messages.add(ToolExecutionResultMessage.from(tool, result));
+                                    if (!session.isRunning()) return;
+                                    continue;
+                                }
                                 var args = mapper.readTree(tool.arguments());
                                 if (args == null || !args.path("relativePath").isTextual()) throw new IllegalArgumentException();
                                 String path = args.get("relativePath").textValue();
                                 String result, progress;
                                 switch (tool.name()) {
                                     case "readFile" -> {
-                                        result = files.readVueSource(userId, appId, generationId, path);
+                                        result = GeneratedFileManager.VUE_PHOTO.equals(path) ? readPhotoAttribution()
+                                                : files.readVueSource(userId, appId, generationId, path);
                                         progress = "\n已读取：" + path + "\n";
                                     }
                                     case "writeFile" -> {
@@ -239,6 +254,28 @@ final class VueProjectGeneration implements GenerationSession.OutputHandler {
         }
     }
 
+    private String drawArchitecture(String arguments, GenerationSession session, StringBuilder history) throws IOException {
+        remainingDiagramAttempts--;
+        VueArchitectureDiagram.Diagram diagram;
+        try {
+            diagram = VueArchitectureDiagram.parse(mapper, arguments);
+        } catch (IllegalArgumentException invalid) {
+            String progress = remainingDiagramAttempts > 0 ? "架构图关系无效，可修正一次。" : "架构图关系仍无效，改用文字说明。";
+            history.append('\n').append(progress).append('\n');
+            session.onPartialResponse("\n" + progress + "\n");
+            return progress + invalid.getMessage() + "；未生成文件，不要引用不存在的组件。";
+        }
+        var component = new ClassPathResource("diagrams/XyArchitecture.vue").getContentAsString(StandardCharsets.UTF_8);
+        files.writeVueSource(userId, appId, generationId, VueArchitectureDiagram.DATA, mapper.writeValueAsString(diagram));
+        files.writeVueSource(userId, appId, generationId, VueArchitectureDiagram.COMPONENT, component);
+        remainingDiagramAttempts = 0;
+        String progress = "已绘制架构图：" + diagram.nodes().size() + " 个节点、" + diagram.edges().size() + " 条连线。";
+        history.append('\n').append(progress).append('\n');
+        session.onPartialResponse("\n" + progress + "\n");
+        return progress + "请在 src/App.vue 中 import XyArchitecture from './components/XyArchitecture.vue'，"
+                + "在页面相应位置使用 <XyArchitecture />。组件及关系数据已保存，无须重写。";
+    }
+
     private String selectIllustration(String arguments, GenerationSession session, StringBuilder history) throws IOException {
         var selected = VueIllustrations.select(mapper, arguments);
         String progress, result;
@@ -260,21 +297,22 @@ final class VueProjectGeneration implements GenerationSession.OutputHandler {
     private String collectPhoto(String arguments, GenerationSession session, StringBuilder history) throws IOException {
         if (!session.isRunning()) return "";
         session.onPartialResponse("\n正在查找内容配图…\n");
-        String keywords = "";
+        String theme = "";
         try {
             var args = mapper.readTree(arguments);
-            if (args != null) keywords = args.path("keywords").asText("");
+            if (args != null) theme = args.path("theme").asText("");
         } catch (com.fasterxml.jackson.core.JsonProcessingException | IllegalArgumentException ignored) {
             // 非必要素材：工具参数不完整时仍可生成无图布局。
         }
         // 图库访问可能较慢，不能占用负责心跳和取消的 session 锁。
-        Optional<OpenversePhotoSearch.Photo> photo = photoSearch.find(keywords);
+        Optional<OpenversePhotoSearch.Photo> photo = photoSearch.find(theme);
         synchronized (session) {
             if (!session.isRunning()) return "";
             String result;
             if (photo.isPresent()) {
                 files.saveVuePhoto(userId, appId, generationId, mapper.writeValueAsString(photo.get()));
-                result = "已保存内容配图：xy-photo.json（CC0）。在 src/App.vue 通过 import photo from '../xy-photo.json' 引入，用 <img :src=\"photo.src\"> 展示。";
+                result = "已保存内容配图：xy-photo.json。在 src/App.vue 通过 import photo from '../xy-photo.json' 引入，"
+                        + "绑定 photo.src 展示图片。来源和许可：" + mapper.writeValueAsString(photo.get().attribution());
             } else {
                 result = "未取得可用配图，继续生成无图布局，请勿引用图片文件或外链。";
             }
@@ -285,25 +323,34 @@ final class VueProjectGeneration implements GenerationSession.OutputHandler {
         }
     }
 
+    private String readPhotoAttribution() throws IOException {
+        var attribution = mapper.readValue(files.readVuePhoto(userId, appId, generationId), OpenversePhotoSearch.Attribution.class);
+        return mapper.writeValueAsString(attribution);
+    }
+
+    private String candidateError() {
+        try {
+            var sources = files.readVueSources(userId, appId, generationId);
+            String graphError = VueArchitectureDiagram.findError(mapper, sources);
+            if (graphError != null || deletedComponents.isEmpty()) return graphError;
+            return VueComponentReferences.findError(sources, deletedComponents);
+        } catch (NoSuchFileException missing) {
+            return invalidOutputMessage();
+        } catch (IOException error) {
+            return "无法读取本次工程源码，请重试";
+        }
+    }
+
     private void complete(GenerationSession session, StringBuilder history) {
         if (!changedSource) {
             session.fail("本次未写入 Vue 源码，请重试");
             return;
         }
         try {
-            if (!deletedComponents.isEmpty()) {
-                String message;
-                try {
-                    message = VueComponentReferences.findError(
-                            files.readVueSources(userId, appId, generationId), deletedComponents);
-                } catch (IOException error) {
-                    session.fail("无法读取本次工程源码以检查组件引用，请重试");
-                    return;
-                }
-                if (message != null) {
-                    session.fail(message);
-                    return;
-                }
+            String error = candidateError();
+            if (error != null) {
+                session.fail(error);
+                return;
             }
             if (builder.enabled()) {
                 synchronized (session) {

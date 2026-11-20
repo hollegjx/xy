@@ -8,12 +8,31 @@ import javax.imageio.ImageIO;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 class OpenversePhotoSearchTest {
+    @Test
+    void onlyPresetThemesCanReachOpenverseIncludingTheFlickrFallback() {
+        List<String> requests = new ArrayList<>();
+        var search = new OpenversePhotoSearch(new ObjectMapper()) {
+            @Override byte[] get(String url, int limit) {
+                requests.add(url);
+                return "{\"results\":[{\"source\":\"museum\"}]}".getBytes(StandardCharsets.UTF_8);
+            }
+        };
+        for (String input : List.of("Alex Example portrait", "Alex", "coffee Alex", "latte", "")) {
+            assertThat(search.find(input)).isEmpty();
+        }
+        assertThat(requests).isEmpty();
+        search.find("coffee");
+        String fixed = "https://api.openverse.org/v1/images/?q=latte&license=cc0&page_size=1";
+        assertThat(requests).containsExactly(fixed, fixed + "&source=flickr");
+    }
+
     @ParameterizedTest
     @ValueSource(strings = {"cc0", "changed-license", "other-photo", "redirect-host", "unavailable", "broken-jpeg"})
     void checksOriginalLicenseAndPhotoBeforeDownloading(String scenario) {
@@ -45,13 +64,13 @@ class OpenversePhotoSearchTest {
             }
         };
         if (scenario.equals("cc0")) {
-            assertThat(search.find("latte")).hasValueSatisfying(photo -> {
+            assertThat(search.find("coffee")).hasValueSatisfying(photo -> {
                 assertThat(photo.src()).startsWith("data:image/jpeg;base64,/9j/");
                 assertThat(photo.source()).isEqualTo(page);
                 assertThat(photo.license()).isEqualTo("CC0");
             });
         } else {
-            assertThat(search.find("latte")).isEmpty();
+            assertThat(search.find("coffee")).isEmpty();
             assertThat(requests).noneMatch(url -> url.contains("invalid.example"));
             if (!scenario.equals("broken-jpeg")) assertThat(requests).noneMatch(url -> url.startsWith("https://live."));
         }

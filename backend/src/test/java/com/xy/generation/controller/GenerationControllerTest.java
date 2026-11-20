@@ -214,7 +214,7 @@ class GenerationControllerTest {
                 handler.onCompleteResponse(response("已完成作品集。", FinishReason.STOP));
             } else {
                 assertThat(request.toolSpecifications()).extracting("name")
-                        .containsExactlyInAnyOrder("readFile", "writeFile", "replaceFragment", "deleteComponent", "findPhoto", "selectIllustration");
+                        .containsExactlyInAnyOrder("readFile", "writeFile", "replaceFragment", "deleteComponent", "findPhoto", "selectIllustration", "drawArchitecture");
                 handler.onCompleteResponse(ChatResponse.builder().finishReason(FinishReason.TOOL_EXECUTION)
                         .aiMessage(AiMessage.from(List.of(writeFile("src/App.vue", source),
                                 writeFile("src/components/Card.vue", "<template>作品集</template>")))).build());
@@ -257,7 +257,7 @@ class GenerationControllerTest {
     void optionalPhotoReachesSourceZipBuildAndNextVersionOrFallsBack(boolean found) throws Exception {
         when(appMapper.selectOneById(55L)).thenReturn(app(42L, "vue_project"));
         var photo = new OpenversePhotoSearch.Photo("data:image/jpeg;base64,test", "https://www.flickr.com/photos/xy/123", "CC0");
-        when(photoSearch.find("latte")).thenReturn(found ? java.util.Optional.of(photo) : java.util.Optional.empty());
+        when(photoSearch.find("coffee")).thenReturn(found ? java.util.Optional.of(photo) : java.util.Optional.empty());
         String source = found ? "<script setup>import photo from '../xy-photo.json'</script><template><img :src='photo.src'></template>"
                 : "<template>咖啡店</template>";
         doAnswer(invocation -> {
@@ -266,9 +266,10 @@ class GenerationControllerTest {
             if (!(request.messages().getLast() instanceof ToolExecutionResultMessage result)) {
                 handler.onCompleteResponse(ChatResponse.builder().finishReason(FinishReason.TOOL_EXECUTION)
                         .aiMessage(AiMessage.from(ToolExecutionRequest.builder().name("findPhoto").id("photo")
-                                .arguments("{\"keywords\":\"latte\"}").build())).build());
+                                .arguments("{\"theme\":\"coffee\"}").build())).build());
             } else if (result.toolName().equals("findPhoto")) {
                 assertThat(result.text()).contains(found ? "xy-photo.json" : "无图布局").doesNotContain("base64");
+                if (found) assertThat(result.text()).contains(photo.source(), photo.license());
                 assertThat(request.toolSpecifications()).extracting("name").doesNotContain("findPhoto").contains("selectIllustration");
                 handler.onCompleteResponse(ChatResponse.builder().finishReason(FinishReason.TOOL_EXECUTION)
                         .aiMessage(AiMessage.from(writeFile("src/App.vue", source))).build());
@@ -289,6 +290,57 @@ class GenerationControllerTest {
             assertThat(fileManager.copyVueSources(42, 55, generationId, next)).contains("xy-photo.json");
             assertThat(Files.readString(directory.resolve("42/55/" + next + "/xy-photo.json"))).isEqualTo(json);
         } else assertThat(zip).doesNotContainKey("xy-photo.json");
+    }
+
+    @Test
+    void creditsAnInheritedPhotoWithoutSendingTheEmbeddedImageToTheModel() throws Exception {
+        String source = "https://www.flickr.com/photos/demo/123";
+        var jpeg = new java.io.ByteArrayOutputStream();
+        javax.imageio.ImageIO.write(new java.awt.image.BufferedImage(2, 2, java.awt.image.BufferedImage.TYPE_INT_RGB), "JPEG", jpeg);
+        String image = java.util.Base64.getEncoder().encodeToString(jpeg.toByteArray());
+        String photo = objectMapper.writeValueAsString(new OpenversePhotoSearch.Photo(
+                "data:image/jpeg;base64," + image, source, "CC0"));
+        String page = "<script setup>import photo from '../xy-photo.json'</script><template><img :src='photo.src'>";
+        String original = page + "</template>";
+        String credited = page + "<a :href='photo.source'>来源 · {{ photo.license }}</a></template>";
+        long previous = preparePreviousVueProject(app(42L, "vue_project"), original);
+        fileManager.saveVuePhoto(42, 55, previous, photo);
+        var manifest = new AtomicReference<String>();
+        var readResult = new AtomicReference<String>();
+        var review = new AtomicReference<String>();
+        doAnswer(call -> {
+            ChatRequest request = call.getArgument(0);
+            StreamingChatResponseHandler handler = call.getArgument(1);
+            if (request.toolSpecifications() == null || request.toolSpecifications().isEmpty()) {
+                review.set(((UserMessage) request.messages().getLast()).singleText());
+                handler.onCompleteResponse(response("{\"isValid\":true,\"errors\":[],\"suggestions\":[]}", FinishReason.STOP));
+            } else if (!(request.messages().getLast() instanceof ToolExecutionResultMessage result)) {
+                manifest.set(((AiMessage) request.messages().get(2)).text());
+                handler.onCompleteResponse(ChatResponse.builder().finishReason(FinishReason.TOOL_EXECUTION)
+                        .aiMessage(AiMessage.from(ToolExecutionRequest.builder().name("readFile").id("credit")
+                                .arguments("{\"relativePath\":\"xy-photo.json\"}").build())).build());
+            } else if ("readFile".equals(result.toolName())) {
+                readResult.set(result.text());
+                handler.onCompleteResponse(ChatResponse.builder().finishReason(FinishReason.TOOL_EXECUTION)
+                        .aiMessage(AiMessage.from(writeFile("src/App.vue", credited))).build());
+            } else handler.onCompleteResponse(response("已标注来源", FinishReason.STOP));
+            return null;
+        }).when(model).chat(any(ChatRequest.class), any(StreamingChatResponseHandler.class));
+        String prompt = "给已有照片标注来源和许可";
+        when(persistence.start(55L, 42L, prompt)).thenReturn(generationId);
+        String events = finish(mockMvc.perform(generate().session(session())
+                .content(objectMapper.writeValueAsString(Map.of("prompt", prompt, "qualityCheck", true)))).andReturn());
+        assertThat(events).contains("event:completed").doesNotContain("event:failed", image);
+        for (String message : List.of(manifest.get(), readResult.get(), review.get())) {
+            assertThat(message).contains(source, "CC0").doesNotContain(image);
+        }
+        var inherited = objectMapper.readTree(manifest.get());
+        assertThat(inherited.path("readOnlyAssets").path("xy-photo.json")).isEqualTo(objectMapper.readTree(readResult.get()));
+        assertThat(inherited.path("sourceFiles").toString()).contains("src/App.vue").doesNotContain("xy-photo.json");
+        assertThat(unzipSources(fileManager.readVueSourceZip(42, 55, generationId)))
+                .containsEntry("src/App.vue", credited).containsEntry("xy-photo.json", photo);
+        assertThat(fileManager.readVueProject(42, 55, previous)).containsEntry("src/App.vue", original);
+        verifyNoInteractions(photoSearch);
     }
 
     @ParameterizedTest
@@ -313,7 +365,7 @@ class GenerationControllerTest {
                 handler.onCompleteResponse(ChatResponse.builder().finishReason(FinishReason.TOOL_EXECUTION)
                         .aiMessage(AiMessage.from(writeFile("src/App.vue", page))).build());
             } else {
-                assertThat(request.toolSpecifications()).extracting("name").doesNotContain("findPhoto", "selectIllustration");
+                assertThat(request.toolSpecifications()).extracting("name").doesNotContain("findPhoto", "selectIllustration", "drawArchitecture");
                 handler.onCompleteResponse(response("完成", FinishReason.STOP));
             }
             return null;
@@ -332,8 +384,112 @@ class GenerationControllerTest {
         verifyNoInteractions(photoSearch);
     }
 
+    @ParameterizedTest
+    @ValueSource(ints = {0, 1, 2})
+    void architectureToolDeliversDirectedGraphOrContinuesWithoutDanglingImport(int invalidAttempts) throws Exception {
+        when(appMapper.selectOneById(55L)).thenReturn(app(42L, "vue_project"));
+        String prompt = "绘制系统架构图";
+        when(persistence.start(55L, 42L, prompt)).thenReturn(generationId);
+        String graph = """
+                {"nodes":["浏览器","后端","模型","数据库"],"edges":[{"from":"浏览器","to":"后端"},
+                {"from":"后端","to":"模型","label":"调用"},{"from":"后端","to":"数据库","label":"读写"}]}""";
+        String data = "src/components/xy-architecture.json", component = "src/components/XyArchitecture.vue";
+        String page = invalidAttempts == 2 ? "<template>系统说明</template>" : """
+                <script setup>import XyArchitecture from './components/XyArchitecture.vue'</script>
+                <template><XyArchitecture /></template>""";
+        AtomicInteger calls = new AtomicInteger();
+        doAnswer(invocation -> {
+            ChatRequest request = invocation.getArgument(0);
+            StreamingChatResponseHandler handler = invocation.getArgument(1);
+            var tools = request.toolSpecifications().stream().map(t -> t.name()).toList();
+            if (tools.contains("drawArchitecture")) {
+                int n = calls.incrementAndGet();
+                assertThat(n).isLessThanOrEqualTo(2);
+                if (n == 2) assertThat(((ToolExecutionResultMessage) request.messages().getLast()).text()).contains("可修正一次");
+                handler.onCompleteResponse(ChatResponse.builder().finishReason(FinishReason.TOOL_EXECUTION)
+                        .aiMessage(AiMessage.from(ToolExecutionRequest.builder().name("drawArchitecture").id("graph" + n)
+                                .arguments(n <= invalidAttempts ? graph.replace("\"to\":\"模型\"", "\"to\":\"未知模块\"") : graph)
+                                .build())).build());
+            } else if (request.messages().getLast() instanceof ToolExecutionResultMessage result
+                    && "drawArchitecture".equals(result.toolName())) {
+                assertThat(result.text()).contains(invalidAttempts == 2 ? "文字说明" : "./components/XyArchitecture.vue");
+                handler.onCompleteResponse(ChatResponse.builder().finishReason(FinishReason.TOOL_EXECUTION)
+                        .aiMessage(AiMessage.from(writeFile("src/App.vue", page))).build());
+            } else handler.onCompleteResponse(response("完成", FinishReason.STOP));
+            return null;
+        }).when(model).chat(any(ChatRequest.class), any(StreamingChatResponseHandler.class));
+
+        String events = finish(mockMvc.perform(generate().session(session())
+                .content(objectMapper.writeValueAsString(Map.of("prompt", prompt)))).andReturn());
+        var zip = unzipSources(fileManager.readVueSourceZip(42, 55, generationId));
+        assertThat(events).contains("event:completed");
+        assertThat(zip).containsEntry("src/App.vue", page);
+        if (invalidAttempts == 2) {
+            assertThat(events).contains("改用文字说明").doesNotContain("已绘制架构图");
+            assertThat(zip).doesNotContainKeys(data, component);
+        } else {
+            assertThat(events).contains("已绘制架构图：4 个节点、3 条连线");
+            var actual = objectMapper.readTree(zip.get(data));
+            assertThat(actual.path("nodes")).isEqualTo(objectMapper.readTree(graph).path("nodes"));
+            assertThat(actual.path("edges").get(0).path("from").asText()).isEqualTo("浏览器");
+            assertThat(actual.path("edges").get(0).path("to").asText()).isEqualTo("后端");
+            assertThat(actual.path("edges").get(1)).isEqualTo(objectMapper.readTree(graph).path("edges").get(1));
+            assertThat(actual.path("edges").get(2)).isEqualTo(objectMapper.readTree(graph).path("edges").get(2));
+            assertThat(zip.get(component)).contains("./xy-architecture.json");
+            long next = IDS.incrementAndGet();
+            fileManager.copyVueSources(42, 55, generationId, next);
+            assertThat(fileManager.readVueSource(42, 55, next, data)).isEqualTo(zip.get(data));
+            assertThat(fileManager.readVueSource(42, 55, next, component)).isEqualTo(zip.get(component));
+        }
+        verifyNoInteractions(photoSearch);
+    }
+
     private long preparePreviousVueProject(App app) throws Exception {
         return preparePreviousVueProject(app, "<template>旧作品</template>");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"dangling", "dangling-before-build", "mismatched-whitespace", "renamed-together"})
+    void onlyPromotesDiagramEditsWhoseFinalEdgesStillConnect(String edit) throws Exception {
+        String data = "src/components/xy-architecture.json", component = "src/components/XyArchitecture.vue";
+        String graph = "{\"nodes\":[\"浏览器\",\"接口\"],\"edges\":[{\"from\":\"浏览器\",\"to\":\"接口\"}]}";
+        App app = app(42L, "vue_project");
+        long previous = preparePreviousVueProject(app,
+                "<script setup>import Graph from './components/XyArchitecture.vue'</script><template><Graph/></template>");
+        fileManager.writeVueSource(42, 55, previous, component,
+                new ClassPathResource("diagrams/XyArchitecture.vue").getContentAsString(StandardCharsets.UTF_8));
+        fileManager.writeVueSource(42, 55, previous, data, graph);
+        boolean both = edit.equals("renamed-together");
+        when(builder.enabled()).thenReturn(edit.equals("dangling-before-build"));
+        doAnswer(call -> {
+            ChatRequest request = call.getArgument(0);
+            StreamingChatResponseHandler handler = call.getArgument(1);
+            if (!(request.messages().getLast() instanceof ToolExecutionResultMessage result)) {
+                String changed = graph.replace("接口\"", "网关\"");
+                if (edit.equals("mismatched-whitespace")) changed = changed.replace("网关\"]", " 网关 \"]");
+                else changed = changed.replace("\"to\":\"网关\"", "\"to\":\"接口\"");
+                handler.onCompleteResponse(ChatResponse.builder().finishReason(FinishReason.TOOL_EXECUTION)
+                        .aiMessage(AiMessage.from(writeFile(data, changed))).build());
+            } else if (both && result.toolName().equals("writeFile")) {
+                var fixEdge = ToolExecutionRequest.builder().name("replaceFragment").id("rename-edge")
+                        .arguments(objectMapper.writeValueAsString(Map.of("relativePath", data,
+                                "oldText", "\"to\":\"接口\"", "newText", "\"to\":\"网关\""))).build();
+                handler.onCompleteResponse(ChatResponse.builder().finishReason(FinishReason.TOOL_EXECUTION)
+                        .aiMessage(AiMessage.from(fixEdge)).build());
+            } else handler.onCompleteResponse(response("已改名", FinishReason.STOP));
+            return null;
+        }).when(model).chat(any(ChatRequest.class), any(StreamingChatResponseHandler.class));
+        String events = finish(mockMvc.perform(generate().session(session())).andReturn());
+        if (both) {
+            assertThat(events).contains("event:completed").doesNotContain("event:failed");
+            assertThat(unzipSources(fileManager.readVueSourceZip(42, 55, generationId)))
+                    .containsEntry(data, graph.replace("接口", "网关"));
+        } else {
+            assertThat(events).contains("event:failed", "xy-architecture.json", "连线").doesNotContain("event:completed");
+            verify(persistence, never()).complete(eq(55L), eq(42L), eq(generationId), any());
+            verify(builder, never()).build(any(), any());
+            assertThat(unzipSources(fileManager.readVueSourceZip(42, 55, app.getGeneratedVersion()))).containsEntry(data, graph);
+        }
     }
 
     private long preparePreviousVueProject(App app, String appSource) throws Exception {
@@ -363,7 +519,7 @@ class GenerationControllerTest {
                             .aiMessage(AiMessage.from(replaceCardFragment("旧卡片", "新卡片"))).build());
                 } else handler.onCompleteResponse(response("已更新卡片", FinishReason.STOP));
             } else {
-                assertThat(request.toolSpecifications()).extracting("name").doesNotContain("findPhoto", "selectIllustration");
+                assertThat(request.toolSpecifications()).extracting("name").doesNotContain("findPhoto", "selectIllustration", "drawArchitecture");
                 assertThat(((AiMessage) request.messages().get(2)).text())
                         .contains("src/App.vue", "src/Card.vue").doesNotContain("旧卡片", "旧作品");
                 handler.onCompleteResponse(ChatResponse.builder().finishReason(FinishReason.TOOL_EXECUTION)

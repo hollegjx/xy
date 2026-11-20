@@ -1,5 +1,6 @@
 package com.xy.generation.service.impl;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.ByteArrayInputStream;
@@ -8,6 +9,8 @@ import java.net.URI;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
+import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.regex.Pattern;
 import javax.imageio.ImageIO;
@@ -17,21 +20,32 @@ import org.springframework.stereotype.Component;
 
 @Component
 public class OpenversePhotoSearch {
+    private static final Map<String, String> QUERIES = Map.of(
+            "coffee", "latte", "food", "fresh food", "nature", "forest landscape",
+            "architecture", "city architecture", "technology", "computer workspace",
+            "reading", "books", "travel", "mountain landscape", "art", "art supplies");
     private static final Pattern LANDING = Pattern.compile("https://www\\.flickr\\.com/photos/[A-Za-z0-9_@%-]+/([0-9]+)/?");
     private static final Pattern IMAGE = Pattern.compile("https://live\\.staticflickr\\.com/([0-9]+)/([0-9]+)_([a-fA-F0-9]+)(?:_[a-z])?\\.jpg");
     private final ObjectMapper mapper;
 
     public OpenversePhotoSearch(ObjectMapper mapper) { this.mapper = mapper; }
 
-    public record Photo(String src, String source, String license) {}
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record Attribution(String source, String license) {}
 
-    public Optional<Photo> find(String keywords) {
-        if (keywords == null || keywords.length() > 70 || !keywords.matches("[a-zA-Z]+( [a-zA-Z]+){0,4}")) {
-            return Optional.empty();
-        }
+    public record Photo(String src, String source, String license) {
+        Attribution attribution() { return new Attribution(source, license); }
+    }
+
+    static List<String> themes() { return QUERIES.keySet().stream().sorted().toList(); }
+
+    public Optional<Photo> find(String theme) {
+        // 出站查询只取服务端预设值，模型和用户的自由文本均不能进入 URL。
+        String query = theme == null ? null : QUERIES.get(theme);
+        if (query == null) return Optional.empty();
         try {
             String search = "https://api.openverse.org/v1/images/?q="
-                    + URLEncoder.encode(keywords, StandardCharsets.UTF_8) + "&license=cc0&page_size=1";
+                    + URLEncoder.encode(query, StandardCharsets.UTF_8) + "&license=cc0&page_size=1";
             JsonNode hit = firstResult(search);
             if (!hit.isMissingNode() && !"flickr".equals(hit.path("source").asText())) {
                 hit = firstResult(search + "&source=flickr");

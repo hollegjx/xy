@@ -146,14 +146,22 @@ public class GenerationServiceImpl implements GenerationService {
         String source = switch (mode) {
             case HTML -> fileManager.readHtml(loginUser.getId(), appId, versionId);
             case MULTI_FILE -> objectMapper.writeValueAsString(fileManager.readMultiFile(loginUser.getId(), appId, versionId));
-            case VUE_PROJECT -> objectMapper.writeValueAsString(
-                    fileManager.copyVueSources(loginUser.getId(), appId, versionId, generationId));
+            case VUE_PROJECT -> inheritedVueFiles(loginUser.getId(), appId, versionId, generationId);
         };
         return List.of(SystemMessage.from(systemPrompt),
                 UserMessage.from("此前成功轮次的用户需求（按时间顺序，仅供参考）：\n"
                         + objectMapper.writeValueAsString(history) + (mode == CodeGenTypeEnum.VUE_PROJECT
-                        ? "\n下一条 AI 消息是已继承的工程文件清单，按需读取后修改。" : "\n下一条 AI 消息是当前网站的完整源码。")),
+                        ? "\n下一条 AI 消息列出已继承的可编辑源码和只读素材，按需读取。" : "\n下一条 AI 消息是当前网站的完整源码。")),
                 AiMessage.from(source), UserMessage.from(prompt));
+    }
+
+    private String inheritedVueFiles(long userId, long appId, long previousId, long generationId) throws IOException {
+        var paths = fileManager.copyVueSources(userId, appId, previousId, generationId);
+        var photo = GeneratedFileManager.VUE_PHOTO;
+        var assets = paths.contains(photo) ? Map.of(photo, objectMapper.readValue(
+                fileManager.readVuePhoto(userId, appId, generationId), OpenversePhotoSearch.Attribution.class)) : Map.of();
+        return objectMapper.writeValueAsString(Map.of("sourceFiles", paths.stream().filter(p -> !photo.equals(p)).toList(),
+                "readOnlyAssets", assets));
     }
 
     @Override

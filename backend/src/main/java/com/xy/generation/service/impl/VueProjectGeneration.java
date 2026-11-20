@@ -68,6 +68,7 @@ final class VueProjectGeneration implements GenerationSession.OutputHandler {
     private int remainingDiagramAttempts = 2;
     private boolean changedSource;
     private final Set<String> deletedComponents = new HashSet<>();
+    private final VueAssetPrompt assetPrompt = new VueAssetPrompt();
 
     VueProjectGeneration(long userId, long appId, long generationId, GeneratedFileManager files,
             ObjectMapper mapper, Map<String, String> template, VueProjectBuildManager builder, boolean qualityCheck,
@@ -125,7 +126,8 @@ final class VueProjectGeneration implements GenerationSession.OutputHandler {
             if (offerIllustration) tools.add(VueIllustrations.TOOL);
             if (offerDiagram) tools.add(VueArchitectureDiagram.TOOL);
             if (offerLogo) tools.add(VueBrandLogo.TOOL);
-            model.chat(ChatRequest.builder().messages(List.copyOf(messages)).toolSpecifications(tools).build(),
+            var requestMessages = choosingAssets ? assetPrompt.forGeneration(messages) : List.copyOf(messages);
+            model.chat(ChatRequest.builder().messages(requestMessages).toolSpecifications(tools).build(),
                     new StreamingChatResponseHandler() {
                 @Override
                 public void onPartialResponse(String text) { session.onPartialResponse(text); }
@@ -151,6 +153,15 @@ final class VueProjectGeneration implements GenerationSession.OutputHandler {
                         return;
                     }
                     AiMessage reply = response.aiMessage();
+                    int previousAssetCount = assetPrompt.size();
+                    boolean preparingAssets = reply.hasToolExecutionRequests() && reply.toolExecutionRequests().stream()
+                            .anyMatch(tool -> switch (tool.name()) {
+                                case "findPhoto" -> offerPhoto;
+                                case "selectIllustration" -> offerIllustration;
+                                case "drawArchitecture" -> offerDiagram;
+                                case "generateLogo" -> offerLogo;
+                                default -> false;
+                            });
                     String photoResult = null;
                     if (offerPhoto && reply.hasToolExecutionRequests()) {
                         var request = reply.toolExecutionRequests().stream().filter(t -> "findPhoto".equals(t.name())).findFirst();
@@ -205,6 +216,11 @@ final class VueProjectGeneration implements GenerationSession.OutputHandler {
                                     if (!session.isRunning()) return;
                                     continue;
                                 }
+                                if (preparingAssets && Set.of("writeFile", "replaceFragment", "deleteComponent").contains(tool.name())) {
+                                    messages.add(ToolExecutionResultMessage.from(tool,
+                                            "本批只准备素材，此文件操作未执行。请根据返回的素材结果重新提交需要的源码操作。"));
+                                    continue;
+                                }
                                 var args = mapper.readTree(tool.arguments());
                                 if (args == null || !args.path("relativePath").isTextual()) throw new IllegalArgumentException();
                                 String path = args.get("relativePath").textValue();
@@ -236,6 +252,7 @@ final class VueProjectGeneration implements GenerationSession.OutputHandler {
                                     }
                                     case "deleteComponent" -> {
                                         files.deleteVueComponent(userId, appId, generationId, path);
+                                        assetPrompt.remove(path);
                                         deletedComponents.add(path);
                                         changedSource = true;
                                         result = "已删除组件：" + path;
@@ -247,6 +264,11 @@ final class VueProjectGeneration implements GenerationSession.OutputHandler {
                                 session.onPartialResponse(progress);
                                 if (!session.isRunning()) return;
                                 messages.add(ToolExecutionResultMessage.from(tool, result));
+                            }
+                            if (assetPrompt.size() > previousAssetCount) {
+                                String progress = assetPrompt.progress();
+                                history.append(progress);
+                                session.onPartialResponse(progress);
                             }
                         } catch (IOException | RuntimeException error) {
                             session.fail("Vue 工程文件操作失败，请检查工具参数和文件路径后重试");
@@ -280,6 +302,8 @@ final class VueProjectGeneration implements GenerationSession.OutputHandler {
         var component = new ClassPathResource("diagrams/XyArchitecture.vue").getContentAsString(StandardCharsets.UTF_8);
         files.writeVueSource(userId, appId, generationId, VueArchitectureDiagram.DATA, mapper.writeValueAsString(diagram));
         files.writeVueSource(userId, appId, generationId, VueArchitectureDiagram.COMPONENT, component);
+        assetPrompt.add(VueArchitectureDiagram.COMPONENT, "架构图", diagram.nodes().size() + " 个节点、"
+                + diagram.edges().size() + " 条连线，组件读取 " + VueArchitectureDiagram.DATA + "，用于系统说明");
         remainingDiagramAttempts = 0;
         String progress = "已绘制架构图：" + diagram.nodes().size() + " 个节点、" + diagram.edges().size() + " 条连线。";
         history.append('\n').append(progress).append('\n');
@@ -293,6 +317,7 @@ final class VueProjectGeneration implements GenerationSession.OutputHandler {
         String progress, result;
         if (source.isPresent()) {
             files.writeVueSource(userId, appId, generationId, VueBrandLogo.COMPONENT, source.get());
+            assetPrompt.add(VueBrandLogo.COMPONENT, "品牌 Logo", "在导航或品牌区使用该组件");
             progress = "已生成品牌 Logo。";
             result = "在 src/App.vue 中 import XyLogo from './components/XyLogo.vue'，并在品牌区使用 <XyLogo />。";
         } else {
@@ -310,6 +335,7 @@ final class VueProjectGeneration implements GenerationSession.OutputHandler {
         if (selected.isPresent()) {
             var illustration = selected.get();
             files.writeVueSource(userId, appId, generationId, VueIllustrations.COMPONENT, illustration.source());
+            assetPrompt.add(VueIllustrations.COMPONENT, "主题插画", illustration.label() + "主题，在对应介绍区域使用该组件");
             progress = "已准备插画：" + illustration.label();
             result = progress + "。请在 src/App.vue 中 import XyIllustration from './components/XyIllustration.vue'，"
                     + "在适当位置使用 <XyIllustration />。该组件已存在，无须重写。";
@@ -339,6 +365,8 @@ final class VueProjectGeneration implements GenerationSession.OutputHandler {
             String result;
             if (photo.isPresent()) {
                 files.saveVuePhoto(userId, appId, generationId, mapper.writeValueAsString(photo.get()));
+                assetPrompt.add(GeneratedFileManager.VUE_PHOTO, "内容照片", theme + " 主题，绑定 photo.src 显示；"
+                        + "许可 " + photo.get().license() + "，署名使用 photo.source");
                 result = "已保存内容配图：xy-photo.json。在 src/App.vue 通过 import photo from '../xy-photo.json' 引入，"
                         + "绑定 photo.src 展示图片。来源和许可：" + mapper.writeValueAsString(photo.get().attribution());
             } else {

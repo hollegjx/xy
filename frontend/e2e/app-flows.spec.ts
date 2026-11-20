@@ -515,15 +515,8 @@ test('Vue 工作台可选质检与修复并展示生成阶段，停止或失败�
   await expect(qualityCheck).toBeDisabled()
   const live = page.getByLabel('本次生成', { exact: true })
   await expect(page.getByRole('button', { name: /生成中/ })).toBeDisabled()
-  await page.evaluate(() =>
-    window.dispatchEvent(
-      new CustomEvent('xy-test-generation', {
-        detail: { type: 'delta', text: '\n已写入：src/App.vue\n' },
-      }),
-    ),
-  )
-  await expect(live.locator('pre')).toHaveText('已写入：src/App.vue')
-  for (const text of ['正在检查 Vue 工程…', '发现问题，正在自动修复（最多一次）…']) {
+  const assetProgress = '已将 2 项素材加入生成提示：内容照片、品牌 Logo。'
+  for (const text of [assetProgress, '已写入：src/App.vue', '正在检查 Vue 工程…', '发现问题，正在自动修复（最多一次）…']) {
     await page.evaluate(
       (text) => window.dispatchEvent(new CustomEvent('xy-test-generation', {
         detail: { type: 'delta', text: `\n${text}\n` },
@@ -532,6 +525,7 @@ test('Vue 工作台可选质检与修复并展示生成阶段，停止或失败�
     )
     await expect(live).toContainText(text)
   }
+  await expect(page.getByLabel('本次需求', { exact: true })).toHaveValue(app.initPrompt)
   await page.evaluate(() =>
     window.dispatchEvent(
       new CustomEvent('xy-test-generation', {
@@ -545,8 +539,7 @@ test('Vue 工作台可选质检与修复并展示生成阶段，停止或失败�
     {
       id: '101',
       messageRole: 'assistant',
-      content:
-        '已写入：src/App.vue\n源码已保存，正在构建 Vue 工程…\nVue 工程构建完成，可在线预览或下载源码。',
+      content: assetProgress + '\n已写入：src/App.vue\n源码已保存，正在构建 Vue 工程…\nVue 工程构建完成，可在线预览或下载源码。',
       status: 'completed',
       errorMessage: null,
       createTime: app.createTime,

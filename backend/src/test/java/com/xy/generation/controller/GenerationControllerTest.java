@@ -255,6 +255,70 @@ class GenerationControllerTest {
 
     @ParameterizedTest
     @ValueSource(booleans = {true, false})
+    void codeModelReceivesTheOriginalRequestAndOnlySavedAssetsBeforeWriting(boolean qualityCheck) throws Exception {
+        when(appMapper.selectOneById(55L)).thenReturn(app(42L, "vue_project"));
+        String prompt = "做星云书店：咖啡区照片、阅读插画、系统架构和品牌 Logo。";
+        when(persistence.start(55L, 42L, prompt)).thenReturn(generationId);
+        var bytes = new java.io.ByteArrayOutputStream();
+        javax.imageio.ImageIO.write(new java.awt.image.BufferedImage(3, 2, java.awt.image.BufferedImage.TYPE_INT_RGB), "jpeg", bytes);
+        String image = java.util.Base64.getEncoder().encodeToString(bytes.toByteArray());
+        when(photoSearch.find("coffee")).thenReturn(java.util.Optional.of(new OpenversePhotoSearch.Photo(
+                "data:image/jpeg;base64," + image, "https://www.flickr.com/photos/xy/123", "CC0")));
+        String page = """
+                <script setup>
+                import photo from '../xy-photo.json'
+                import Reading from './components/XyIllustration.vue'
+                import Graph from './components/XyArchitecture.vue'
+                import Logo from './components/XyLogo.vue'
+                </script>
+                <template><header><Logo/>星云书店</header><img :src="photo.src" alt="咖啡区"/><Reading/><Graph/></template>""";
+        var prompts = new java.util.ArrayList<String>();
+        doAnswer(call -> {
+            ChatRequest request = call.getArgument(0);
+            StreamingChatResponseHandler handler = call.getArgument(1);
+            if (request.toolSpecifications() == null || request.toolSpecifications().isEmpty()) {
+                handler.onCompleteResponse(response("{\"isValid\":true,\"errors\":[],\"suggestions\":[]}", FinishReason.STOP));
+                return null;
+            }
+            prompts.add(((UserMessage) request.messages().get(1)).singleText());
+            var calls = switch (prompts.size()) {
+                case 1 -> List.of(assetTool("findPhoto", "{\"theme\":\"coffee\"}"),
+                        assetTool("selectIllustration", "{\"theme\":\"reading\"}"));
+                case 2 -> List.of(writeFile("src/Premature.vue", "<template>尚未看到素材</template>"),
+                        assetTool("drawArchitecture", "{\"nodes\":[\"书店\",\"书目\"],\"edges\":[{\"from\":\"书店\",\"to\":\"书目\"}]}"),
+                        assetTool("generateLogo", "{\"name\":\"星云\",\"layers\":[{\"shape\":\"circle\",\"color\":\"#24516B\",\"coordinates\":[50,50,35]}]}"));
+                case 3 -> List.of(writeFile("src/App.vue", page));
+                default -> List.<ToolExecutionRequest>of();
+            };
+            handler.onCompleteResponse(calls.isEmpty() ? response("完成", FinishReason.STOP)
+                    : ChatResponse.builder().finishReason(FinishReason.TOOL_EXECUTION).aiMessage(AiMessage.from(calls)).build());
+            return null;
+        }).when(model).chat(any(ChatRequest.class), any(StreamingChatResponseHandler.class));
+
+        String events = finish(mockMvc.perform(generate().session(session())
+                .content(objectMapper.writeValueAsString(Map.of("prompt", prompt, "qualityCheck", qualityCheck)))).andReturn());
+        assertThat(events).containsSubsequence("2 项素材加入生成提示：内容照片、主题插画", "4 项素材加入生成提示：内容照片、主题插画、架构图、品牌 Logo",
+                "已写入：src/App.vue", "event:completed").doesNotContain("已写入：src/Premature.vue", "event:failed", image);
+        assertThat(prompts).hasSize(4);
+        assertThat(prompts.getFirst()).isEqualTo(prompt);
+        assertThat(prompts.get(1)).startsWith(prompt).contains("xy-photo.json", "CC0", "XyIllustration.vue", "学习阅读")
+                .doesNotContain("XyArchitecture.vue", "XyLogo.vue", image);
+        assertThat(prompts.get(2)).startsWith(prompt).containsOnlyOnce("本轮可用素材").containsOnlyOnce("XyIllustration.vue")
+                .contains("xy-photo.json", "src/components/XyArchitecture.vue", "2 个节点、1 条连线", "src/components/XyLogo.vue")
+                .doesNotContain(image);
+        assertThat(prompts.getLast()).isEqualTo(prompts.get(2));
+        var zip = unzipSources(fileManager.readVueSourceZip(42, 55, generationId));
+        assertThat(zip).containsEntry("src/App.vue", page).doesNotContainKey("src/Premature.vue")
+                .containsKeys("xy-photo.json", "src/components/XyIllustration.vue", "src/components/XyArchitecture.vue", "src/components/XyLogo.vue");
+        verify(persistence).start(55L, 42L, prompt);
+    }
+
+    private static ToolExecutionRequest assetTool(String name, String json) {
+        return ToolExecutionRequest.builder().name(name).id(name).arguments(json).build();
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
     void optionalPhotoReachesSourceZipBuildAndNextVersionOrFallsBack(boolean found) throws Exception {
         when(appMapper.selectOneById(55L)).thenReturn(app(42L, "vue_project"));
         var photo = new OpenversePhotoSearch.Photo("data:image/jpeg;base64,test", "https://www.flickr.com/photos/xy/123", "CC0");
@@ -270,6 +334,7 @@ class GenerationControllerTest {
                                 .arguments("{\"theme\":\"coffee\"}").build())).build());
             } else if (result.toolName().equals("findPhoto")) {
                 assertThat(result.text()).contains(found ? "xy-photo.json" : "无图布局").doesNotContain("base64");
+                if (!found) assertThat(((UserMessage) request.messages().get(1)).singleText()).isEqualTo("摄影作品集");
                 if (found) assertThat(result.text()).contains(photo.source(), photo.license());
                 assertThat(request.toolSpecifications()).extracting("name").doesNotContain("findPhoto").contains("selectIllustration");
                 handler.onCompleteResponse(ChatResponse.builder().finishReason(FinishReason.TOOL_EXECUTION)
@@ -290,7 +355,10 @@ class GenerationControllerTest {
             long next = IDS.incrementAndGet();
             assertThat(fileManager.copyVueSources(42, 55, generationId, next)).contains("xy-photo.json");
             assertThat(Files.readString(directory.resolve("42/55/" + next + "/xy-photo.json"))).isEqualTo(json);
-        } else assertThat(zip).doesNotContainKey("xy-photo.json");
+        } else {
+            assertThat(events).doesNotContain("素材加入生成提示");
+            assertThat(zip).doesNotContainKey("xy-photo.json");
+        }
     }
 
     @Test
@@ -331,7 +399,7 @@ class GenerationControllerTest {
         when(persistence.start(55L, 42L, prompt)).thenReturn(generationId);
         String events = finish(mockMvc.perform(generate().session(session())
                 .content(objectMapper.writeValueAsString(Map.of("prompt", prompt, "qualityCheck", true)))).andReturn());
-        assertThat(events).contains("event:completed").doesNotContain("event:failed", image);
+        assertThat(events).contains("event:completed").doesNotContain("event:failed", "素材加入生成提示", image);
         for (String message : List.of(manifest.get(), readResult.get(), review.get())) {
             assertThat(message).contains(source, "CC0").doesNotContain(image);
         }

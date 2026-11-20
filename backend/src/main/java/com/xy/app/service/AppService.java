@@ -26,6 +26,8 @@ public interface AppService {
 
     List<AppFeaturedVO> listFeaturedApps();
 
+    byte[] getFeaturedCover(long id, long version);
+
     boolean updateApp(long id, AppUpdateRequest request, User loginUser);
 
     boolean updateAppForAdmin(long id, AppUpdateRequest request, User loginUser);

@@ -50,7 +50,10 @@ export const getAppSource = (id: string): Promise<Blob> =>
   requestZip(`/api/apps/${encodeURIComponent(id)}/source`)
 
 export const deployApp = (id: string): Promise<AppDeployVO> =>
-  request<AppDeployVO>(`/api/apps/${encodeURIComponent(id)}/deploy`, { method: 'POST' })
+  request<AppDeployVO>(`/api/apps/${encodeURIComponent(id)}/deploy`, {
+    method: 'POST',
+    timeout: 30000,
+  })
 
 export const getAppPreviewUrl = (id: string, pick = false): string =>
   `/api/apps/${encodeURIComponent(id)}/preview${pick ? '?pick=true' : ''}`

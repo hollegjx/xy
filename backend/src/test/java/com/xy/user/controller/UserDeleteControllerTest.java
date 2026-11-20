@@ -13,6 +13,7 @@ import com.xy.common.UserConstant;
 import com.xy.config.DeploymentConfiguration;
 import com.xy.exception.GlobalExceptionHandler;
 import com.xy.manager.GeneratedFileManager;
+import com.xy.manager.AppCoverRenderer;
 import com.xy.user.mapper.UserMapper;
 import com.xy.user.model.entity.User;
 import com.xy.user.model.enums.UserRoleEnum;
@@ -66,7 +67,8 @@ class UserDeleteControllerTest {
     void prepare() {
         files = new GeneratedFileManager(directory.resolve("generated"));
         var deployment = new DeploymentConfiguration(directory.resolve("published"), "", "http://localhost:5173");
-        var appService = new AppServiceImpl(apps, messages, files, deployment, mock(GenerationModeRouter.class));
+        var appService = new AppServiceImpl(apps, messages, files, deployment,
+                mock(GenerationModeRouter.class), mock(AppCoverRenderer.class));
         var userService = new UserServiceImpl(users, mock(PasswordEncoder.class), appService,
                 new UserDeletionPersistence(users, apps));
         // 只替换数据访问；使用真实业务类和临时文件，不连接数据库，也不测试事务框架本身。

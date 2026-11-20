@@ -14,6 +14,7 @@ import { generationModes } from '../generationModes'
 const rows = ref<AppFeaturedVO[]>([])
 const loading = ref(false)
 const error = ref('')
+const brokenCovers = ref(new Set<string>())
 let active = true
 
 async function load(): Promise<void> {
@@ -22,7 +23,10 @@ async function load(): Promise<void> {
   error.value = ''
   try {
     const result = await listFeaturedApps()
-    if (active) rows.value = result
+    if (active) {
+      rows.value = result
+      brokenCovers.value.clear()
+    }
   } catch (cause) {
     if (active) error.value = errorMessage(cause)
   } finally {
@@ -63,6 +67,16 @@ onBeforeUnmount(() => {
     />
     <ul v-else class="featured-grid">
       <li v-for="app in rows" :key="app.id" class="featured-card">
+        <img
+          v-if="app.coverUrl && !brokenCovers.has(app.coverUrl)"
+          class="work-cover"
+          :src="app.coverUrl"
+          alt=""
+          width="960"
+          height="540"
+          loading="lazy"
+          @error="brokenCovers.add(app.coverUrl)"
+        />
         <h3>{{ app.appName }}</h3>
         <p class="muted">{{ generationModes[app.codeGenType].label }}</p>
         <AButton :href="app.deployUrl" target="_blank" rel="noopener noreferrer">查看作品</AButton>
@@ -113,6 +127,16 @@ h3 {
 }
 .featured-card .muted {
   margin-bottom: 16px;
+}
+.work-cover {
+  display: block;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
+  margin-bottom: 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
 }
 @media (max-width: 900px) {
   .featured-grid {

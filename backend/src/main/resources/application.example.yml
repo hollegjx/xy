@@ -36,6 +36,9 @@ xy:
     docker-executable: docker
     image: xy-vue-builder:local
     timeout-seconds: 120
+  cover:
+    # 先准备本机隔离截图镜像 xy-cover:1；不启用时作品仍可发布。
+    enabled: false
   deployment:
     directory: ./published
     # 静态站点实际运行后填写，例如 http://127.0.0.1:8102；空值禁用发布。

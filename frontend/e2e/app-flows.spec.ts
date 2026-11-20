@@ -516,7 +516,15 @@ test('Vue 工作台可选质检与修复并展示生成阶段，停止或失败�
   const live = page.getByLabel('本次生成', { exact: true })
   await expect(page.getByRole('button', { name: /生成中/ })).toBeDisabled()
   const assetProgress = '已将 2 项素材加入生成提示：内容照片、品牌 Logo。'
-  for (const text of [assetProgress, '已写入：src/App.vue', '正在检查 Vue 工程…', '发现问题，正在自动修复（最多一次）…']) {
+  const logoReady = '已生成品牌 Logo。'
+  for (const text of [
+    '正在并行准备内容配图和本地素材…',
+    logoReady,
+    assetProgress,
+    '已写入：src/App.vue',
+    '正在检查 Vue 工程…',
+    '发现问题，正在自动修复（最多一次）…',
+  ]) {
     await page.evaluate(
       (text) => window.dispatchEvent(new CustomEvent('xy-test-generation', {
         detail: { type: 'delta', text: `\n${text}\n` },
@@ -524,6 +532,10 @@ test('Vue 工作台可选质检与修复并展示生成阶段，停止或失败�
       text,
     )
     await expect(live).toContainText(text)
+    if (text === logoReady) {
+      await expect(page.getByRole('button', { name: '停止生成', exact: true })).toBeEnabled()
+      await expect(page.locator('iframe')).toHaveCount(0)
+    }
   }
   await expect(page.getByLabel('本次需求', { exact: true })).toHaveValue(app.initPrompt)
   await page.evaluate(() =>

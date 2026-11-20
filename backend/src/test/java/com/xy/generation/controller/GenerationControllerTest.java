@@ -327,6 +327,87 @@ class GenerationControllerTest {
     }
 
     @ParameterizedTest
+    @ValueSource(strings = {"found", "missing", "cancelled"})
+    void localIllustrationIsReadyWhilePhotoIsPendingAndCodeWaitsForTheBatch(String outcome) throws Exception {
+        when(appMapper.selectOneById(55L)).thenReturn(app(42L, "vue_project"));
+        var started = new CountDownLatch(1);
+        var release = new CountDownLatch(1);
+        var returned = new CountDownLatch(1);
+        var photo = new OpenversePhotoSearch.Photo("data:image/jpeg;base64,test", "https://www.flickr.com/photos/xy/123", "CC0");
+        when(photoSearch.find("coffee")).thenAnswer(call -> {
+            started.countDown();
+            try {
+                if (!release.await(10, TimeUnit.SECONDS)) throw new AssertionError("图库替身未收到释放信号");
+            } catch (InterruptedException cancelled) {
+                // 模拟图库在取消后仍返回照片。
+            } finally {
+                returned.countDown();
+            }
+            return outcome.equals("missing") ? java.util.Optional.empty() : java.util.Optional.of(photo);
+        });
+        String illustration = "src/components/XyIllustration.vue";
+        String page = """
+                <script setup>
+                import Reading from './components/XyIllustration.vue'
+                %s
+                </script>
+                <template><Reading />%s</template>""".formatted(
+                        outcome.equals("found") ? "import photo from '../xy-photo.json'" : "",
+                        outcome.equals("found") ? "<img :src='photo.src' alt='咖啡'/>" : "");
+        var requests = new AtomicInteger();
+        doAnswer(call -> {
+            ChatRequest request = call.getArgument(0);
+            StreamingChatResponseHandler handler = call.getArgument(1);
+            var writes = switch (requests.incrementAndGet()) {
+                case 1 -> List.of(assetTool("findPhoto", "{\"theme\":\"coffee\"}"),
+                        assetTool("selectIllustration", "{\"theme\":\"reading\"}"));
+                case 2 -> {
+                    var replies = request.messages().stream().filter(ToolExecutionResultMessage.class::isInstance)
+                            .map(ToolExecutionResultMessage.class::cast).toList();
+                    assertThat(replies).extracting(ToolExecutionResultMessage::toolName).containsExactly("findPhoto", "selectIllustration");
+                    assertThat(replies.getFirst().text()).contains(outcome.equals("found") ? "xy-photo.json" : "无图布局");
+                    String prompt = ((UserMessage) request.messages().get(1)).singleText();
+                    assertThat(prompt).containsOnlyOnce(illustration);
+                    if (outcome.equals("found")) assertThat(prompt).containsOnlyOnce("xy-photo.json");
+                    else assertThat(prompt).doesNotContain("xy-photo.json");
+                    yield List.of(writeFile("src/App.vue", page));
+                }
+                default -> List.<ToolExecutionRequest>of();
+            };
+            handler.onCompleteResponse(writes.isEmpty() ? response("完成", FinishReason.STOP)
+                    : ChatResponse.builder().finishReason(FinishReason.TOOL_EXECUTION).aiMessage(AiMessage.from(writes)).build());
+            return null;
+        }).when(model).chat(any(ChatRequest.class), any(StreamingChatResponseHandler.class));
+
+        var result = mockMvc.perform(generate().session(session())).andExpect(request().asyncStarted()).andReturn();
+        var version = htmlPath().getParent();
+        try {
+            assertThat(started.await(3, TimeUnit.SECONDS)).isTrue();
+            org.awaitility.Awaitility.await().atMost(5, TimeUnit.SECONDS)
+                    .until(() -> Files.isRegularFile(version.resolve(illustration)));
+            assertThat(requests).hasValue(1);
+            assertThat(version.resolve("src/App.vue")).doesNotExist();
+            if (outcome.equals("cancelled")) mockMvc.perform(cancel(generationId).session(session())).andExpect(status().isOk());
+        } finally {
+            release.countDown();
+        }
+        assertThat(returned.await(3, TimeUnit.SECONDS)).isTrue();
+        String events = finish(result);
+        assertThat(events).containsSubsequence("正在并行准备", "已准备插画");
+        if (outcome.equals("cancelled")) {
+            assertThat(events).contains("event:cancelled").doesNotContain("event:completed", "已准备本地内容配图", "已写入：src/App.vue");
+            assertThat(requests).hasValue(1);
+            assertThat(version.resolve("xy-photo.json")).doesNotExist();
+            verify(persistence, never()).complete(eq(55L), eq(42L), eq(generationId), any());
+        } else {
+            assertThat(events).containsSubsequence(outcome.equals("found") ? "已准备本地内容配图" : "未取得可用配图", "已写入：src/App.vue", "event:completed");
+            var zip = unzipSources(fileManager.readVueSourceZip(42, 55, generationId));
+            assertThat(zip).containsKey(illustration).containsEntry("src/App.vue", page);
+            assertThat(zip.containsKey("xy-photo.json")).isEqualTo(outcome.equals("found"));
+        }
+    }
+
+    @ParameterizedTest
     @ValueSource(booleans = {true, false})
     void optionalPhotoReachesSourceZipBuildAndNextVersionOrFallsBack(boolean found) throws Exception {
         when(appMapper.selectOneById(55L)).thenReturn(app(42L, "vue_project"));

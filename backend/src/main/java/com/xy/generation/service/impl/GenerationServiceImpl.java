@@ -99,7 +99,7 @@ public class GenerationServiceImpl implements GenerationService {
             long generationId = persistence.start(appId, loginUser.getId(), request.prompt());
             GenerationSession.OutputHandler outputHandler = CodeGenTypeEnum.VUE_PROJECT.getValue().equals(app.codeGenType())
                     ? new VueProjectGeneration(loginUser.getId(), appId, generationId, fileManager, objectMapper,
-                            vueTemplate, vueBuilder, qualityCheck, photoSearch)
+                            vueTemplate, vueBuilder, qualityCheck, photoSearch, executor)
                     : new NativeGenerationOutputHandler(
                             loginUser.getId(), appId, generationId, app.codeGenType(), fileManager, objectMapper, qualityCheck);
             return new GenerationSession(appId, loginUser.getId(), generationId,

@@ -14,6 +14,7 @@ final class VueAssetPrompt {
     private final Map<String, Asset> assets = new LinkedHashMap<>();
 
     void add(String path, String kind, String use) { assets.put(path, new Asset(kind, use)); }
+    void addAll(VueAssetPrompt batch) { assets.putAll(batch.assets); }
     void remove(String path) { assets.remove(path); }
     int size() { return assets.size(); }
 

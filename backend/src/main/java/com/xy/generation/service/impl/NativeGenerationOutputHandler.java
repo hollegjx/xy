@@ -70,7 +70,8 @@ final class NativeGenerationOutputHandler implements GenerationSession.OutputHan
         boolean first = previousSource == null;
         if (first || photo.available()) {
             var system = (SystemMessage) conversation.getFirst();
-            String hint = first ? ThemeIllustrations.HTML_HINT + "\n" + NativeContentPhoto.HTML_HINT : NativeContentPhoto.EDIT_HINT;
+            String hint = first ? String.join("\n", ThemeIllustrations.HTML_HINT, NativeContentPhoto.HTML_HINT, NativeVectorAssets.HTML_HINT)
+                    : NativeContentPhoto.EDIT_HINT;
             conversation.set(0, SystemMessage.from(system.text() + "\n" + hint));
         }
         if (!qualityCheck) {
@@ -105,7 +106,7 @@ final class NativeGenerationOutputHandler implements GenerationSession.OutputHan
                         var illustrated = ThemeIllustrations.embedInBody(html);
                         if (!illustrated.labels().isEmpty()) session.onPartialResponse("\n候选页面已嵌入主题插画："
                                 + String.join("、", illustrated.labels()) + "。\n");
-                        html = illustrated.html();
+                        html = NativeVectorAssets.embed(illustrated.html(), mapper, session::onPartialResponse);
                     }
                     return photo.prepare(html, first, session);
                 });

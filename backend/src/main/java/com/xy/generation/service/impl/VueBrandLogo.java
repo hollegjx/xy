@@ -31,6 +31,10 @@ final class VueBrandLogo {
                     .required("name", "layers").additionalProperties(false).build()).build();
 
     static Optional<String> render(ObjectMapper mapper, String arguments) {
+        return renderSvg(mapper, arguments).map(svg -> "<template>\n  " + svg + "\n</template>\n");
+    }
+
+    static Optional<String> renderSvg(ObjectMapper mapper, String arguments) {
         JsonNode design;
         try {
             design = mapper.reader().with(DeserializationFeature.FAIL_ON_TRAILING_TOKENS).readTree(arguments);
@@ -41,14 +45,14 @@ final class VueBrandLogo {
                 || !design.path("layers").isArray() || design.get("layers").isEmpty()) return Optional.empty();
 
         String name = HtmlUtils.htmlEscape(design.get("name").textValue().strip(), "UTF-8");
-        var source = new StringBuilder("<template>\n  <svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 100 100\""
+        var source = new StringBuilder("<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 100 100\""
                 + " width=\"64\" height=\"64\" role=\"img\" aria-label=\"").append(name).append("\">\n");
         for (var layer : design.get("layers")) {
             String element = renderLayer(layer);
             if (element == null) return Optional.empty();
             source.append("    ").append(element).append('\n');
         }
-        return Optional.of(source.append("  </svg>\n</template>\n").toString());
+        return Optional.of(source.append("  </svg>").toString());
     }
 
     private static String renderLayer(JsonNode layer) {

@@ -276,6 +276,90 @@ class GenerationControllerTest {
         verifyNoInteractions(photoSearch, builder);
     }
 
+    @ParameterizedTest
+    @CsvSource({"html,true,true", "multi_file,true,true", "html,false,true", "multi_file,true,false"})
+    void deliversNativeVectorArtOrKeepsItsOwnCaption(String mode, boolean logoOk, boolean graphOk,
+            @TempDir Path downloads) throws Exception {
+        boolean multi = mode.equals("multi_file");
+        var app = app(42L, mode);
+        when(appMapper.selectOneById(55L)).thenReturn(app);
+        var files = new LinkedHashMap<>(multi ? multiFiles() : Map.of("index.html", HTML));
+        String logo = """
+                {"name":"星云 & 书屋","layers":[{"shape":"circle","color":"#24516B","coordinates":[50,50,32]}]}""";
+        String graph = """
+                {"nodes":["读者","网关","书库"],"edges":[{"from":"读者","to":"网关","label":"查书"},
+                {"from":"网关","to":"读者"},{"from":"书库","to":"书库","label":"自检"}]}""";
+        if (!logoOk) logo = logo.replace("50,50,32", "50,50,0");
+        if (!graphOk) graph = graph.replace("\"to\":\"网关\"", "\"to\":\"未定义节点\"");
+        String slots = "<span id='brand' class='brand' data-xy-logo='" + logo + "'>星云 &amp; 书屋</span>"
+                + "<figure id='diagram' data-xy-architecture='" + graph + "'><figcaption>节点说明</figcaption></figure>";
+        files.compute("index.html", (key, html) -> html.replace("你好", slots));
+        String raw = multi ? objectMapper.writeValueAsString(files) : files.get("index.html");
+        String edit = "把节点说明改成系统说明";
+        long secondId = IDS.incrementAndGet();
+        when(persistence.start(55L, 42L, edit)).thenReturn(secondId);
+        var record = new ChatHistory();
+        record.setAppId(55L); record.setUserId(42L); record.setMessageRole("assistant"); record.setStatus("completed");
+        when(chatHistoryMapper.selectOneById(generationId)).thenReturn(record);
+        when(chatHistoryMapper.selectOneById(secondId)).thenReturn(record);
+        doAnswer(call -> { app.setGeneratedVersion(call.getArgument(2)); return null; })
+                .when(persistence).complete(eq(55L), eq(42L), any(Long.class), any());
+        var writes = new AtomicInteger();
+        doAnswer(call -> {
+            List<ChatMessage> messages = call.getArgument(0);
+            String output = raw;
+            if (writes.incrementAndGet() == 1) {
+                assertThat(((SystemMessage) messages.getFirst()).text()).contains("data-xy-logo", "data-xy-architecture");
+            } else {
+                output = messages.stream().filter(AiMessage.class::isInstance).map(AiMessage.class::cast)
+                        .map(AiMessage::text).findFirst().orElseThrow();
+                assertThat(output).contains("<svg").doesNotContain("data-xy-logo=", "data-xy-architecture=");
+                output = output.replace("节点说明", "系统说明");
+            }
+            call.<StreamingChatResponseHandler>getArgument(1).onCompleteResponse(response(output, FinishReason.STOP));
+            return null;
+        }).when(model).chat(anyList(), any(StreamingChatResponseHandler.class));
+        doAnswer(call -> {
+            String candidate = ((UserMessage) call.<ChatRequest>getArgument(0).messages().getLast()).singleText();
+            assertThat(candidate).contains("<svg").doesNotContain("data-xy-logo=", "data-xy-architecture=");
+            call.<StreamingChatResponseHandler>getArgument(1).onCompleteResponse(response(
+                    "{\"isValid\":true,\"errors\":[],\"suggestions\":[]}", FinishReason.STOP));
+            return null;
+        }).when(model).chat(any(ChatRequest.class), any(StreamingChatResponseHandler.class));
+
+        String events = finish(mockMvc.perform(generate().session(session()).content(objectMapper.writeValueAsString(
+                Map.of("prompt", "摄影作品集", "qualityCheck", multi)))).andReturn());
+        assertThat(events).contains(logoOk ? "已嵌入品牌 Logo" : "品牌 Logo：设计无效", graphOk ? "已嵌入架构图" : "架构图：设计无效",
+                "event:completed").doesNotContain("event:failed");
+        if (multi) assertThat(events).contains("检查通过");
+        boolean followup = logoOk && graphOk;
+        if (followup) {
+            String edited = finish(mockMvc.perform(generate().session(session())
+                    .content(objectMapper.writeValueAsString(Map.of("prompt", edit)))).andReturn());
+            assertThat(edited).contains("event:completed").doesNotContain("event:failed", "已嵌入");
+        }
+        assertThat(writes).hasValue(followup ? 2 : 1);
+        Path download = downloads.resolve(mode + "-" + logoOk + "-" + graphOk + ".zip");
+        Files.write(download, mockMvc.perform(get("/api/apps/55/source").contextPath("/api").session(session()))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsByteArray());
+        String preview = mockMvc.perform(get("/api/apps/55/preview").contextPath("/api").session(session()))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+        try (var zip = new java.util.zip.ZipFile(download.toFile())) {
+            assertThat(zip.stream().map(java.util.zip.ZipEntry::getName)).containsExactlyInAnyOrderElementsOf(files.keySet());
+            String page = new String(zip.getInputStream(zip.getEntry("index.html")).readAllBytes(), StandardCharsets.UTF_8);
+            for (String html : List.of(page, preview)) {
+                var body = org.jsoup.Jsoup.parse(html).body();
+                assertThat(body.expectFirst("#brand.brand").text()).isEqualTo("星云 & 书屋");
+                assertThat(body.select("#brand > svg[aria-label='星云 & 书屋'] circle")).hasSize(logoOk ? 1 : 0);
+                assertThat(body.select("#diagram > svg path")).hasSize(graphOk ? 3 : 0);
+                if (graphOk) assertThat(body.select("#diagram path title").eachText())
+                        .containsExactly("读者 → 网关：查书", "网关 → 读者", "书库 → 书库：自检");
+                assertThat(body.expectFirst("#diagram figcaption").text()).isEqualTo(followup ? "系统说明" : "节点说明");
+            }
+        }
+        verifyNoInteractions(builder, photoSearch);
+    }
+
     @Test
     void cancellingDuringNativePhotoLookupKeepsHeartbeatsAndIgnoresTheLatePhoto() throws Exception {
         var searching = new CountDownLatch(1);

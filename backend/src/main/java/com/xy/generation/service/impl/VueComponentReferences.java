@@ -1,9 +1,11 @@
 package com.xy.generation.service.impl;
 
 import java.nio.file.Path;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import org.jsoup.nodes.Element;
 import org.jsoup.parser.Parser;
@@ -34,13 +36,39 @@ final class VueComponentReferences {
     }
 
     static boolean references(Map<String, String> sources, String target) {
-        var paths = Set.of(target);
+        return firstReference(sources, referencePaths(sources, target)) != null;
+    }
+
+    /** 旧版工具使用默认导入；区分图本身的数据和同一组件另外导入的标题等数据。 */
+    static boolean readsDefaultImportFields(String importer, String script, Map<String, String> sources,
+            String target, Set<String> fields) {
+        var paths = referencePaths(sources, target);
+        var bindings = new HashSet<String>();
+        var reads = new HashMap<String, Set<String>>();
+        var tokens = JS_TOKEN.matcher(script);
+        String third = "", second = "", previous = "";
+        for (String token; (token = nextToken(script, tokens, previous)) != null; ) {
+            if (third.equals("import") && previous.equals("from") && (token.startsWith("'") || token.startsWith("\""))
+                    && token.length() >= 2 && resolve(importer, token.substring(1, token.length() - 1), paths) != null) {
+                bindings.add(second);
+            }
+            if (previous.equals(".") && fields.contains(token)) {
+                reads.computeIfAbsent(second, ignored -> new HashSet<>()).add(token);
+            }
+            third = second;
+            second = previous;
+            previous = token;
+        }
+        return bindings.stream().anyMatch(name -> reads.getOrDefault(name, Set.of()).containsAll(fields));
+    }
+
+    private static Set<String> referencePaths(Map<String, String> sources, String target) {
         if (target.endsWith(".json") && sources.containsKey(target)) {
             String stem = target.substring(0, target.length() - ".json".length());
             // 固定工程中，省略扩展名时 Vite 先解析同名 .js，再解析 .json。
-            if (!sources.containsKey(stem + ".js")) paths = Set.of(target, stem);
+            if (!sources.containsKey(stem + ".js")) return Set.of(target, stem);
         }
-        return firstReference(sources, paths) != null;
+        return Set.of(target);
     }
 
     private record Reference(String importer, String target) {}
@@ -66,7 +94,7 @@ final class VueComponentReferences {
         return null;
     }
 
-    private static Element parseVueBlocks(String source) {
+    static Element parseVueBlocks(String source) {
         // SFC 按源码中的 /> 闭合元素，不经过浏览器 HTML 的纠错和补标签。
         var tags = new TagSet().onNewTag(tag -> {
             String name = tag.name();
@@ -102,16 +130,7 @@ final class VueComponentReferences {
     private static String importedTarget(String path, String script, Set<String> targets) {
         String previous = "", beforePrevious = "", pending = null;
         var tokens = JS_TOKEN.matcher(script);
-        while (tokens.find()) {
-            String token = tokens.group();
-            if (token.startsWith("//") || token.startsWith("/*")) continue;
-            if (token.equals("/") && EXPRESSION_PREFIX.contains(previous)) {
-                var regexp = REGEXP.matcher(script).region(tokens.start(), script.length());
-                if (regexp.lookingAt()) {
-                    tokens.region(regexp.end(), script.length());
-                    token = "<regexp>";
-                }
-            }
+        for (String token; (token = nextToken(script, tokens, previous)) != null; ) {
             if (pending != null && (token.equals(")") || token.equals(","))) return pending;
             pending = null;
             char first = token.charAt(0);
@@ -126,6 +145,22 @@ final class VueComponentReferences {
             }
             beforePrevious = previous;
             previous = token;
+        }
+        return null;
+    }
+
+    private static String nextToken(String script, Matcher tokens, String previous) {
+        while (tokens.find()) {
+            String token = tokens.group();
+            if (token.startsWith("//") || token.startsWith("/*")) continue;
+            if (token.equals("/") && EXPRESSION_PREFIX.contains(previous)) {
+                var regexp = REGEXP.matcher(script).region(tokens.start(), script.length());
+                if (regexp.lookingAt()) {
+                    tokens.region(regexp.end(), script.length());
+                    return "<regexp>";
+                }
+            }
+            return token;
         }
         return null;
     }

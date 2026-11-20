@@ -14,6 +14,8 @@ import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import org.jsoup.nodes.Element;
 import org.springframework.core.io.ClassPathResource;
 
 final class VueArchitectureDiagram {
@@ -37,11 +39,23 @@ final class VueArchitectureDiagram {
         return new ClassPathResource("diagrams/XyArchitecture.vue").getContentAsString(StandardCharsets.UTF_8);
     }
 
-    static boolean containsBundledRenderer(Map<String, String> sources) throws IOException {
-        String renderer = bundledRenderer();
-        return sources.entrySet().stream().anyMatch(file -> file.getKey().endsWith(".vue")
-                && renderer.equals(file.getValue())
-                && VueComponentReferences.references(Map.of(file.getKey(), file.getValue()), DATA));
+    static boolean containsLegacyRenderer(Map<String, String> sources) {
+        for (var file : sources.entrySet()) {
+            if (!file.getKey().endsWith(".vue")) continue;
+            var blocks = VueComponentReferences.parseVueBlocks(file.getValue());
+            if (blocks.select("template svg").stream().noneMatch(VueArchitectureDiagram::drawsNodesAndEdges)) continue;
+            if (blocks.children().stream().anyMatch(block -> block.normalName().equals("script")
+                    && VueComponentReferences.readsDefaultImportFields(file.getKey(), block.data(), sources,
+                            DATA, Set.of("nodes", "edges")))) return true;
+        }
+        return false;
+    }
+
+    private static boolean drawsNodesAndEdges(Element svg) {
+        // 旧组件用同一个 SVG 循环绘制节点与连线路径；颜色、样式表和组件名均可修改。
+        return svg.selectFirst("g[v-for~=(?:in|of)\\s+nodes\\s*$]") != null
+                && svg.select("path[v-for~=(?:in|of)\\s+edges\\s*$]").stream()
+                        .anyMatch(path -> path.hasAttr(":d") || path.hasAttr("v-bind:d"));
     }
 
     static String findError(ObjectMapper mapper, Map<String, String> sources, boolean generatedDiagram) {

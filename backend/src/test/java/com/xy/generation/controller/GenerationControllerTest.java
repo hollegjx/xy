@@ -729,14 +729,21 @@ class GenerationControllerTest {
 
     @ParameterizedTest
     @ValueSource(strings = {"dangling", "dangling-before-build", "mismatched-whitespace", "renamed-together",
-            "renamed-component", "renamed-component-together"})
+            "renamed-component", "renamed-component-together", "restyled", "restyled-together"})
     void onlyPromotesDiagramEditsWhoseFinalEdgesStillConnect(String edit) throws Exception {
         String data = "src/components/xy-architecture.json", component = "src/components/XyArchitecture.vue";
         String graph = "{\"nodes\":[\"浏览器\",\"接口\"],\"edges\":[{\"from\":\"浏览器\",\"to\":\"接口\"}]}";
         App app = app(42L, "vue_project");
         String page = "<script setup>import Graph from './components/XyArchitecture.vue'</script><template><Graph/></template>";
-        String renderer = new ClassPathResource("diagrams/XyArchitecture.vue").getContentAsString(StandardCharsets.UTF_8);
+        String bundled = new ClassPathResource("diagrams/XyArchitecture.vue").getContentAsString(StandardCharsets.UTF_8);
+        String renderer = edit.startsWith("restyled") ? bundled.replace("#edf4f0", "#d9ebfa") : bundled;
         long previous = preparePreviousVueProject(app, page);
+        var saved = new ChatHistory();
+        saved.setAppId(55L);
+        saved.setUserId(42L);
+        saved.setMessageRole("assistant");
+        saved.setStatus("completed");
+        when(chatHistoryMapper.selectOneById(previous)).thenReturn(saved);
         fileManager.writeVueSource(42, 55, previous, component, renderer);
         fileManager.writeVueSource(42, 55, previous, data, graph);
         boolean both = edit.endsWith("-together"), renameComponent = edit.startsWith("renamed-component");
@@ -776,14 +783,16 @@ class GenerationControllerTest {
             assertThat(events).contains("event:failed", "xy-architecture.json", "连线").doesNotContain("event:completed");
             verify(persistence, never()).complete(eq(55L), eq(42L), eq(generationId), any());
             verify(builder, never()).build(any(), any());
-            assertThat(unzipSources(fileManager.readVueSourceZip(42, 55, app.getGeneratedVersion())))
+            byte[] download = mockMvc.perform(get("/api/apps/55/source").contextPath("/api").session(session()))
+                    .andExpect(status().isOk()).andReturn().getResponse().getContentAsByteArray();
+            assertThat(unzipSources(download))
                     .containsEntry(data, graph).containsEntry(component, renderer).containsEntry("src/App.vue", page);
         }
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"labels/xy-architecture.json", "xy-architecture.json"})
-    void ordinaryJsonCanUseTheSameNameAndPathAsDiagramData(String relativeData) throws Exception {
+    @CsvSource({"labels/xy-architecture.json,false", "xy-architecture.json,false", "xy-architecture.json,true"})
+    void ordinaryJsonCanUseTheSameNameAndPathAsDiagramData(String relativeData, boolean inherited) throws Exception {
         App app = app(42L, "vue_project");
         when(appMapper.selectOneById(55L)).thenReturn(app);
         String component = "src/components/XyArchitecture.vue";
@@ -791,11 +800,20 @@ class GenerationControllerTest {
                 <script setup>
                 // 下面只是注释：import graph from './xy-architecture.json'
                 import labels from './%s'
+                const nodes = ['甲','乙'], edges = ['M0 0L20 20']
                 </script>
-                <template><p>{{ labels.title }}</p></template>""".formatted(relativeData);
+                <template><p>{{ labels.title }}</p><svg viewBox="0 0 20 20">
+                  <g v-for="node in nodes" :key="node"><text>{{ node }}</text></g>
+                  <path v-for="edge in edges" :key="edge" :d="edge" />
+                </svg></template>""".formatted(relativeData);
         String data = "src/components/" + relativeData;
         String json = "{\"title\":\"模块简介\",\"nodes\":[],\"edges\":[]}";
         String page = "<script setup>import Caption from './components/XyArchitecture.vue'</script><template><Caption/></template>";
+        if (inherited) {
+            long previous = preparePreviousVueProject(app, page);
+            fileManager.writeVueSource(42, 55, previous, component, ordinary);
+            fileManager.writeVueSource(42, 55, previous, data, "{\"title\":\"旧标题\"}");
+        }
         doAnswer(call -> {
             ChatRequest request = call.getArgument(0);
             StreamingChatResponseHandler handler = call.getArgument(1);

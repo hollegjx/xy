@@ -34,6 +34,8 @@ public class GeneratedFileManager {
     private static final Set<String> MULTI_FILE_NAMES = Set.of("index.html", "style.css", "script.js");
     private static final Set<String> VUE_TEMPLATE_NAMES = Set.of("package.json", "index.html", "vite.config.js", "src/main.js");
     public static final String VUE_PHOTO = "xy-photo.json";
+    // 版本私有标记，不属于模型可写的 src 或打包、构建的文件清单。
+    private static final String VUE_ARCHITECTURE_MARKER = ".xy-architecture";
     private final Path root;
 
     public GeneratedFileManager(@Value("${xy.generation.output-directory:./generated}") Path root) {
@@ -130,6 +132,15 @@ public class GeneratedFileManager {
         return readFile(versionDirectory(userId, appId, generationId), VUE_PHOTO);
     }
 
+    public boolean hasVueArchitecture(long userId, long appId, long generationId) throws IOException {
+        return Files.isRegularFile(versionDirectory(userId, appId, generationId).resolve(VUE_ARCHITECTURE_MARKER),
+                LinkOption.NOFOLLOW_LINKS);
+    }
+
+    public void markVueArchitecture(long userId, long appId, long generationId) throws IOException {
+        Files.createFile(versionDirectory(userId, appId, generationId).resolve(VUE_ARCHITECTURE_MARKER));
+    }
+
     public List<String> copyVueSources(long userId, long appId, long previousId, long generationId) throws IOException {
         List<String> paths = new ArrayList<>();
         for (var file : readVueProject(userId, appId, previousId).entrySet()) {
@@ -138,6 +149,7 @@ public class GeneratedFileManager {
             else writeVueSource(userId, appId, generationId, file.getKey(), file.getValue());
             paths.add(file.getKey());
         }
+        if (hasVueArchitecture(userId, appId, previousId)) markVueArchitecture(userId, appId, generationId);
         return paths;
     }
 

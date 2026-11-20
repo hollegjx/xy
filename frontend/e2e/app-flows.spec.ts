@@ -596,16 +596,17 @@ test('Vue 工作台可选质检与修复并展示生成阶段，停止或失败�
   await expect(page.getByRole('button', { name: '下载源码' })).toBeEnabled()
 })
 
-for (const mode of ['multi_file', 'vue_project'] as const) {
+for (const mode of ['html', 'multi_file', 'vue_project'] as const) {
   test(`${mode}：工作台首次生成、失败后恢复需求重试，刷新后可以继续修改`, async ({ page }) => {
     await checkFollowUp(page, mode)
   })
 }
 
-async function checkFollowUp(page: Page, mode: 'multi_file' | 'vue_project') {
+async function checkFollowUp(page: Page, mode: 'html' | 'multi_file' | 'vue_project') {
   const change = '把背景改为黑色，保留原有照片和按钮。'
   const nextChange = '把按钮文字改成浏览作品，保留黑色背景。'
   const selected = 'button · #detail · 查看原图'
+  const qualityFailure = '自动修复一次后仍未通过 AI 质检，请重试'
   const detailPreview = previewHtml.replace('</body>', `<details><summary>打开详情</summary>
     <button id="detail" onclick="this.parentElement.open=false">查看原图</button></details></body>`)
   const expectedPrompts = [
@@ -635,11 +636,13 @@ async function checkFollowUp(page: Page, mode: 'multi_file' | 'vue_project') {
       } else if (path === `/api/apps/${app.id}/generations`) {
         expect(request.method()).toBe('POST')
         const prompt = expectedPrompts[sent.length]!
-        expect(request.postDataJSON()).toEqual({ prompt })
+        expect(request.postDataJSON()).toEqual(
+          sent.length === 1 ? { prompt, qualityCheck: true } : { prompt },
+        )
         sent.push(prompt)
         const generationId = String(100 + sent.length * 2)
         const status = sent.length === 2 ? 'failed' : 'completed'
-        const message = status === 'failed' ? '模型返回文件不完整，请重试' : null
+        const message = status === 'failed' ? qualityFailure : null
         if (status === 'completed') {
           currentPreview =
             sent.length === 1
@@ -704,8 +707,11 @@ async function checkFollowUp(page: Page, mode: 'multi_file' | 'vue_project') {
   await expect(frame.getByRole('button', { name: '查看照片 1' })).toBeVisible()
 
   await prompt.fill(change)
+  const quality = page.getByRole('checkbox', { name: 'AI 质检与修复' })
+  await expect(quality).not.toBeChecked()
+  await quality.check()
   await page.getByRole('button', { name: '提交需求', exact: true }).click()
-  await expect(live).toContainText('模型返回文件不完整，请重试')
+  await expect(live).toContainText(qualityFailure)
   await expect(prompt).toHaveValue(change)
   await expect(frame.getByRole('button', { name: '查看照片 1' })).toBeVisible()
   await prompt.fill('我正在编辑下一条需求')
@@ -715,6 +721,7 @@ async function checkFollowUp(page: Page, mode: 'multi_file' | 'vue_project') {
 
   await page.reload()
   await expect(prompt).toHaveValue(change)
+  await expect(quality).not.toBeChecked()
   expect(sent).toHaveLength(2)
   await page.getByRole('button', { name: '重试生成', exact: true }).click()
   await expect(prompt).toHaveValue('')

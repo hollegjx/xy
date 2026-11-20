@@ -209,7 +209,7 @@ async function generate(): Promise<void> {
           emit('completed', event.generationId)
         }
       },
-      props.codeGenType === 'vue_project' && qualityCheck.value ? true : undefined,
+      qualityCheck.value || undefined,
     )
   } catch (cause) {
     if (active && !currentController.signal.aborted) showGenerationError(cause)
@@ -279,11 +279,17 @@ onBeforeUnmount(() => {
         />
       </AFormItem>
       <p class="history-hint">已有网站会基于最近成功版本修改，只需描述这次想调整的内容。</p>
-      <div v-if="codeGenType === 'vue_project'" class="quality-option">
+      <div class="quality-option">
         <ACheckbox v-model:checked="qualityCheck" :disabled="!canGenerate">
           AI 质检与修复
         </ACheckbox>
-        <p class="history-hint">生成后检查代码，必要时自动修复一次。</p>
+        <p class="history-hint">
+          {{
+            codeGenType === 'vue_project'
+              ? '生成后检查工程源码，必要时自动修复一次。'
+              : '有问题时自动修复一次，检查通过后更新预览。'
+          }}
+        </p>
       </div>
       <div class="generation-actions">
         <AButton

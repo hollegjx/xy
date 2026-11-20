@@ -32,6 +32,7 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.LinkedHashMap;
@@ -49,6 +50,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.stubbing.Answer;
@@ -273,11 +275,16 @@ class GenerationControllerTest {
                 </script>
                 <template><header><Logo/>星云书店</header><img :src="photo.src" alt="咖啡区"/><Reading/><Graph/></template>""";
         var prompts = new java.util.ArrayList<String>();
+        var checks = new AtomicInteger();
+        String fixedPage = page.replace("星云书店</header>", "星云书店精选</header>");
         doAnswer(call -> {
             ChatRequest request = call.getArgument(0);
             StreamingChatResponseHandler handler = call.getArgument(1);
             if (request.toolSpecifications() == null || request.toolSpecifications().isEmpty()) {
-                handler.onCompleteResponse(response("{\"isValid\":true,\"errors\":[],\"suggestions\":[]}", FinishReason.STOP));
+                boolean passed = checks.incrementAndGet() == 2;
+                assertThat(((UserMessage) request.messages().getLast()).singleText()).doesNotContain("上一成功版源码", image);
+                handler.onCompleteResponse(response(objectMapper.writeValueAsString(Map.of("isValid", passed,
+                        "errors", passed ? List.of() : List.of("标题需要修正"), "suggestions", List.of())), FinishReason.STOP));
                 return null;
             }
             prompts.add(((UserMessage) request.messages().get(1)).singleText());
@@ -288,6 +295,7 @@ class GenerationControllerTest {
                         assetTool("drawArchitecture", "{\"nodes\":[\"书店\",\"书目\"],\"edges\":[{\"from\":\"书店\",\"to\":\"书目\"}]}"),
                         assetTool("generateLogo", "{\"name\":\"星云\",\"layers\":[{\"shape\":\"circle\",\"color\":\"#24516B\",\"coordinates\":[50,50,35]}]}"));
                 case 3 -> List.of(writeFile("src/App.vue", page));
+                case 5 -> List.of(writeFile("src/App.vue", fixedPage));
                 default -> List.<ToolExecutionRequest>of();
             };
             handler.onCompleteResponse(calls.isEmpty() ? response("完成", FinishReason.STOP)
@@ -299,16 +307,17 @@ class GenerationControllerTest {
                 .content(objectMapper.writeValueAsString(Map.of("prompt", prompt, "qualityCheck", qualityCheck)))).andReturn());
         assertThat(events).containsSubsequence("2 项素材加入生成提示：内容照片、主题插画", "4 项素材加入生成提示：内容照片、主题插画、架构图、品牌 Logo",
                 "已写入：src/App.vue", "event:completed").doesNotContain("已写入：src/Premature.vue", "event:failed", image);
-        assertThat(prompts).hasSize(4);
+        assertThat(prompts).hasSize(qualityCheck ? 6 : 4);
         assertThat(prompts.getFirst()).isEqualTo(prompt);
         assertThat(prompts.get(1)).startsWith(prompt).contains("xy-photo.json", "CC0", "XyIllustration.vue", "学习阅读")
                 .doesNotContain("XyArchitecture.vue", "XyLogo.vue", image);
         assertThat(prompts.get(2)).startsWith(prompt).containsOnlyOnce("本轮可用素材").containsOnlyOnce("XyIllustration.vue")
                 .contains("xy-photo.json", "src/components/XyArchitecture.vue", "2 个节点、1 条连线", "src/components/XyLogo.vue")
                 .doesNotContain(image);
-        assertThat(prompts.getLast()).isEqualTo(prompts.get(2));
+        assertThat(prompts.subList(3, prompts.size())).containsOnly(prompts.get(2));
+        if (qualityCheck) assertThat(events).contains("正在修复").containsOnlyOnce("已生成品牌 Logo");
         var zip = unzipSources(fileManager.readVueSourceZip(42, 55, generationId));
-        assertThat(zip).containsEntry("src/App.vue", page).doesNotContainKey("src/Premature.vue")
+        assertThat(zip).containsEntry("src/App.vue", qualityCheck ? fixedPage : page).doesNotContainKey("src/Premature.vue")
                 .containsKeys("xy-photo.json", "src/components/XyIllustration.vue", "src/components/XyArchitecture.vue", "src/components/XyLogo.vue");
         verify(persistence).start(55L, 42L, prompt);
     }
@@ -551,16 +560,18 @@ class GenerationControllerTest {
     }
 
     @ParameterizedTest
-    @ValueSource(ints = {0, 1, 2})
-    void architectureToolDeliversDirectedGraphOrContinuesWithoutDanglingImport(int invalidAttempts) throws Exception {
-        when(appMapper.selectOneById(55L)).thenReturn(app(42L, "vue_project"));
+    @CsvSource({"0,false", "1,false", "2,false", "2,true"})
+    void architectureToolDeliversDirectedGraphOrContinuesWithoutDanglingImport(int invalidAttempts, boolean dangling) throws Exception {
+        App app = app(42L, "vue_project");
+        when(appMapper.selectOneById(55L)).thenReturn(app);
         String prompt = "绘制系统架构图";
+        String edit = "把后端节点改为网关";
         when(persistence.start(55L, 42L, prompt)).thenReturn(generationId);
         String graph = """
                 {"nodes":["浏览器","后端","模型","数据库"],"edges":[{"from":"浏览器","to":"后端"},
                 {"from":"后端","to":"模型","label":"调用"},{"from":"后端","to":"数据库","label":"读写"}]}""";
         String data = "src/components/xy-architecture.json", component = "src/components/XyArchitecture.vue";
-        String page = invalidAttempts == 2 ? "<template>系统说明</template>" : """
+        String page = invalidAttempts == 2 && !dangling ? "<template>系统说明</template>" : """
                 <script setup>import XyArchitecture from './components/XyArchitecture.vue'</script>
                 <template><XyArchitecture /></template>""";
         AtomicInteger calls = new AtomicInteger();
@@ -579,14 +590,28 @@ class GenerationControllerTest {
             } else if (request.messages().getLast() instanceof ToolExecutionResultMessage result
                     && "drawArchitecture".equals(result.toolName())) {
                 assertThat(result.text()).contains(invalidAttempts == 2 ? "文字说明" : "./components/XyArchitecture.vue");
+                var writes = new ArrayList<>(List.of(writeFile("src/App.vue", page)));
+                if (invalidAttempts == 0) writes.add(assetTool("replaceFragment", objectMapper.writeValueAsString(
+                        Map.of("relativePath", component, "oldText", "#edf4f0", "newText", "#d9ebfa"))));
                 handler.onCompleteResponse(ChatResponse.builder().finishReason(FinishReason.TOOL_EXECUTION)
-                        .aiMessage(AiMessage.from(writeFile("src/App.vue", page))).build());
+                        .aiMessage(AiMessage.from(writes)).build());
+            } else if (request.messages().getLast() instanceof UserMessage user && edit.equals(user.singleText())) {
+                assertThat(request.messages().toString()).doesNotContain(".xy-architecture");
+                handler.onCompleteResponse(ChatResponse.builder().finishReason(FinishReason.TOOL_EXECUTION)
+                        .aiMessage(AiMessage.from(writeFile(data, graph.replaceFirst("后端", "网关")))).build());
             } else handler.onCompleteResponse(response("完成", FinishReason.STOP));
             return null;
         }).when(model).chat(any(ChatRequest.class), any(StreamingChatResponseHandler.class));
 
         String events = finish(mockMvc.perform(generate().session(session())
                 .content(objectMapper.writeValueAsString(Map.of("prompt", prompt)))).andReturn());
+        if (dangling) {
+            assertThat(events).containsSubsequence("改用文字说明", "event:failed").contains("XyArchitecture.vue")
+                    .doesNotContain("event:completed");
+            verify(persistence, never()).complete(eq(55L), eq(42L), eq(generationId), any());
+            mockMvc.perform(get("/api/apps/55/source").contextPath("/api").session(session())).andExpect(status().isConflict());
+            return;
+        }
         var zip = unzipSources(fileManager.readVueSourceZip(42, 55, generationId));
         assertThat(events).contains("event:completed");
         assertThat(zip).containsEntry("src/App.vue", page);
@@ -602,9 +627,16 @@ class GenerationControllerTest {
             assertThat(actual.path("edges").get(1)).isEqualTo(objectMapper.readTree(graph).path("edges").get(1));
             assertThat(actual.path("edges").get(2)).isEqualTo(objectMapper.readTree(graph).path("edges").get(2));
             assertThat(zip.get(component)).contains("./xy-architecture.json");
+            if (invalidAttempts == 0) assertThat(zip.get(component)).contains("#d9ebfa");
+            assertThat(zip).containsOnlyKeys("src/App.vue", "src/main.js", "index.html", "vite.config.js", "package.json", data, component);
             long next = IDS.incrementAndGet();
-            fileManager.copyVueSources(42, 55, generationId, next);
-            assertThat(fileManager.readVueSource(42, 55, next, data)).isEqualTo(zip.get(data));
+            app.setGeneratedVersion(generationId);
+            when(persistence.start(55L, 42L, edit)).thenReturn(next);
+            String edited = finish(mockMvc.perform(generate().session(session())
+                    .content(objectMapper.writeValueAsString(Map.of("prompt", edit)))).andReturn());
+            assertThat(edited).contains("event:failed", "xy-architecture.json", "连线").doesNotContain("event:completed");
+            verify(persistence, never()).complete(eq(55L), eq(42L), eq(next), any());
+            assertThat(fileManager.readVueSource(42, 55, generationId, data)).isEqualTo(zip.get(data));
             assertThat(fileManager.readVueSource(42, 55, next, component)).isEqualTo(zip.get(component));
         }
         verifyNoInteractions(photoSearch);
@@ -668,17 +700,20 @@ class GenerationControllerTest {
         }
     }
 
-    @Test
-    void sameNamedComponentWithoutDiagramDataCanComplete() throws Exception {
+    @ParameterizedTest
+    @ValueSource(strings = {"labels/xy-architecture.json", "xy-architecture.json"})
+    void ordinaryJsonCanUseTheSameNameAndPathAsDiagramData(String relativeData) throws Exception {
         App app = app(42L, "vue_project");
         when(appMapper.selectOneById(55L)).thenReturn(app);
         String component = "src/components/XyArchitecture.vue";
         String ordinary = """
                 <script setup>
                 // 下面只是注释：import graph from './xy-architecture.json'
-                import labels from './labels/xy-architecture.json'
+                import labels from './%s'
                 </script>
-                <template><p>{{ labels.caption }}</p></template>""";
+                <template><p>{{ labels.title }}</p></template>""".formatted(relativeData);
+        String data = "src/components/" + relativeData;
+        String json = "{\"title\":\"模块简介\",\"nodes\":[],\"edges\":[]}";
         String page = "<script setup>import Caption from './components/XyArchitecture.vue'</script><template><Caption/></template>";
         doAnswer(call -> {
             ChatRequest request = call.getArgument(0);
@@ -687,7 +722,7 @@ class GenerationControllerTest {
                 handler.onCompleteResponse(response("完成", FinishReason.STOP));
             } else {
                 var edits = List.of(writeFile(component, ordinary), writeFile("src/App.vue", page),
-                        writeFile("src/components/labels/xy-architecture.json", "{\"caption\":\"Browser → API\"}"));
+                        writeFile(data, json));
                 handler.onCompleteResponse(ChatResponse.builder().finishReason(FinishReason.TOOL_EXECUTION)
                         .aiMessage(AiMessage.from(edits)).build());
             }
@@ -696,7 +731,7 @@ class GenerationControllerTest {
         String events = finish(mockMvc.perform(generate().session(session())).andReturn());
         assertThat(events).contains("event:completed").doesNotContain("event:failed");
         assertThat(unzipSources(fileManager.readVueSourceZip(42, 55, generationId)))
-                .containsEntry(component, ordinary).containsEntry("src/App.vue", page).doesNotContainKey("src/components/xy-architecture.json");
+                .containsEntry(component, ordinary).containsEntry("src/App.vue", page).containsEntry(data, json);
     }
 
     private long preparePreviousVueProject(App app, String appSource) throws Exception {
@@ -927,7 +962,9 @@ class GenerationControllerTest {
             StreamingChatResponseHandler handler = invocation.getArgument(1);
             if (request.toolSpecifications() == null || request.toolSpecifications().isEmpty()) {
                 int check = checks.incrementAndGet();
-                assertThat(request.messages().toString()).contains("摄影作品集", "src/App.vue", "src/Card.vue", "候选" + writes.get());
+                String input = ((UserMessage) request.messages().getLast()).singleText();
+                assertThat(input).containsSubsequence("摄影作品集", "上一成功版源码", "<template>旧作品</template>", "本次候选源码", "候选" + writes.get());
+                assertThat(input).contains("src/App.vue", "src/Card.vue");
                 boolean valid = outcome.equals("passed") || outcome.equals("repaired") && check == 2;
                 String report = outcome.equals("invalid_report") ? "检查好了"
                         : objectMapper.writeValueAsString(Map.of("isValid", valid,
@@ -970,6 +1007,157 @@ class GenerationControllerTest {
             verify(chatHistoryMapper).finishGeneration(eq(generationId), eq("failed"), any(), eq(reason));
             assertThat(events).contains(reason).doesNotContain(suggestions.getFirst(), "状态待恢复");
         }
+    }
+
+    @ParameterizedTest
+    @CsvSource({"html,passed", "multi_file,passed", "html,repaired", "multi_file,repaired",
+            "html,failed", "multi_file,failed", "multi_file,invalid_files", "html,cancel_repair"})
+    void staticQualityChecksTheCandidateAndOnlyDeliversApprovedFiles(String mode, String outcome) throws Exception {
+        boolean multi = mode.equals("multi_file");
+        App app = app(42L, mode);
+        long previous = generationId - 1000;
+        app.setGeneratedVersion(previous);
+        when(appMapper.selectOneById(55L)).thenReturn(app);
+        var originals = multi ? multiFiles() : Map.of("index.html", HTML);
+        if (multi) fileManager.saveMultiFile(42, 55, previous, originals);
+        else fileManager.saveHtml(42, 55, previous, HTML);
+        ChatHistory version = new ChatHistory();
+        version.setAppId(55L);
+        version.setUserId(42L);
+        version.setMessageRole("assistant");
+        version.setStatus("completed");
+        when(chatHistoryMapper.selectOneById(previous)).thenReturn(version);
+        when(chatHistoryMapper.selectOneById(generationId)).thenReturn(version);
+        doAnswer(call -> { app.setGeneratedVersion(generationId); return null; })
+                .when(persistence).complete(eq(55L), eq(42L), eq(generationId), any());
+
+        var drafts = new LinkedHashMap<>(originals);
+        drafts.compute("index.html", (key, html) -> html.replace("你好", "候选初稿<button id='contact'>联系</button>"));
+        var fixes = new LinkedHashMap<>(drafts);
+        String binding = "document.querySelector('#contact').onclick = () => { document.body.dataset.clicked = 'yes' };";
+        fixes.compute("index.html", (key, html) -> html.replace("候选初稿", "按钮已修好")
+                .replace("</body>", (multi ? "" : "<script>" + binding + "</script>") + "</body>"));
+        if (multi) fixes.put("script.js", binding);
+        String draft = outcome.equals("invalid_files") ? "{}" : multi ? objectMapper.writeValueAsString(drafts) : drafts.get("index.html");
+        String repaired = multi ? objectMapper.writeValueAsString(fixes) : fixes.get("index.html");
+        var writes = new ArrayList<List<ChatMessage>>();
+        var checks = new ArrayList<ChatRequest>();
+        doAnswer(call -> {
+            writes.add(List.copyOf(call.getArgument(0)));
+            StreamingChatResponseHandler handler = call.getArgument(1);
+            String output = writes.size() == 1 ? draft : repaired;
+            if (outcome.equals("cancel_repair") && writes.size() == 2) {
+                StreamingHandle handle = mock(StreamingHandle.class);
+                handler.onPartialResponse(new PartialResponse("修改中"), new PartialResponseContext(handle));
+                mockMvc.perform(cancel(generationId).session(session())).andExpect(status().isOk());
+                verify(handle).cancel();
+            }
+            handler.onPartialResponse(output);
+            handler.onCompleteResponse(response(output, FinishReason.STOP));
+            return null;
+        }).when(model).chat(anyList(), any(StreamingChatResponseHandler.class));
+        doAnswer(call -> {
+            checks.add(call.getArgument(0));
+            boolean valid = outcome.equals("passed") || outcome.equals("invalid_files")
+                    || outcome.equals("repaired") && checks.size() == 2;
+            String report = objectMapper.writeValueAsString(Map.of("isValid", valid,
+                    "errors", valid ? List.of() : List.of("联系按钮未响应"), "suggestions", List.of()));
+            StreamingChatResponseHandler handler = call.getArgument(1);
+            handler.onPartialResponse(report);
+            handler.onCompleteResponse(response(report, FinishReason.STOP));
+            return null;
+        }).when(model).chat(any(ChatRequest.class), any(StreamingChatResponseHandler.class));
+
+        String events = finish(mockMvc.perform(generate().session(session())
+                .content("{\"prompt\":\"摄影作品集\",\"qualityCheck\":true}")).andReturn());
+        boolean secondCheck = outcome.equals("repaired") || outcome.equals("failed");
+        assertThat(checks).hasSize(secondCheck ? 2 : 1);
+        assertThat(writes).hasSize(secondCheck || outcome.equals("cancel_repair") ? 2 : 1);
+        if (writes.size() == 2) {
+            var repair = writes.getLast();
+            assertThat(((AiMessage) repair.get(repair.size() - 2)).text()).isEqualTo(draft);
+            assertThat(((UserMessage) repair.getLast()).singleText()).contains("联系按钮未响应");
+        }
+        for (int i = 0; i < checks.size(); i++) {
+            var input = checks.get(i).messages();
+            assertThat(((SystemMessage) input.getFirst()).text()).endsWith("本次生成类型：" + mode);
+            assertThat(((UserMessage) input.getLast()).singleText()).contains("摄影作品集")
+                    .endsWith(i == 0 ? draft : repaired).doesNotContain("联系按钮未响应");
+        }
+        assertThat(events).contains("正在检查 " + (multi ? "多文件网站" : "单 HTML 页面"))
+                .doesNotContain("isValid", "suggestions", "正在构建");
+        verifyNoInteractions(builder);
+        boolean success = outcome.equals("passed") || outcome.equals("repaired");
+        if (success) {
+            assertThat(events).containsSubsequence("检查通过", "event:completed");
+            verify(persistence).complete(55L, 42L, generationId, secondCheck ? repaired : draft);
+        } else {
+            assertThat(events).contains(outcome.equals("cancel_repair") ? "event:cancelled" : "event:failed")
+                    .doesNotContain("event:completed");
+            assertThat(htmlPath().getParent()).doesNotExist();
+            verify(persistence, never()).complete(eq(55L), eq(42L), eq(generationId), any());
+        }
+        assertThat(app.getGeneratedVersion()).isEqualTo(success ? generationId : previous);
+        var expected = success ? (secondCheck ? fixes : drafts) : originals;
+        String preview = mockMvc.perform(get("/api/apps/55/preview").contextPath("/api").session(session()))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+        assertThat(preview).contains(success ? (secondCheck ? "按钮已修好" : "候选初稿") : "你好");
+        byte[] zip = mockMvc.perform(get("/api/apps/55/source").contextPath("/api").session(session()))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsByteArray();
+        assertThat(unzipSources(zip)).isEqualTo(expected);
+    }
+
+    @ParameterizedTest
+    @CsvSource({"html,12", "html,18", "multi_file,12", "multi_file,18"})
+    void qualityComparesARelativeEditWithTheSameSuccessfulVersionOnBothChecks(String mode, int originalSize) throws Exception {
+        boolean multi = mode.equals("multi_file");
+        long previous = generationId - 1000;
+        App app = app(42L, mode);
+        app.setGeneratedVersion(previous);
+        when(appMapper.selectOneById(55L)).thenReturn(app);
+        var original = fontPage(multi, originalSize);
+        if (multi) fileManager.saveMultiFile(42, 55, previous, original);
+        else fileManager.saveHtml(42, 55, previous, original.get("index.html"));
+        String prompt = "把正文字号翻倍，其余不变";
+        when(persistence.start(55L, 42L, prompt)).thenReturn(generationId);
+        String draft = multi ? objectMapper.writeValueAsString(fontPage(true, 24)) : fontPage(false, 24).get("index.html");
+        String fixed = draft.replace("24px", "36px");
+        AtomicInteger writes = new AtomicInteger();
+        doAnswer(call -> {
+            call.<StreamingChatResponseHandler>getArgument(1).onCompleteResponse(
+                    response(writes.incrementAndGet() == 1 ? draft : fixed, FinishReason.STOP));
+            return null;
+        }).when(model).chat(anyList(), any(StreamingChatResponseHandler.class));
+        var reviews = new ArrayList<String>();
+        doAnswer(call -> {
+            var messages = call.<ChatRequest>getArgument(0).messages();
+            String input = ((UserMessage) messages.getLast()).singleText();
+            reviews.add(input);
+            String[] parts = input.split("\n本次候选源码：\n", 2);
+            boolean passed = parts.length == 2 && ((parts[0].contains("12px") && parts[1].contains("24px"))
+                    || (parts[0].contains("18px") && parts[1].contains("36px")));
+            call.<StreamingChatResponseHandler>getArgument(1).onCompleteResponse(response(objectMapper.writeValueAsString(
+                    Map.of("isValid", passed, "errors", passed ? List.of() : List.of("字号尚未翻倍"), "suggestions", List.of())), FinishReason.STOP));
+            return null;
+        }).when(model).chat(any(ChatRequest.class), any(StreamingChatResponseHandler.class));
+
+        String events = finish(mockMvc.perform(generate().session(session()).content(
+                objectMapper.writeValueAsString(Map.of("prompt", prompt, "qualityCheck", true)))).andReturn());
+        assertThat(reviews).hasSize(originalSize == 12 ? 1 : 2).allSatisfy(text -> assertThat(text)
+                .contains(prompt, "上一成功版源码", "font-size:" + originalSize + "px")
+                .doesNotContain("下一条 AI 消息", "字号尚未翻倍"));
+        assertThat(reviews.getFirst()).endsWith(draft);
+        assertThat(events).contains("event:completed").doesNotContain("event:failed");
+        if (originalSize == 18) assertThat(reviews.getLast()).endsWith(fixed);
+        verify(persistence).complete(55L, 42L, generationId, originalSize == 12 ? draft : fixed);
+    }
+
+    private Map<String, String> fontPage(boolean multi, int size) {
+        String css = "body{font-size:" + size + "px}";
+        if (!multi) return Map.of("index.html", HTML.replace("</head>", "<style>" + css + "</style></head>"));
+        var files = new LinkedHashMap<>(multiFiles());
+        files.put("style.css", css);
+        return files;
     }
 
     private void assertOtherAppCanQueryAndGenerate() throws Exception {
@@ -1284,8 +1472,6 @@ class GenerationControllerTest {
 
     @Test
     void rejectsUnsupportedModeAndInvalidPromptBeforeStarting() throws Exception {
-        mockMvc.perform(generate().session(session()).content("{\"prompt\":\"摄影作品集\",\"qualityCheck\":true}"))
-                .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value(40000));
         when(appMapper.selectOneById(55L)).thenReturn(app(42L, "vue"));
         mockMvc.perform(generate().session(session())).andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.message").value("当前生成仅支持 html、multi_file 或 vue_project 模式"));

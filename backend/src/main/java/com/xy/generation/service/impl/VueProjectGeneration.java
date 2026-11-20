@@ -1,6 +1,7 @@
 package com.xy.generation.service.impl;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.xy.app.model.enums.CodeGenTypeEnum;
 import com.xy.manager.GeneratedFileManager;
 import com.xy.manager.VueProjectBuildManager;
 import dev.langchain4j.agent.tool.ToolSpecification;
@@ -11,16 +12,8 @@ import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.model.chat.request.ChatRequest;
 import dev.langchain4j.model.chat.request.json.JsonObjectSchema;
 import dev.langchain4j.model.chat.response.ChatResponse;
-import dev.langchain4j.model.chat.response.PartialResponse;
-import dev.langchain4j.model.chat.response.PartialResponseContext;
-import dev.langchain4j.model.chat.response.PartialThinking;
-import dev.langchain4j.model.chat.response.PartialThinkingContext;
-import dev.langchain4j.model.chat.response.PartialToolCall;
-import dev.langchain4j.model.chat.response.PartialToolCallContext;
-import dev.langchain4j.model.chat.response.StreamingChatResponseHandler;
 import dev.langchain4j.model.output.FinishReason;
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.NoSuchFileException;
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -28,7 +21,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import org.springframework.core.io.ClassPathResource;
 
 // 一次 Vue 源码生成的工具循环；任务终态和 SSE 生命周期仍由 GenerationSession 管理。
 final class VueProjectGeneration implements GenerationSession.OutputHandler {
@@ -62,7 +54,7 @@ final class VueProjectGeneration implements GenerationSession.OutputHandler {
     private final Map<String, String> template;
     private final VueProjectBuildManager builder;
     private final boolean qualityCheck;
-    private VueGenerationWorkflow workflow;
+    private GenerationQualityWorkflow workflow;
     private GeneratedFileManager.VueBuildPaths buildPaths;
     private boolean choosingAssets, photoRequested, illustrationRequested, logoRequested;
     private int remainingDiagramAttempts = 2;
@@ -94,14 +86,22 @@ final class VueProjectGeneration implements GenerationSession.OutputHandler {
             next(model, conversation, session, history, () -> complete(session, history));
             return;
         }
-        workflow = new VueGenerationWorkflow(model, mapper, session, conversation,
+        // 在工具写入候选工程之前取出继承的源码；生成对话中的 AI 消息只有文件清单。
+        String previousSource;
+        try {
+            previousSource = choosingAssets ? null : mapper.writeValueAsString(files.readVueSources(userId, appId, generationId));
+        } catch (IOException error) {
+            session.onContextError(error);
+            return;
+        }
+        workflow = new GenerationQualityWorkflow(CodeGenTypeEnum.VUE_PROJECT, model, mapper, session, conversation, previousSource,
                 () -> {
                     var sources = new java.util.LinkedHashMap<>(template);
                     sources.putAll(files.readVueSources(userId, appId, generationId));
                     if (files.hasVuePhoto(userId, appId, generationId)) {
                         sources.put(GeneratedFileManager.VUE_PHOTO, readPhotoAttribution());
                     }
-                    return sources;
+                    return mapper.writeValueAsString(sources);
                 }, done -> next(model, conversation, session, history, done),
                 () -> complete(session, history), text -> {
                     history.append(text);
@@ -126,28 +126,9 @@ final class VueProjectGeneration implements GenerationSession.OutputHandler {
             if (offerIllustration) tools.add(VueIllustrations.TOOL);
             if (offerDiagram) tools.add(VueArchitectureDiagram.TOOL);
             if (offerLogo) tools.add(VueBrandLogo.TOOL);
-            var requestMessages = choosingAssets ? assetPrompt.forGeneration(messages) : List.copyOf(messages);
-            model.chat(ChatRequest.builder().messages(requestMessages).toolSpecifications(tools).build(),
-                    new StreamingChatResponseHandler() {
-                @Override
-                public void onPartialResponse(String text) { session.onPartialResponse(text); }
-                @Override
-                public void onPartialResponse(PartialResponse text, PartialResponseContext context) {
-                    session.onPartialResponse(text, context);
-                }
-                @Override
-                public void onPartialThinking(PartialThinking text, PartialThinkingContext context) {
-                    session.onPartialThinking(text, context);
-                }
-                @Override
-                public void onPartialToolCall(PartialToolCall call, PartialToolCallContext context) {
-                    session.onPartialToolCall(call, context);
-                }
-                @Override
-                public void onError(Throwable error) { session.onError(error); }
-                @Override
-                public void onCompleteResponse(ChatResponse response) {
-                    if (!session.isRunning()) return;
+            model.chat(
+                ChatRequest.builder().messages(assetPrompt.forGeneration(messages)).toolSpecifications(tools).build(),
+                session.modelStep(true, response -> {
                     if (response.finishReason() != FinishReason.STOP && response.finishReason() != FinishReason.TOOL_EXECUTION) {
                         session.fail("模型未正常完成输出，请重试");
                         return;
@@ -281,8 +262,7 @@ final class VueProjectGeneration implements GenerationSession.OutputHandler {
                     }
                     if (hasTools) next(model, messages, session, history, done);
                     else done.run();
-                }
-            });
+                }));
         } catch (RuntimeException error) {
             session.onError(error);
         }
@@ -299,9 +279,10 @@ final class VueProjectGeneration implements GenerationSession.OutputHandler {
             session.onPartialResponse("\n" + progress + "\n");
             return progress + invalid.getMessage() + "；未生成文件，不要引用不存在的组件。";
         }
-        var component = new ClassPathResource("diagrams/XyArchitecture.vue").getContentAsString(StandardCharsets.UTF_8);
+        var component = VueArchitectureDiagram.bundledRenderer();
         files.writeVueSource(userId, appId, generationId, VueArchitectureDiagram.DATA, mapper.writeValueAsString(diagram));
         files.writeVueSource(userId, appId, generationId, VueArchitectureDiagram.COMPONENT, component);
+        files.markVueArchitecture(userId, appId, generationId);
         assetPrompt.add(VueArchitectureDiagram.COMPONENT, "架构图", diagram.nodes().size() + " 个节点、"
                 + diagram.edges().size() + " 条连线，组件读取 " + VueArchitectureDiagram.DATA + "，用于系统说明");
         remainingDiagramAttempts = 0;
@@ -387,7 +368,7 @@ final class VueProjectGeneration implements GenerationSession.OutputHandler {
     private String candidateError() {
         try {
             var sources = files.readVueSources(userId, appId, generationId);
-            String graphError = VueArchitectureDiagram.findError(mapper, sources);
+            String graphError = VueArchitectureDiagram.findError(mapper, sources, files.hasVueArchitecture(userId, appId, generationId));
             if (graphError != null) return graphError;
             if (logoRequested && !sources.containsKey(VueBrandLogo.COMPONENT)
                     && VueComponentReferences.references(sources, VueBrandLogo.COMPONENT)) {

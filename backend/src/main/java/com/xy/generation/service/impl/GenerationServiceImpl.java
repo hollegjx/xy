@@ -86,9 +86,6 @@ public class GenerationServiceImpl implements GenerationService {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "当前生成仅支持 html、multi_file 或 vue_project 模式");
         }
         boolean qualityCheck = Boolean.TRUE.equals(request.qualityCheck());
-        if (qualityCheck && !CodeGenTypeEnum.VUE_PROJECT.getValue().equals(app.codeGenType())) {
-            throw new BusinessException(ErrorCode.PARAMS_ERROR, "AI 质检与修复仅支持 Vue 工程");
-        }
         StreamingChatModel model = modelProvider.getIfAvailable();
         if (model == null) {
             throw new BusinessException(ErrorCode.SERVICE_UNAVAILABLE, "请先配置并启用模型服务");
@@ -104,7 +101,7 @@ public class GenerationServiceImpl implements GenerationService {
                     ? new VueProjectGeneration(loginUser.getId(), appId, generationId, fileManager, objectMapper,
                             vueTemplate, vueBuilder, qualityCheck, photoSearch)
                     : new NativeGenerationOutputHandler(
-                            loginUser.getId(), appId, generationId, app.codeGenType(), fileManager, objectMapper);
+                            loginUser.getId(), appId, generationId, app.codeGenType(), fileManager, objectMapper, qualityCheck);
             return new GenerationSession(appId, loginUser.getId(), generationId,
                     emitter, persistence, outputHandler, () -> runningSessions.remove(appId), heartbeatScheduler);
         });
@@ -149,14 +146,17 @@ public class GenerationServiceImpl implements GenerationService {
             case VUE_PROJECT -> inheritedVueFiles(loginUser.getId(), appId, versionId, generationId);
         };
         return List.of(SystemMessage.from(systemPrompt),
-                UserMessage.from("此前成功轮次的用户需求（按时间顺序，仅供参考）：\n"
-                        + objectMapper.writeValueAsString(history) + (mode == CodeGenTypeEnum.VUE_PROJECT
-                        ? "\n下一条 AI 消息列出已继承的可编辑源码和只读素材，按需读取。" : "\n下一条 AI 消息是当前网站的完整源码。")),
+                UserMessage.from("此前成功轮次的用户需求（按时间顺序，仅供参考）：\n" + objectMapper.writeValueAsString(history)),
                 AiMessage.from(source), UserMessage.from(prompt));
     }
 
     private String inheritedVueFiles(long userId, long appId, long previousId, long generationId) throws IOException {
         var paths = fileManager.copyVueSources(userId, appId, previousId, generationId);
+        // 早期版本只保存了工具的组件和数据；仅凭原装绘图组件补记来源，不依据 JSON 文件名或字段猜测。
+        if (paths.contains(VueArchitectureDiagram.DATA) && !fileManager.hasVueArchitecture(userId, appId, generationId)
+                && VueArchitectureDiagram.containsBundledRenderer(fileManager.readVueSources(userId, appId, generationId))) {
+            fileManager.markVueArchitecture(userId, appId, generationId);
+        }
         var photo = GeneratedFileManager.VUE_PHOTO;
         var assets = paths.contains(photo) ? Map.of(photo, objectMapper.readValue(
                 fileManager.readVuePhoto(userId, appId, generationId), OpenversePhotoSearch.Attribution.class)) : Map.of();

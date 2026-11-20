@@ -21,6 +21,7 @@ import java.util.List;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Consumer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.MediaType;
@@ -120,6 +121,35 @@ final class GenerationSession implements StreamingChatResponseHandler {
     synchronized void trackHandle(StreamingHandle current) {
         handle = current;
         if (finished) stopModel();
+    }
+
+    // 工作流的一次调用只结束当前节点；质检报告不进入 SSE，所有节点仍支持取消。
+    StreamingChatResponseHandler modelStep(boolean showText, Consumer<ChatResponse> completed) {
+        return new StreamingChatResponseHandler() {
+            @Override
+            public void onPartialResponse(String text) {
+                if (showText) GenerationSession.this.onPartialResponse(text);
+            }
+            @Override
+            public void onPartialResponse(PartialResponse text, PartialResponseContext context) {
+                if (showText) GenerationSession.this.onPartialResponse(text, context);
+                else trackHandle(context.streamingHandle());
+            }
+            @Override
+            public void onPartialThinking(PartialThinking text, PartialThinkingContext context) {
+                GenerationSession.this.onPartialThinking(text, context);
+            }
+            @Override
+            public void onPartialToolCall(PartialToolCall call, PartialToolCallContext context) {
+                GenerationSession.this.onPartialToolCall(call, context);
+            }
+            @Override
+            public void onError(Throwable error) { GenerationSession.this.onError(error); }
+            @Override
+            public void onCompleteResponse(ChatResponse response) {
+                if (isRunning()) completed.accept(response);
+            }
+        };
     }
 
     @Override

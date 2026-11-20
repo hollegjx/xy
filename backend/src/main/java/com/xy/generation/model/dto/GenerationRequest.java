@@ -10,7 +10,7 @@ public record GenerationRequest(
         @NotBlank(message = "生成需求不能为空")
         @CodePointLength(max = 16383, message = "生成需求不能超过 16383 个字符")
         String prompt,
-        @Schema(description = "仅 Vue 工程：生成后 AI 质检，必要时修复一次；默认关闭", example = "false")
+        @Schema(description = "生成后进行 AI 质检，必要时修复一次；支持全部三种生成模式，默认关闭", example = "false")
         Boolean qualityCheck) {
     public GenerationRequest(String prompt) { this(prompt, false); }
 }

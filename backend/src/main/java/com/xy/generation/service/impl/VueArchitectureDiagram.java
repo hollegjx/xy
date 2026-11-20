@@ -8,10 +8,13 @@ import dev.langchain4j.agent.tool.ToolSpecification;
 import dev.langchain4j.model.chat.request.json.JsonArraySchema;
 import dev.langchain4j.model.chat.request.json.JsonObjectSchema;
 import dev.langchain4j.model.chat.request.json.JsonStringSchema;
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import org.springframework.core.io.ClassPathResource;
 
 final class VueArchitectureDiagram {
     static final String COMPONENT = "src/components/XyArchitecture.vue";
@@ -30,8 +33,22 @@ final class VueArchitectureDiagram {
     record Edge(String from, String to, String label) {}
     record Diagram(List<String> nodes, List<Edge> edges) {}
 
-    static String findError(ObjectMapper mapper, Map<String, String> sources) {
-        if (!VueComponentReferences.references(sources, DATA)) return null;
+    static String bundledRenderer() throws IOException {
+        return new ClassPathResource("diagrams/XyArchitecture.vue").getContentAsString(StandardCharsets.UTF_8);
+    }
+
+    static boolean containsBundledRenderer(Map<String, String> sources) throws IOException {
+        String renderer = bundledRenderer();
+        return sources.entrySet().stream().anyMatch(file -> file.getKey().endsWith(".vue")
+                && renderer.equals(file.getValue())
+                && VueComponentReferences.references(Map.of(file.getKey(), file.getValue()), DATA));
+    }
+
+    static String findError(ObjectMapper mapper, Map<String, String> sources, boolean generatedDiagram) {
+        if (!sources.containsKey(COMPONENT) && VueComponentReferences.references(sources, COMPONENT)) {
+            return "页面仍引用不存在的 XyArchitecture.vue，请改用文字说明或补全组件后重试";
+        }
+        if (!generatedDiagram || !VueComponentReferences.references(sources, DATA)) return null;
         try {
             parse(mapper, sources.get(DATA));
             return null;

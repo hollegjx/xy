@@ -31,6 +31,7 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Collections;
 import java.util.List;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -39,6 +40,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.zip.ZipInputStream;
@@ -53,6 +55,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.dao.DataAccessResourceFailureException;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.http.MediaType;
 import org.springframework.mock.web.MockHttpSession;
@@ -64,6 +67,7 @@ import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.AdditionalAnswers.delegatesTo;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.eq;
@@ -442,6 +446,150 @@ class GenerationControllerTest {
     }
 
     @ParameterizedTest
+    @ValueSource(strings = {"passed", "repaired", "failed", "invalid_report"})
+    void qualityWorkflowChecksCurrentSourcesAndRepairsAtMostOnceBeforeBuilding(String outcome) throws Exception {
+        App app = app(42L, "vue_project");
+        long previous = preparePreviousVueProject(app);
+        AtomicInteger checks = new AtomicInteger();
+        AtomicInteger writes = new AtomicInteger();
+        List<String> suggestions = outcome.equals("failed")
+                ? Collections.nCopies(5, "请检查表单按钮的点击事件及其绑定。".repeat(5)) : List.of();
+        if (outcome.equals("failed")) {
+            // 使用实际的失败补写队列，只在 Mapper 边界模拟 VARCHAR(256)。
+            var storage = delegatesTo(new GenerationPersistence(chatHistoryMapper, appMapper));
+            doAnswer(storage).when(persistence).fail(eq(generationId), any(), any());
+            doAnswer(storage).when(persistence).recoverInterruptedGenerations();
+            when(chatHistoryMapper.finishGeneration(eq(generationId), eq("failed"), any(), any())).thenAnswer(call -> {
+                String reason = call.getArgument(3);
+                if (reason.codePointCount(0, reason.length()) > 256) {
+                    throw new DataIntegrityViolationException("errorMessage 超过 256 字符");
+                }
+                return 1;
+            });
+        }
+        when(builder.enabled()).thenReturn(true);
+        doAnswer(invocation -> {
+            var paths = (GeneratedFileManager.VueBuildPaths) invocation.getArgument(0);
+            Files.writeString(paths.output().resolve("index.html"), HTML.replace("</head>",
+                    "<script type=\"module\" src=\"./app.js\"></script></head>"));
+            Files.writeString(paths.output().resolve("app.js"), "document.body.dataset.vue = 'ready'");
+            return null;
+        }).when(builder).build(any(), any());
+        doAnswer(invocation -> {
+            ChatRequest request = invocation.getArgument(0);
+            StreamingChatResponseHandler handler = invocation.getArgument(1);
+            if (request.toolSpecifications() == null || request.toolSpecifications().isEmpty()) {
+                int check = checks.incrementAndGet();
+                assertThat(request.messages().toString()).contains("摄影作品集", "src/App.vue", "src/Card.vue", "候选" + writes.get());
+                boolean valid = outcome.equals("passed") || outcome.equals("repaired") && check == 2;
+                String report = outcome.equals("invalid_report") ? "检查好了"
+                        : objectMapper.writeValueAsString(Map.of("isValid", valid,
+                                "errors", valid ? List.of() : List.of("按钮未响应"), "suggestions", suggestions));
+                handler.onPartialResponse(report);
+                handler.onCompleteResponse(response(report, FinishReason.STOP));
+            } else if (request.messages().getLast() instanceof ToolExecutionResultMessage) {
+                handler.onCompleteResponse(response("源码完成", FinishReason.STOP));
+            } else {
+                if (writes.get() > 0) assertThat(request.messages().toString()).contains("按钮未响应");
+                handler.onCompleteResponse(ChatResponse.builder().finishReason(FinishReason.TOOL_EXECUTION)
+                        .aiMessage(AiMessage.from(writeFile("src/App.vue",
+                                "<template>候选" + writes.incrementAndGet() + "</template>"))).build());
+            }
+            return null;
+        }).when(model).chat(any(ChatRequest.class), any(StreamingChatResponseHandler.class));
+
+        String events = finish(mockMvc.perform(generate().session(session())
+                .content("{\"prompt\":\"摄影作品集\",\"qualityCheck\":true}")).andReturn());
+        boolean repaired = outcome.equals("repaired") || outcome.equals("failed");
+        assertThat(checks.get()).isEqualTo(repaired ? 2 : 1);
+        assertThat(writes.get()).isEqualTo(repaired ? 2 : 1);
+        assertThat(events).contains("正在检查 Vue 工程").doesNotContain("isValid", "suggestions", "检查好了");
+        if (repaired) assertThat(events).contains("正在修复（最多一次）");
+        if (outcome.equals("passed") || outcome.equals("repaired")) {
+            assertThat(events).containsSubsequence("检查通过", "正在构建 Vue 工程", "event:completed")
+                    .doesNotContain("event:failed");
+            verify(builder).build(any(), any());
+            verify(persistence).complete(eq(55L), eq(42L), eq(generationId), any());
+        } else {
+            assertThat(events).contains("event:failed").doesNotContain("event:completed", "正在构建 Vue 工程");
+            verify(builder, never()).build(any(), any());
+            verify(persistence, never()).complete(eq(55L), eq(42L), eq(generationId), any());
+            assertThat(app.getGeneratedVersion()).isEqualTo(previous);
+        }
+        assertThat(fileManager.readVueProject(42, 55, previous)).containsEntry("src/App.vue", "<template>旧作品</template>");
+        if (outcome.equals("failed")) {
+            assertOtherAppCanQueryAndGenerate();
+            String reason = "自动修复一次后，Vue 工程仍未通过 AI 质检，请重试";
+            verify(chatHistoryMapper).finishGeneration(eq(generationId), eq("failed"), any(), eq(reason));
+            assertThat(events).contains(reason).doesNotContain(suggestions.getFirst(), "状态待恢复");
+        }
+    }
+
+    private void assertOtherAppCanQueryAndGenerate() throws Exception {
+        App other = app(42L, "html");
+        other.setId(56L);
+        when(appMapper.selectOneById(56L)).thenReturn(other);
+        mockMvc.perform(get("/api/apps/56/messages").contextPath("/api").session(session()))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.records").isEmpty());
+
+        long otherId = IDS.incrementAndGet();
+        when(persistence.start(56L, 42L, "另一个应用")).thenReturn(otherId);
+        doAnswer(call -> {
+            call.<StreamingChatResponseHandler>getArgument(1).onCompleteResponse(response(HTML, FinishReason.STOP));
+            return null;
+        }).when(model).chat(anyList(), any(StreamingChatResponseHandler.class));
+        var result = mockMvc.perform(post("/api/apps/56/generations").contextPath("/api").session(session())
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"prompt\":\"另一个应用\"}"))
+                .andExpect(request().asyncStarted()).andReturn();
+        assertThat(finish(result)).containsSubsequence("event:started", "event:completed");
+        verify(persistence).complete(56L, 42L, otherId, HTML);
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void cancellationDuringQualityCheckOrRepairStopsTheWorkflowWithoutReplacingTheVersion(boolean repairing) throws Exception {
+        App app = app(42L, "vue_project");
+        long previous = preparePreviousVueProject(app);
+        when(builder.enabled()).thenReturn(true);
+        CountDownLatch waiting = new CountDownLatch(1);
+        AtomicReference<StreamingChatResponseHandler> pending = new AtomicReference<>();
+        AtomicInteger checks = new AtomicInteger();
+        StreamingHandle handle = mock(StreamingHandle.class);
+        doAnswer(invocation -> {
+            ChatRequest request = invocation.getArgument(0);
+            StreamingChatResponseHandler handler = invocation.getArgument(1);
+            boolean checking = request.toolSpecifications() == null || request.toolSpecifications().isEmpty();
+            if (checking && !repairing || !checking && checks.get() == 1) {
+                handler.onPartialResponse(new PartialResponse("处理中"), new PartialResponseContext(handle));
+                pending.set(handler);
+                waiting.countDown();
+            } else if (checking) {
+                checks.incrementAndGet();
+                handler.onCompleteResponse(response("{\"isValid\":false,\"errors\":[\"按钮未响应\"],\"suggestions\":[]}", FinishReason.STOP));
+            } else if (request.messages().getLast() instanceof ToolExecutionResultMessage) {
+                handler.onCompleteResponse(response("源码完成", FinishReason.STOP));
+            } else handler.onCompleteResponse(ChatResponse.builder().finishReason(FinishReason.TOOL_EXECUTION)
+                    .aiMessage(AiMessage.from(writeFile("src/App.vue", "<template>候选</template>"))).build());
+            return null;
+        }).when(model).chat(any(ChatRequest.class), any(StreamingChatResponseHandler.class));
+        MvcResult result = mockMvc.perform(generate().session(session())
+                .content("{\"prompt\":\"摄影作品集\",\"qualityCheck\":true}")).andReturn();
+        assertThat(waiting.await(5, TimeUnit.SECONDS)).isTrue();
+        CompletableFuture.runAsync(heartbeatTick()).get(5, TimeUnit.SECONDS);
+        mockMvc.perform(cancel(generationId).session(session())).andExpect(status().isOk());
+        verify(handle).cancel();
+        pending.get().onCompleteResponse(repairing
+                ? ChatResponse.builder().finishReason(FinishReason.TOOL_EXECUTION)
+                        .aiMessage(AiMessage.from(writeFile("src/App.vue", "<template>迟到的修改</template>"))).build()
+                : response("{\"isValid\":true,\"errors\":[],\"suggestions\":[]}", FinishReason.STOP));
+        assertThat(finish(result)).contains("event:cancelled", ":keepalive\n\n").doesNotContain("event:completed", "event:failed");
+        verify(builder, never()).build(any(), any());
+        verify(persistence, never()).complete(eq(55L), eq(42L), eq(generationId), any());
+        assertThat(app.getGeneratedVersion()).isEqualTo(previous);
+        assertThat(fileManager.readVueSource(42, 55, generationId, "src/App.vue")).isEqualTo("<template>候选</template>");
+    }
+
+    @ParameterizedTest
     @ValueSource(strings = {"html", "multi_file", "vue_project"})
     void silentGenerationSendsHeartbeatsForEveryMode(String mode) throws Exception {
         when(appMapper.selectOneById(55L)).thenReturn(app(42L, mode));
@@ -689,6 +837,8 @@ class GenerationControllerTest {
 
     @Test
     void rejectsUnsupportedModeAndInvalidPromptBeforeStarting() throws Exception {
+        mockMvc.perform(generate().session(session()).content("{\"prompt\":\"摄影作品集\",\"qualityCheck\":true}"))
+                .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value(40000));
         when(appMapper.selectOneById(55L)).thenReturn(app(42L, "vue"));
         mockMvc.perform(generate().session(session())).andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.message").value("当前生成仅支持 html、multi_file 或 vue_project 模式"));

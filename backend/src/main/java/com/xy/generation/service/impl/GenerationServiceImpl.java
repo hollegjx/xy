@@ -83,6 +83,10 @@ public class GenerationServiceImpl implements GenerationService {
         if (systemPrompt == null) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "当前生成仅支持 html、multi_file 或 vue_project 模式");
         }
+        boolean qualityCheck = Boolean.TRUE.equals(request.qualityCheck());
+        if (qualityCheck && !CodeGenTypeEnum.VUE_PROJECT.getValue().equals(app.codeGenType())) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "AI 质检与修复仅支持 Vue 工程");
+        }
         StreamingChatModel model = modelProvider.getIfAvailable();
         if (model == null) {
             throw new BusinessException(ErrorCode.SERVICE_UNAVAILABLE, "请先配置并启用模型服务");
@@ -95,7 +99,8 @@ public class GenerationServiceImpl implements GenerationService {
             }
             long generationId = persistence.start(appId, loginUser.getId(), request.prompt());
             GenerationSession.OutputHandler outputHandler = CodeGenTypeEnum.VUE_PROJECT.getValue().equals(app.codeGenType())
-                    ? new VueProjectGeneration(loginUser.getId(), appId, generationId, fileManager, objectMapper, vueTemplate, vueBuilder)
+                    ? new VueProjectGeneration(loginUser.getId(), appId, generationId, fileManager, objectMapper,
+                            vueTemplate, vueBuilder, qualityCheck)
                     : new NativeGenerationOutputHandler(
                             loginUser.getId(), appId, generationId, app.codeGenType(), fileManager, objectMapper);
             return new GenerationSession(appId, loginUser.getId(), generationId,

@@ -36,6 +36,7 @@ final class GenerationSession implements StreamingChatResponseHandler {
         void save(String output) throws IOException;
         String invalidOutputMessage();
         default String completedMessage() { return null; }
+        default void stop() { }
     }
 
     private static final Logger log = LoggerFactory.getLogger(GenerationSession.class);
@@ -101,6 +102,7 @@ final class GenerationSession implements StreamingChatResponseHandler {
         finished = true;
         stopHeartbeat();
         stopModel();
+        outputHandler.stop();
         release.run();
         finishStream("cancelled", MessageStatusEnum.CANCELLED, "生成已停止");
     }
@@ -113,6 +115,11 @@ final class GenerationSession implements StreamingChatResponseHandler {
             return;
         }
         onPartialResponse(response.text());
+    }
+
+    synchronized void trackHandle(StreamingHandle current) {
+        handle = current;
+        if (finished) stopModel();
     }
 
     @Override
@@ -182,6 +189,7 @@ final class GenerationSession implements StreamingChatResponseHandler {
         finished = true;
         stopHeartbeat();
         stopModel();
+        outputHandler.stop();
         try {
             persistence.fail(generationId, content.toString(), message);
         } catch (RuntimeException error) {

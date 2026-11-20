@@ -52,12 +52,14 @@ final class VueProjectGeneration implements GenerationSession.OutputHandler {
     private final ObjectMapper mapper;
     private final Map<String, String> template;
     private final VueProjectBuildManager builder;
+    private final boolean qualityCheck;
+    private VueGenerationWorkflow workflow;
     private GeneratedFileManager.VueBuildPaths buildPaths;
     private boolean changedSource;
     private final Set<String> deletedComponents = new HashSet<>();
 
     VueProjectGeneration(long userId, long appId, long generationId, GeneratedFileManager files,
-            ObjectMapper mapper, Map<String, String> template, VueProjectBuildManager builder) {
+            ObjectMapper mapper, Map<String, String> template, VueProjectBuildManager builder, boolean qualityCheck) {
         this.userId = userId;
         this.appId = appId;
         this.generationId = generationId;
@@ -65,15 +67,35 @@ final class VueProjectGeneration implements GenerationSession.OutputHandler {
         this.mapper = mapper;
         this.template = template;
         this.builder = builder;
+        this.qualityCheck = qualityCheck;
     }
 
     @Override
     public void generate(StreamingChatModel model, List<ChatMessage> messages, GenerationSession session) {
-        next(model, new ArrayList<>(messages), session, new StringBuilder());
+        var conversation = new ArrayList<>(messages);
+        var history = new StringBuilder();
+        if (!qualityCheck) {
+            next(model, conversation, session, history, () -> complete(session, history));
+            return;
+        }
+        workflow = new VueGenerationWorkflow(model, mapper, session, conversation,
+                () -> {
+                    var sources = new java.util.LinkedHashMap<>(template);
+                    sources.putAll(files.readVueSources(userId, appId, generationId));
+                    return sources;
+                }, done -> next(model, conversation, session, history, done),
+                () -> complete(session, history), text -> {
+                    history.append(text);
+                    session.onPartialResponse(text);
+                });
+        workflow.run();
     }
 
+    @Override
+    public void stop() { if (workflow != null) workflow.stop(); }
+
     private void next(StreamingChatModel model, List<ChatMessage> messages,
-            GenerationSession session, StringBuilder history) {
+            GenerationSession session, StringBuilder history, Runnable done) {
         if (!session.isRunning()) return;
         try {
             model.chat(ChatRequest.builder().messages(List.copyOf(messages))
@@ -157,9 +179,10 @@ final class VueProjectGeneration implements GenerationSession.OutputHandler {
                             session.fail("Vue 工程文件操作失败，请检查工具参数和文件路径后重试");
                             return;
                         }
+                        else messages.add(reply);
                     }
-                    if (hasTools) next(model, messages, session, history);
-                    else complete(session, history);
+                    if (hasTools) next(model, messages, session, history, done);
+                    else done.run();
                 }
             });
         } catch (RuntimeException error) {

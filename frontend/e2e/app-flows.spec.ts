@@ -401,7 +401,7 @@ test('直接访问工作台先确认身份，登录后返回原地址并显示�
   await expect(page.getByText(app.initPrompt, { exact: true })).toHaveCount(0)
 })
 
-test('Vue 工作台按流展示写文件和构建，停止或失败保留旧预览，源码版本显示未构建原因', async ({
+test('Vue 工作台可选质检与修复并展示生成阶段，停止或失败保留旧预览', async ({
   page,
 }) => {
   let records: ChatHistoryVO[] = []
@@ -464,7 +464,8 @@ test('Vue 工作台按流展示写文件和构建，停止或失败保留旧预�
       let generationId = 100
       window.fetch = async (input, init) => {
         if (input !== `/api/apps/${appId}/generations`) return originalFetch(input, init)
-        if (init?.body !== JSON.stringify({ prompt })) throw new Error('生成需求与表单不一致')
+        if (init?.body !== JSON.stringify({ prompt, qualityCheck: true }))
+          throw new Error('生成需求或质检选项与表单不一致')
         const id = String(++generationId)
         const encoder = new TextEncoder()
         return new Response(
@@ -507,7 +508,11 @@ test('Vue 工作台按流展示写文件和构建，停止或失败保留旧预�
   await page.goto(`/apps/${app.id}`)
   await expect(page.getByText('还没有可预览的网站', { exact: true })).toBeVisible()
   await expect(page.getByLabel('本次需求', { exact: true })).toHaveValue(app.initPrompt)
+  const qualityCheck = page.getByRole('checkbox', { name: 'AI 质检与修复' })
+  await expect(qualityCheck).not.toBeChecked()
+  await qualityCheck.check()
   await page.getByRole('button', { name: '开始生成', exact: true }).click()
+  await expect(qualityCheck).toBeDisabled()
   const live = page.getByLabel('本次生成', { exact: true })
   await expect(page.getByRole('button', { name: /生成中/ })).toBeDisabled()
   await page.evaluate(() =>
@@ -518,6 +523,15 @@ test('Vue 工作台按流展示写文件和构建，停止或失败保留旧预�
     ),
   )
   await expect(live.locator('pre')).toHaveText('已写入：src/App.vue')
+  for (const text of ['正在检查 Vue 工程…', '发现问题，正在自动修复（最多一次）…']) {
+    await page.evaluate(
+      (text) => window.dispatchEvent(new CustomEvent('xy-test-generation', {
+        detail: { type: 'delta', text: `\n${text}\n` },
+      })),
+      text,
+    )
+    await expect(live).toContainText(text)
+  }
   await page.evaluate(() =>
     window.dispatchEvent(
       new CustomEvent('xy-test-generation', {

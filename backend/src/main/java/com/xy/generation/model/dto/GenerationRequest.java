@@ -9,5 +9,8 @@ public record GenerationRequest(
         @Schema(description = "本次需求，最多 16383 个 Unicode 码点", example = "创建一个简洁的摄影作品集", requiredMode = Schema.RequiredMode.REQUIRED)
         @NotBlank(message = "生成需求不能为空")
         @CodePointLength(max = 16383, message = "生成需求不能超过 16383 个字符")
-        String prompt) {
+        String prompt,
+        @Schema(description = "仅 Vue 工程：生成后 AI 质检，必要时修复一次；默认关闭", example = "false")
+        Boolean qualityCheck) {
+    public GenerationRequest(String prompt) { this(prompt, false); }
 }

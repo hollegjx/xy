@@ -3,6 +3,7 @@ import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import {
   Alert as AAlert,
   Button as AButton,
+  Checkbox as ACheckbox,
   Empty as AEmpty,
   Form as AForm,
   FormItem as AFormItem,
@@ -14,11 +15,17 @@ import { ApiError, errorMessage } from '@/request'
 import { getAppMessages } from '@/service/api/chat'
 import { cancelGeneration, generateApp } from '@/service/api/generation'
 import { useLoginUserStore } from '@/stores/useLoginUserStore'
-import type { ChatHistoryPageVO, GenerationEventVO, GenerationStatus } from '@/types/api'
+import type {
+  ChatHistoryPageVO,
+  CodeGenType,
+  GenerationEventVO,
+  GenerationStatus,
+} from '@/types/api'
 
 const props = defineProps<{
   appId: string
   initPrompt: string
+  codeGenType: CodeGenType
   autoGenerate?: boolean
   selection?: string
 }>()
@@ -30,6 +37,7 @@ const error = ref('')
 const loadingMore = ref(false)
 const moreError = ref('')
 const form = reactive({ prompt: '' })
+const qualityCheck = ref(false)
 const generating = ref(false)
 const stopping = ref(false)
 const generationError = ref('')
@@ -188,15 +196,21 @@ async function generate(): Promise<void> {
   output.value = ''
   submittedPrompt = form.prompt
   try {
-    await generateApp(props.appId, generationPrompt.value, currentController.signal, (event) => {
-      if (!active || currentController.signal.aborted) return
-      live.value = event
-      output.value += event.text ?? ''
-      if (event.status === 'completed') {
-        clearCompletedPrompt()
-        emit('completed', event.generationId)
-      }
-    })
+    await generateApp(
+      props.appId,
+      generationPrompt.value,
+      currentController.signal,
+      (event) => {
+        if (!active || currentController.signal.aborted) return
+        live.value = event
+        output.value += event.text ?? ''
+        if (event.status === 'completed') {
+          clearCompletedPrompt()
+          emit('completed', event.generationId)
+        }
+      },
+      props.codeGenType === 'vue_project' && qualityCheck.value ? true : undefined,
+    )
   } catch (cause) {
     if (active && !currentController.signal.aborted) showGenerationError(cause)
   } finally {
@@ -265,6 +279,12 @@ onBeforeUnmount(() => {
         />
       </AFormItem>
       <p class="history-hint">已有网站会基于最近成功版本修改，只需描述这次想调整的内容。</p>
+      <div v-if="codeGenType === 'vue_project'" class="quality-option">
+        <ACheckbox v-model:checked="qualityCheck" :disabled="!canGenerate">
+          AI 质检与修复
+        </ACheckbox>
+        <p class="history-hint">生成后检查代码，必要时自动修复一次。</p>
+      </div>
       <div class="generation-actions">
         <AButton
           type="primary"
@@ -386,6 +406,9 @@ onBeforeUnmount(() => {
   display: grid;
   gap: 16px;
   margin-top: 24px;
+}
+.quality-option {
+  margin-top: 12px;
 }
 .generation-actions {
   display: flex;

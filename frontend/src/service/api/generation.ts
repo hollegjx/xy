@@ -1,5 +1,5 @@
 import request, { ApiError, requestStream } from '@/request'
-import type { GenerationEventVO } from '@/types/api'
+import type { GenerationEventVO, GenerationRequest } from '@/types/api'
 import { readSse } from '@/utils/sse'
 
 export async function generateApp(
@@ -7,11 +7,13 @@ export async function generateApp(
   prompt: string,
   signal: AbortSignal,
   onEvent: (event: GenerationEventVO) => void,
+  qualityCheck?: boolean,
 ): Promise<void> {
+  const data: GenerationRequest = { prompt, qualityCheck }
   try {
     const stream = await requestStream(
       `/api/apps/${encodeURIComponent(appId)}/generations`,
-      { prompt },
+      data,
       signal,
     )
     for await (const { event, data } of readSse(stream)) {

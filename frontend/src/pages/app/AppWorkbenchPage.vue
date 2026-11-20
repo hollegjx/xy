@@ -347,6 +347,7 @@ onBeforeUnmount(() => {
             :key="app.id"
             :app-id="app.id"
             :init-prompt="app.initPrompt"
+            :code-gen-type="app.codeGenType"
             :auto-generate="autoGenerate"
             :selection="selection"
             @completed="previewVersion = $event"

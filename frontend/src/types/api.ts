@@ -127,6 +127,11 @@ export interface AppAdminPageVO {
   pageSize: number
 }
 
+export interface GenerationRequest {
+  prompt: string
+  qualityCheck?: boolean
+}
+
 export type GenerationStatus = 'running' | 'completed' | 'failed' | 'cancelled'
 
 export interface GenerationEventVO {

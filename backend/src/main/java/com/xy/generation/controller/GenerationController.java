@@ -4,7 +4,8 @@ import com.xy.common.ApiResponse;
 import com.xy.generation.model.dto.GenerationRequest;
 import com.xy.generation.model.vo.GenerationEventVO;
 import com.xy.generation.service.GenerationService;
-import com.xy.user.service.UserService;
+import com.xy.common.SessionUserResolver;
+import com.xy.user.model.dto.UserIdentity;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.media.Content;
@@ -27,11 +28,11 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 public class GenerationController {
 
     private final GenerationService generationService;
-    private final UserService userService;
+    private final SessionUserResolver<UserIdentity> sessionUsers;
 
-    public GenerationController(GenerationService generationService, UserService userService) {
+    public GenerationController(GenerationService generationService, SessionUserResolver<UserIdentity> sessionUsers) {
         this.generationService = generationService;
-        this.userService = userService;
+        this.sessionUsers = sessionUsers;
     }
 
     @Operation(summary = "流式生成网站", description = "仅创建者可调用；按应用模式生成 html、multi_file 或 vue_project。"
@@ -52,7 +53,7 @@ public class GenerationController {
             HttpServletResponse servletResponse) {
         servletResponse.setHeader("Cache-Control", "no-cache");
         servletResponse.setHeader("X-Accel-Buffering", "no");
-        return generationService.generate(appId, request, userService.getLoginUser(servletRequest));
+        return generationService.generate(appId, request, sessionUsers.require(servletRequest));
     }
 
     @Operation(summary = "停止应用生成", description = "仅创建者可调用，无需请求体。generationId 取 started 事件"
@@ -63,7 +64,7 @@ public class GenerationController {
             @Parameter(description = "应用 ID，必须大于 0", example = "55") @Positive @PathVariable long appId,
             @Parameter(description = "本次生成 ID，必须大于 0", example = "101") @Positive @PathVariable long generationId,
             HttpServletRequest servletRequest) {
-        generationService.cancel(appId, generationId, userService.getLoginUser(servletRequest));
+        generationService.cancel(appId, generationId, sessionUsers.require(servletRequest));
         return ApiResponse.success(true);
     }
 }

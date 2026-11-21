@@ -5,6 +5,7 @@ import com.mybatisflex.core.query.QueryWrapper;
 import com.xy.app.service.AppService;
 import com.xy.common.ErrorCode;
 import com.xy.common.RequireRole;
+import com.xy.common.SessionUserResolver;
 import com.xy.common.UserConstant;
 import com.xy.exception.BusinessException;
 import com.xy.user.mapper.UserMapper;
@@ -28,6 +29,7 @@ import org.springframework.stereotype.Service;
 public class UserServiceImpl implements UserService {
 
     private final UserMapper userMapper;
+    private final SessionUserResolver<User> sessionUsers;
     private final PasswordEncoder passwordEncoder;
     private final AppService appService;
     private final UserDeletionPersistence deletionPersistence;
@@ -35,6 +37,7 @@ public class UserServiceImpl implements UserService {
     public UserServiceImpl(UserMapper userMapper, PasswordEncoder passwordEncoder, AppService appService,
             UserDeletionPersistence deletionPersistence) {
         this.userMapper = userMapper;
+        this.sessionUsers = new SessionUserResolver<>(userMapper::selectOneById);
         this.passwordEncoder = passwordEncoder;
         this.appService = appService;
         this.deletionPersistence = deletionPersistence;
@@ -153,18 +156,7 @@ public class UserServiceImpl implements UserService {
 
     @Override
     public User getLoginUser(HttpServletRequest request) {
-        HttpSession session = request.getSession(false);
-        Object loginUserId = session == null ? null : session.getAttribute(UserConstant.LOGIN_USER_ID);
-        if (!(loginUserId instanceof Long userId)) {
-            throw new BusinessException(ErrorCode.NOT_LOGIN_ERROR, "请先登录");
-        }
-
-        User user = userMapper.selectOneById(userId);
-        if (user == null) {
-            session.removeAttribute(UserConstant.LOGIN_USER_ID);
-            throw new BusinessException(ErrorCode.NOT_LOGIN_ERROR, "请先登录");
-        }
-        return user;
+        return sessionUsers.require(request);
     }
 
     @Override

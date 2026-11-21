@@ -11,7 +11,8 @@ import com.xy.app.model.vo.AppPageVO;
 import com.xy.app.model.vo.AppVO;
 import com.xy.app.service.AppService;
 import com.xy.common.ApiResponse;
-import com.xy.user.service.UserService;
+import com.xy.common.SessionUserResolver;
+import com.xy.user.model.dto.UserIdentity;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.media.Content;
@@ -47,11 +48,11 @@ import org.springframework.web.bind.annotation.RestController;
 public class AppController {
 
     private final AppService appService;
-    private final UserService userService;
+    private final SessionUserResolver<UserIdentity> sessionUsers;
 
-    public AppController(AppService appService, UserService userService) {
+    public AppController(AppService appService, SessionUserResolver<UserIdentity> sessionUsers) {
         this.appService = appService;
-        this.userService = userService;
+        this.sessionUsers = sessionUsers;
     }
 
     @Operation(summary = "创建应用", description = "需要登录；创建者取当前账号，名称取初始需求前 12 个字符，"
@@ -59,7 +60,7 @@ public class AppController {
     @PostMapping
     public ApiResponse<String> createApp(@Valid @RequestBody AppAddRequest request,
             HttpServletRequest servletRequest) {
-        return ApiResponse.success(Long.toString(appService.createApp(request, userService.getLoginUser(servletRequest))));
+        return ApiResponse.success(Long.toString(appService.createApp(request, sessionUsers.require(servletRequest))));
     }
 
     @Operation(summary = "管理员查询应用", description = "仅管理员可调用，支持名称模糊查询和创建者 ID 精确筛选；"
@@ -70,7 +71,7 @@ public class AppController {
     public ApiResponse<AppAdminPageVO> listAppsForAdmin(
             @Valid @ModelAttribute @ParameterObject AppAdminQueryRequest request,
             HttpServletRequest servletRequest) {
-        return ApiResponse.success(appService.listAppsForAdmin(request, userService.getLoginUser(servletRequest)));
+        return ApiResponse.success(appService.listAppsForAdmin(request, sessionUsers.require(servletRequest)));
     }
 
     @Operation(summary = "查询我的应用", description = "需要登录；仅查询当前账号创建且未删除的应用，管理员也不例外。"
@@ -80,7 +81,7 @@ public class AppController {
     public ApiResponse<AppPageVO> listMyApps(
             @Valid @ModelAttribute @ParameterObject AppQueryRequest request,
             HttpServletRequest servletRequest) {
-        return ApiResponse.success(appService.listMyApps(request, userService.getLoginUser(servletRequest)));
+        return ApiResponse.success(appService.listMyApps(request, sessionUsers.require(servletRequest)));
     }
 
     @Operation(summary = "查询公开精选作品", description = "无需登录；按发布时间和 ID 倒序排列。默认第 1 页、每页 6 个，有下一页时通过 Link 响应头返回。"
@@ -110,7 +111,7 @@ public class AppController {
     public ApiResponse<AppVO> getAppById(
             @Parameter(description = "应用 ID，必须大于 0", example = "55")
             @Positive @PathVariable long id, HttpServletRequest servletRequest) {
-        return ApiResponse.success(appService.getAppById(id, userService.getLoginUser(servletRequest)));
+        return ApiResponse.success(appService.getAppById(id, sessionUsers.require(servletRequest)));
     }
 
     @Operation(summary = "修改应用名称", description = "仅创建者可修改，管理员不能修改他人的应用。"
@@ -121,7 +122,7 @@ public class AppController {
             @Parameter(description = "应用 ID，必须大于 0", example = "55")
             @Positive @PathVariable long id, @Valid @RequestBody AppUpdateRequest request,
             HttpServletRequest servletRequest) {
-        return ApiResponse.success(appService.updateApp(id, request, userService.getLoginUser(servletRequest)));
+        return ApiResponse.success(appService.updateApp(id, request, sessionUsers.require(servletRequest)));
     }
 
     @Operation(summary = "删除应用", description = "仅创建者可删除，管理员不能删除他人的应用；无需请求体。"
@@ -131,7 +132,7 @@ public class AppController {
     public ApiResponse<Boolean> deleteApp(
             @Parameter(description = "应用 ID，必须大于 0", example = "55")
             @Positive @PathVariable long id, HttpServletRequest servletRequest) {
-        return ApiResponse.success(appService.deleteApp(id, userService.getLoginUser(servletRequest)));
+        return ApiResponse.success(appService.deleteApp(id, sessionUsers.require(servletRequest)));
     }
 
     @Operation(summary = "发布应用", description = "仅创建者可发布最近成功版本，无需请求体。"
@@ -141,7 +142,7 @@ public class AppController {
     public ApiResponse<AppDeployVO> deployApp(
             @Parameter(description = "应用 ID，必须大于 0", example = "55")
             @Positive @PathVariable long id, HttpServletRequest servletRequest) {
-        return ApiResponse.success(appService.deployApp(id, userService.getLoginUser(servletRequest)));
+        return ApiResponse.success(appService.deployApp(id, sessionUsers.require(servletRequest)));
     }
 
     @Operation(summary = "下载应用源码", description = "仅创建者可下载最近成功版本；返回 ZIP 附件，错误返回统一 JSON。"
@@ -154,7 +155,7 @@ public class AppController {
     public void downloadSource(
             @Parameter(description = "应用 ID，必须大于 0", example = "55")
             @Positive @PathVariable long id, HttpServletRequest servletRequest, HttpServletResponse response) throws IOException {
-        try (var source = appService.downloadSource(id, userService.getLoginUser(servletRequest))) {
+        try (var source = appService.downloadSource(id, sessionUsers.require(servletRequest))) {
             response.setContentLengthLong(source.size());
             response.setContentType("application/zip");
             response.setHeader(HttpHeaders.CACHE_CONTROL, CacheControl.noStore().getHeaderValue());

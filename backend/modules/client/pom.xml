@@ -9,6 +9,8 @@
   <artifactId>xy-client</artifactId>
   <properties><surefire.failIfNoSpecifiedTests>false</surefire.failIfNoSpecifiedTests></properties>
   <dependencies>
+    <!-- 只有用户接口依赖用户模型；截图端的 classpath 不需要账户实体。 -->
+    <dependency><groupId>com.xy</groupId><artifactId>xy-model</artifactId><optional>true</optional></dependency>
     <dependency><groupId>org.apache.dubbo</groupId><artifactId>dubbo</artifactId><optional>true</optional></dependency>
   </dependencies>
 </project>

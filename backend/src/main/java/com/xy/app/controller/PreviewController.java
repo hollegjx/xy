@@ -1,7 +1,8 @@
 package com.xy.app.controller;
 
 import com.xy.app.service.PreviewService;
-import com.xy.user.service.UserService;
+import com.xy.common.SessionUserResolver;
+import com.xy.user.model.dto.UserIdentity;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.media.Content;
@@ -33,11 +34,11 @@ public class PreviewController {
             + "font-src data:; media-src data: blob:; connect-src 'none'; "
             + "form-action 'none'; base-uri 'none'; frame-ancestors 'self'";
     private final PreviewService previewService;
-    private final UserService userService;
+    private final SessionUserResolver<UserIdentity> sessionUsers;
 
-    public PreviewController(PreviewService previewService, UserService userService) {
+    public PreviewController(PreviewService previewService, SessionUserResolver<UserIdentity> sessionUsers) {
         this.previewService = previewService;
-        this.userService = userService;
+        this.sessionUsers = sessionUsers;
     }
 
     @Operation(summary = "预览最近成功版本", description = "仅创建者可访问；支持 html、multi_file 和已构建的 vue_project，直接返回 UTF-8 HTML；Vue 缺少构建产物返回 409，"
@@ -50,7 +51,7 @@ public class PreviewController {
             @Parameter(description = "应用 ID，必须大于 0", example = "55") @Positive @PathVariable long appId,
             @Parameter(description = "工作台是否启用元素点选") @RequestParam(defaultValue = "false") boolean pick,
             HttpServletRequest request) throws IOException {
-        String html = previewService.getPreview(appId, userService.getLoginUser(request));
+        String html = previewService.getPreview(appId, sessionUsers.require(request));
         if (pick) {
             html += new ClassPathResource("preview/element-picker.html").getContentAsString(StandardCharsets.UTF_8);
         }

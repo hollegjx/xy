@@ -11,6 +11,7 @@ import com.xy.app.service.impl.AppServiceImpl;
 import com.xy.app.service.impl.FeaturedAppPages;
 import com.xy.chat.mapper.ChatHistoryMapper;
 import com.xy.common.UserConstant;
+import com.xy.common.SessionUserResolver;
 import com.xy.config.DeploymentConfiguration;
 import com.xy.exception.GlobalExceptionHandler;
 import com.xy.manager.GeneratedFileManager;
@@ -18,6 +19,7 @@ import com.xy.user.mapper.UserMapper;
 import com.xy.user.model.entity.User;
 import com.xy.user.model.enums.UserRoleEnum;
 import com.xy.user.service.impl.UserDeletionPersistence;
+import com.xy.user.service.impl.DatabaseUserIdentityLookup;
 import com.xy.user.service.impl.UserServiceImpl;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -81,7 +83,7 @@ class UserDeleteControllerTest {
         com.xy.user.service.UserService userService = factory.getProxy();
         // 只替换数据访问；使用真实业务类和临时文件，不连接数据库，也不测试事务框架本身。
         mockMvc = MockMvcBuilders.standaloneSetup(new UserController(userService),
-                        new AppController(appService, userService))
+                        new AppController(appService, new SessionUserResolver<>(new DatabaseUserIdentityLookup(users)::findById)))
                 .setControllerAdvice(new GlobalExceptionHandler()).build();
 
         admin = user(42L, UserRoleEnum.ADMIN);

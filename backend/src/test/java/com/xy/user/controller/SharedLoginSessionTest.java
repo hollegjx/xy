@@ -3,6 +3,8 @@ package com.xy.user.controller;
 import com.xy.app.service.AppService;
 import com.xy.app.controller.AppController;
 import com.xy.app.model.vo.AppFeaturedSlice;
+import com.xy.client.UserIdentityLookup;
+import com.xy.common.SessionUserResolver;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.xy.exception.GlobalExceptionHandler;
 import com.xy.exception.SessionAvailabilityFilter;
@@ -64,6 +66,8 @@ class SharedLoginSessionTest {
         var redis = GenerationTestRedis.start(dir);
         try {
             var users = members();
+            var identities = mock(UserIdentityLookup.class);
+            var sessionUsers = new SessionUserResolver<>(identities::findById);
             var generator = mock(GenerationService.class);
             var apps = mock(AppService.class);
             when(apps.listFeaturedApps(1, 6)).thenReturn(new AppFeaturedSlice(List.of(), false));
@@ -73,8 +77,8 @@ class SharedLoginSessionTest {
                     .withPropertyValues("spring.data.redis.port=" + redis.ports().getFirst(),
                             "spring.data.redis.connect-timeout=400ms", "spring.data.redis.timeout=400ms")
                     .run(context -> {
-                        var mvc = MockMvcBuilders.standaloneSetup(new UserController(users), new AppController(apps, users),
-                                        new GenerationController(generator, users)).setControllerAdvice(new GlobalExceptionHandler())
+                        var mvc = MockMvcBuilders.standaloneSetup(new UserController(users), new AppController(apps, sessionUsers),
+                                        new GenerationController(generator, sessionUsers)).setControllerAdvice(new GlobalExceptionHandler())
                                 .addFilters(new SessionAvailabilityFilter(new ObjectMapper()),
                                         context.getBean("springSessionRepositoryFilter", Filter.class)).build();
                         var cookie = mvc.perform(post("/users/login").contentType(MediaType.APPLICATION_JSON)
@@ -92,6 +96,7 @@ class SharedLoginSessionTest {
                         mvc.perform(get("/api/apps/2/covers/3").contextPath("/api").cookie(cookie)).andExpect(status().isOk())
                                 .andExpect(content().bytes(new byte[]{7}));
                         verify(apps).listFeaturedApps(1, 6);
+                        verifyNoInteractions(identities);
                     });
         } finally {
             if (redis.isActive()) redis.stop();

@@ -43,6 +43,7 @@ public class GenerationPersistence {
         }
     }
 
+    @LimitGenerationStarts(permits = 5, seconds = 60)
     @Transactional
     public long start(long appId, long userId, String prompt) {
         saveMessage(appId, userId, MessageRoleEnum.USER, prompt, MessageStatusEnum.COMPLETED);

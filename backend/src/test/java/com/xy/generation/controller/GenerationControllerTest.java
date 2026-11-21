@@ -7,7 +7,6 @@ import com.xy.chat.mapper.ChatHistoryMapper;
 import com.xy.chat.model.entity.ChatHistory;
 import com.xy.common.UserConstant;
 import com.xy.generation.service.impl.GenerationPersistence;
-import com.xy.generation.service.impl.GenerationStartLimiter;
 import com.xy.generation.service.impl.OpenversePhotoSearch;
 import com.xy.manager.GeneratedFileManager;
 import com.xy.manager.VueProjectBuildManager;
@@ -65,7 +64,6 @@ import org.springframework.http.MediaType;
 import org.springframework.mock.web.MockHttpSession;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
-import org.springframework.test.context.bean.override.convention.TestBean;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
@@ -107,7 +105,6 @@ class GenerationControllerTest {
 
     private static final String HTML = "<!DOCTYPE html><html><head><title>作品集</title></head><body>你好</body></html>";
     private static final AtomicLong IDS = new AtomicLong(9007199254740993L);
-    private static final AtomicLong NANO_TIME = new AtomicLong();
     @TempDir
     static Path directory;
     @Autowired
@@ -116,8 +113,6 @@ class GenerationControllerTest {
     ObjectMapper objectMapper;
     @Autowired
     GeneratedFileManager fileManager;
-    @TestBean
-    GenerationStartLimiter generationStartLimiter;
     @MockitoBean
     StreamingChatModel model;
     @MockitoBean
@@ -137,10 +132,6 @@ class GenerationControllerTest {
     private final ScheduledFuture<?> heartbeatTask = mock(ScheduledFuture.class);
     private long generationId;
 
-    static GenerationStartLimiter generationStartLimiter() {
-        return new GenerationStartLimiter(NANO_TIME::get);
-    }
-
     @DynamicPropertySource
     static void outputDirectory(DynamicPropertyRegistry registry) {
         registry.add("xy.generation.output-directory", () -> directory.toString());
@@ -148,7 +139,6 @@ class GenerationControllerTest {
 
     @BeforeEach
     void prepare() {
-        NANO_TIME.addAndGet(TimeUnit.MINUTES.toNanos(1));
         doReturn(heartbeatTask).when(heartbeatScheduler)
                 .scheduleAtFixedRate(any(Runnable.class), eq(15L), eq(15L), eq(TimeUnit.SECONDS));
         User user = new User();
@@ -1939,56 +1929,6 @@ class GenerationControllerTest {
             return null;
         }).when(model).chat(anyList(), any(StreamingChatResponseHandler.class));
         assertThat(finish(mockMvc.perform(generate().session(session())).andReturn())).contains("event:started");
-    }
-
-    @Test
-    void limitsStartsAcrossOwnedAppsUntilTheOldestStartExpires() throws Exception {
-        App second = app(42L, "html");
-        second.setId(56L);
-        when(appMapper.selectOneById(56L)).thenReturn(second);
-        when(persistence.start(any(Long.class), any(Long.class), eq("摄影作品集"))).thenAnswer(call -> IDS.incrementAndGet());
-        doAnswer(call -> {
-            call.<StreamingChatResponseHandler>getArgument(1).onCompleteResponse(response(HTML, FinishReason.STOP));
-            return null;
-        }).when(model).chat(anyList(), any(StreamingChatResponseHandler.class));
-
-        assertThat(finish(mockMvc.perform(generate().session(session())).andReturn())).contains("event:completed");
-        NANO_TIME.addAndGet(TimeUnit.SECONDS.toNanos(10));
-        for (int i = 0; i < 4; i++) {
-            assertThat(finish(mockMvc.perform(generate(56).session(session())).andReturn())).contains("event:completed");
-        }
-        mockMvc.perform(generate().session(session())).andExpect(status().isTooManyRequests())
-                .andExpect(request().asyncNotStarted()).andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
-                .andExpect(jsonPath("$.code").value(42900)).andExpect(jsonPath("$.message").value(
-                        "每个账号 60 秒内最多发起 5 次生成，请在 50 秒后重试"));
-        verify(persistence, times(5)).start(any(Long.class), eq(42L), any());
-        verify(model, times(5)).chat(anyList(), any(StreamingChatResponseHandler.class));
-        mockMvc.perform(get("/api/apps/55/messages").contextPath("/api").session(session())).andExpect(status().isOk());
-
-        User other = new User();
-        other.setId(84L);
-        when(userMapper.selectOneById(84L)).thenReturn(other);
-        App otherApp = app(84L, "html");
-        otherApp.setId(57L);
-        when(appMapper.selectOneById(57L)).thenReturn(otherApp);
-        var otherSession = new MockHttpSession();
-        otherSession.setAttribute(UserConstant.LOGIN_USER_ID, 84L);
-        assertThat(finish(mockMvc.perform(generate(57).session(otherSession)).andReturn())).contains("event:completed");
-
-        NANO_TIME.addAndGet(TimeUnit.SECONDS.toNanos(50));
-        assertThat(finish(mockMvc.perform(generate().session(session())).andReturn())).contains("event:completed");
-        mockMvc.perform(generate(56).session(session())).andExpect(status().isTooManyRequests())
-                .andExpect(jsonPath("$.message").value("每个账号 60 秒内最多发起 5 次生成，请在 10 秒后重试"));
-    }
-
-    @Test
-    void unsuccessfulStartsDoNotUseTheAccountAllowance() throws Exception {
-        when(persistence.start(55L, 42L, "摄影作品集"))
-                .thenThrow(new DataAccessResourceFailureException("start failed"));
-        for (int i = 0; i < 6; i++) {
-            mockMvc.perform(generate().session(session())).andExpect(status().isServiceUnavailable());
-        }
-        verifyNoInteractions(model);
     }
 
     @ParameterizedTest

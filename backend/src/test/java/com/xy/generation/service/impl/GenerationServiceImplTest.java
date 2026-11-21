@@ -30,7 +30,7 @@ class GenerationServiceImplTest {
         GenerationPersistence persistence = mock(GenerationPersistence.class);
         GeneratedFileManager files = mock(GeneratedFileManager.class);
         Executor executor = mock(Executor.class);
-        GenerationServiceImpl service = new GenerationServiceImpl(apps, persistence, new GenerationStartLimiter(), files,
+        GenerationServiceImpl service = new GenerationServiceImpl(apps, persistence, files,
                 new StaticListableBeanFactory().getBeanProvider(StreamingChatModel.class), executor,
                 mock(ScheduledExecutorService.class),
                 new ClassPathResource("prompts/single-html.txt"), new ClassPathResource("prompts/multi-file.txt"),

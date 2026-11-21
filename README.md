@@ -51,7 +51,7 @@ com.xy/
 
 - 项目源码目标为 Java 21。推荐 JDK 21；当前已安装的 JDK 24 也在 Spring Boot 3.5.16 的兼容范围内，可用于本步验证，Maven 编译目标仍为 21。
 - MySQL 8.0 或以上，使用现有实例和账号；本机检测到 MySQL 8.4。
-- 精选列表使用 Spring Cache + Redis。将 `spring.data.redis.host / port / database` 指向已有 Redis；本地默认 `127.0.0.1:6379`、库 0。部署多个后端时，同一环境连接同一个 Redis 库，不同环境分开；容器内的 host 填可达的 Redis 主机名。启用认证时仅在本地或服务器配置中填写凭据。
+- 精选列表使用 Spring Cache，生成限流使用 Redisson；两者共用 `spring.data.redis.host / port / database` 指向的 Redis，本地默认 `127.0.0.1:6379`、库 0。同一环境的后端连接同一个 Redis 库，不同环境分开；容器内的 host 填可达的 Redis 主机名。启用认证时仅在本地或服务器配置中填写凭据。
 - Maven Wrapper 固定 Maven 3.9.11，无需全局安装 Maven；首次构建需要下载发行包与项目依赖。
 - 后端依赖版本、来源和选择原因见 [docs/NOTES.md](docs/NOTES.md)。
 
@@ -69,6 +69,8 @@ com.xy/
 首页的「自动选择」只负责判断应用适合哪种生成模式。可将 `xy.ai.routing-model-name` 设为同一网关提供的轻量模型；不填或留空就沿用 `model-name`。选择哪种分类模型不影响实际写代码和质检使用的模型。
 
 首页「精选作品」每页默认 6 张。前 10 页缓存 5 分钟，键形如 `xy:featured:pages::<公开站点地址>:<版本>:1:6`。更换公开地址并重启后端后，首页使用新地址；清空地址则直接返回空列表，无需清理 Redis。已配置站点但 Redis 暂不可用时直接查询 MySQL。可在 `backend/` 执行 `sh mvnw -Dtest=FeaturedRedisCacheTest test` 验证共享缓存与站点切换；测试自带临时 Redis，不使用开发库。
+
+生成额度按账号计算：最近 60 秒最多发起 5 轮，在不同应用或不同后端发起也合并计数。超限时工作台显示还要等几秒；Redis 不可用时，新生成返回 503。可在 `backend/` 执行 `sh mvnw -Dtest=GenerationStartLimiterTest,ConcurrentGenerationTest test`，用临时 Redis 和模型替身复验。
 
 生成文件位于 `xy.generation.output-directory`，默认是相对于后端启动工作目录的 `./generated`；下级按用户 ID、应用 ID、生成 ID 划分。单 HTML 保存 `index.html`，多文件保存 `index.html`、`style.css` 和 `script.js`。目录被 Git 忽略。浏览器通过 `GET /api/apps/{appId}/preview` 在沙箱中运行最近成功版本，需要应用创建者的登录会话；多文件预览将 CSS/JS 编码为 data URL，原始文件继续分别保存。预览允许页面样式与脚本交互，禁止读取平台凭证和联网加载资源；当前多文件不支持模块导入或额外资源目录。工作台嵌入时使用前端代理后的同源 `/api` 地址。
 

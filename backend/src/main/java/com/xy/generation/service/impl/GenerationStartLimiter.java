@@ -3,63 +3,85 @@ package com.xy.generation.service.impl;
 import com.xy.common.ErrorCode;
 import com.xy.exception.BusinessException;
 import java.time.Duration;
-import java.util.ArrayDeque;
-import java.util.HashMap;
-import java.util.Map;
-import java.util.function.LongSupplier;
+import org.aspectj.lang.ProceedingJoinPoint;
+import org.aspectj.lang.annotation.Around;
+import org.aspectj.lang.annotation.Aspect;
+import org.redisson.api.RRateLimiter;
+import org.redisson.api.RateType;
+import org.redisson.api.RedissonClient;
+import org.redisson.client.RedisException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
 
+@Aspect
 @Component
+@Order(0) // 在数据库事务外包住建任务；提交失败也要归还本次名额。
 public class GenerationStartLimiter {
 
-    private static final int MAX_STARTS = 5;
-    private static final long WINDOW = Duration.ofSeconds(60).toNanos();
-    private final LongSupplier nanoTime;
-    private final Map<Long, ArrayDeque<Long>> startsByUser = new HashMap<>();
-    private long lastCleanup;
+    private static final Logger log = LoggerFactory.getLogger(GenerationStartLimiter.class);
+    private final RedissonClient redis;
 
-    public GenerationStartLimiter() {
-        this(System::nanoTime);
+    public GenerationStartLimiter(RedissonClient redis) {
+        this.redis = redis;
     }
 
-    public GenerationStartLimiter(LongSupplier nanoTime) {
-        this.nanoTime = nanoTime;
-        this.lastCleanup = nanoTime.getAsLong();
-    }
-
-    long start(long userId, LongSupplier createGeneration) {
-        long startTime = reserve(userId);
+    @Around("@annotation(limit) && args(*,userId,..)")
+    public Object limit(ProceedingJoinPoint call, LimitGenerationStarts limit, long userId) throws Throwable {
+        String account = "xy:generation:starts:{" + userId + "}";
+        var lock = redis.getLock(account + ":lock");
         try {
-            // 先占名额；建任务要写数据库，不让其他账号等这次写入。
-            return createGeneration.getAsLong();
-        } catch (RuntimeException error) {
-            refund(userId, startTime);
-            throw error;
+            // 只串行同账号的建任务事务，离开这里之后才开始模型调用。
+            lock.lock();
+            try {
+                RRateLimiter slot = reserve(account, limit);
+                try {
+                    return call.proceed();
+                } catch (Throwable failure) {
+                    try {
+                        slot.delete();
+                    } catch (RedisException disconnected) {
+                        failure.addSuppressed(disconnected);
+                    }
+                    throw failure;
+                }
+            } finally {
+                try {
+                    lock.unlock();
+                } catch (RedisException | IllegalMonitorStateException disconnected) {
+                    // 已提交的任务仍须开流；断线留下的锁由 Redisson 自行到期。
+                    log.warn("生成建任务锁未能释放");
+                }
+            }
+        } catch (RedisException unavailable) {
+            throw new BusinessException(ErrorCode.SERVICE_UNAVAILABLE, "生成限流服务暂不可用，请稍后重试");
         }
     }
 
-    private synchronized long reserve(long userId) {
-        long now = nanoTime.getAsLong();
-        if (now - lastCleanup >= WINDOW) {
-            startsByUser.values().removeIf(starts -> now - starts.getLast() >= WINDOW);
-            lastCleanup = now;
+    private RRateLimiter reserve(String account, LimitGenerationStarts limit) {
+        Duration window = Duration.ofSeconds(limit.seconds());
+        long waitMillis = window.toMillis();
+        // 每个名额独立复原：建任务失败只退本次名额，不重置同账号已成功的请求。
+        for (int i = 0; i < limit.permits(); i++) {
+            var slot = redis.getRateLimiter(account + ":" + i);
+            try {
+                if (take(slot, window)) return slot;
+            } catch (RedisException error) {
+                // 检查与领取之间恰好过期时，在已持有的账号锁下重建该名额。
+                if (slot.isExists()) throw error;
+                if (take(slot, window)) return slot;
+            }
+            waitMillis = Math.min(waitMillis, slot.remainTimeToLive());
         }
-        var starts = startsByUser.computeIfAbsent(userId, ignored -> new ArrayDeque<>());
-        while (!starts.isEmpty() && now - starts.getFirst() >= WINDOW) starts.removeFirst();
-        if (starts.size() >= MAX_STARTS) {
-            long seconds = Math.ceilDiv(WINDOW - (now - starts.getFirst()), Duration.ofSeconds(1).toNanos());
-            throw new BusinessException(ErrorCode.TOO_MANY_REQUESTS,
-                    "每个账号 60 秒内最多发起 5 次生成，请在 " + seconds + " 秒后重试");
-        }
-        starts.addLast(now);
-        return now;
+        long seconds = Math.max(1, Math.ceilDiv(waitMillis, 1000));
+        throw new BusinessException(ErrorCode.TOO_MANY_REQUESTS, "每个账号 " + limit.seconds()
+                + " 秒内最多发起 " + limit.permits() + " 次生成，请在 " + seconds + " 秒后重试");
     }
 
-    private synchronized void refund(long userId, long startTime) {
-        var starts = startsByUser.get(userId);
-        if (starts != null) {
-            starts.removeFirstOccurrence(startTime);
-            if (starts.isEmpty()) startsByUser.remove(userId);
-        }
+    private boolean take(RRateLimiter slot, Duration window) {
+        boolean fresh = slot.trySetRate(RateType.OVERALL, 1, window, window);
+        // 只对有额度的名额调用 tryAcquire，避免被拒的请求刷新空闲 TTL、延长等待提示。
+        return (fresh || slot.availablePermits() > 0) && slot.tryAcquire();
     }
 }

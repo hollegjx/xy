@@ -1,8 +1,8 @@
 package com.xy.app.service;
 
-import com.xy.user.model.entity.User;
+import com.xy.user.model.UserActor;
 
 public interface PreviewService {
 
-    String getPreview(long appId, User loginUser);
+    String getPreview(long appId, UserActor loginUser);
 }

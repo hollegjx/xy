@@ -4,10 +4,11 @@ import com.mybatisflex.annotation.Column;
 import com.mybatisflex.annotation.Id;
 import com.mybatisflex.annotation.KeyType;
 import com.mybatisflex.annotation.Table;
+import com.xy.user.model.UserActor;
 import java.time.LocalDateTime;
 
 @Table(value = "user", camelToUnderline = false)
-public class User {
+public class User implements UserActor {
 
     @Id(keyType = KeyType.Auto)
     private Long id;

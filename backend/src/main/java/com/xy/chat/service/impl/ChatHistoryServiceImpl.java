@@ -9,7 +9,7 @@ import com.xy.chat.model.vo.ChatHistoryPageVO;
 import com.xy.chat.model.vo.ChatHistoryVO;
 import com.xy.chat.service.ChatHistoryService;
 import com.xy.generation.service.impl.GenerationPersistence;
-import com.xy.user.model.entity.User;
+import com.xy.user.model.UserActor;
 import java.util.List;
 import org.springframework.stereotype.Service;
 
@@ -28,7 +28,7 @@ public class ChatHistoryServiceImpl implements ChatHistoryService {
     }
 
     @Override
-    public ChatHistoryPageVO listMessages(long appId, ChatHistoryQueryRequest request, User loginUser) {
+    public ChatHistoryPageVO listMessages(long appId, ChatHistoryQueryRequest request, UserActor loginUser) {
         appService.getAppById(appId, loginUser);
         generationPersistence.recoverInterruptedGenerations();
         List<ChatHistory> messages = chatHistoryMapper.selectListByQuery(

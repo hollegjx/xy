@@ -53,8 +53,9 @@
       <version>5.6.283</version>
     </dependency>
     <dependency>
-      <groupId>io.projectreactor</groupId>
-      <artifactId>reactor-core</artifactId>
+      <groupId>dev.langchain4j</groupId>
+      <artifactId>langchain4j-reactor</artifactId>
+      <version>1.22.0-beta32</version>
     </dependency>
     <dependency>
       <groupId>com.github.ben-manes.caffeine</groupId>

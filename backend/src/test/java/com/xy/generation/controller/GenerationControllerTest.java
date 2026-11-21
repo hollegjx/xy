@@ -150,6 +150,8 @@ class GenerationControllerTest {
 
     @BeforeEach
     void prepare() {
+        doAnswer(call -> ReactiveModelFixture.publish(model, call.getArgument(0)))
+                .when(model).chat(any(ChatRequest.class));
         doReturn(heartbeatTask).when(heartbeatScheduler)
                 .scheduleAtFixedRate(any(Runnable.class), eq(15L), eq(15L), eq(TimeUnit.SECONDS));
         User user = new User();

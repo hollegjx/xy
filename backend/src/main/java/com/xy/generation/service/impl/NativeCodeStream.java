@@ -13,6 +13,7 @@ import dev.langchain4j.model.chat.response.ChatResponse;
 import dev.langchain4j.service.AiServices;
 import dev.langchain4j.service.AiServiceStreamingEvent;
 import dev.langchain4j.service.MemoryId;
+import dev.langchain4j.service.V;
 import dev.langchain4j.service.memory.ChatMemoryAccess;
 import java.util.List;
 import java.util.Set;
@@ -25,7 +26,8 @@ import reactor.core.publisher.Sinks;
 /** 对外保留 XY 的 SSE 事件；模型先送分片，最后单独送结束原因和完整候选稿。 */
 final class NativeCodeStream {
     interface Writer extends ChatMemoryAccess {
-        Flux<AiServiceStreamingEvent> write(@MemoryId Object turn, @dev.langchain4j.service.UserMessage String request);
+        @dev.langchain4j.service.UserMessage("{{request}}")
+        Flux<AiServiceStreamingEvent> write(@MemoryId Object turn, @V("request") String request);
     }
 
     // 实例标识每次调用。晚到的旧回调只能写旧草稿；已提交记忆由 GenerationMemory 管理。

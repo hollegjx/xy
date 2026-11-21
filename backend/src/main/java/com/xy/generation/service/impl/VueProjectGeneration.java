@@ -134,7 +134,8 @@ final class VueProjectGeneration implements GenerationSession.OutputHandler {
     }
 
     private interface Writer {
-        TokenStream write(@dev.langchain4j.service.UserMessage String prompt);
+        @dev.langchain4j.service.UserMessage("{{request}}")
+        TokenStream write(@dev.langchain4j.service.V("request") String prompt);
     }
 
     private void generateTurn(StreamingChatModel model, List<ChatMessage> conversation,

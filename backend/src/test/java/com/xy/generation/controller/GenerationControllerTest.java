@@ -1241,7 +1241,7 @@ class GenerationControllerTest {
     @Test
     void editsOneVueComponentFromThePersistedVersionWithoutRewritingOtherFiles() throws Exception {
         long previousId = preparePreviousVueProject(app(42L, "vue_project"));
-        String prompt = "用你上次提到的另一种布局";
+        String prompt = "用你上次提到的另一种布局，保留 {{ user.name }}";
         when(persistence.start(55, 42, prompt)).thenReturn(generationId);
         doAnswer(invocation -> {
             ChatRequest request = invocation.getArgument(0);
@@ -1836,7 +1836,7 @@ class GenerationControllerTest {
                 AiMessage.from(olderReply), UserMessage.from("保留联系按钮"), AiMessage.from(lastReply)));
         if (mode.equals("html")) fileManager.saveHtml(42, 55, versionId, source);
         else fileManager.saveMultiFile(42, 55, versionId, multiFiles());
-        String prompt = "把背景改为黑色，保留其他内容";
+        String prompt = "把背景改为黑色，保留模板示例 {{ user.name }}";
         when(persistence.start(55, 42, prompt)).thenReturn(generationId);
         AtomicReference<List<ChatMessage>> sent = new AtomicReference<>();
         doAnswer(invocation -> {

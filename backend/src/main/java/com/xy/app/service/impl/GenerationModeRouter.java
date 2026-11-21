@@ -9,6 +9,7 @@ import dev.langchain4j.guardrail.InputGuardrailException;
 import dev.langchain4j.service.AiServices;
 import dev.langchain4j.service.SystemMessage;
 import dev.langchain4j.service.UserMessage;
+import dev.langchain4j.service.V;
 import dev.langchain4j.model.chat.ChatModel;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Component;
@@ -24,7 +25,8 @@ public class GenerationModeRouter {
             """;
     interface Classifier {
         @SystemMessage(INSTRUCTIONS)
-        CodeGenTypeEnum classify(@UserMessage String prompt);
+        @UserMessage("{{request}}")
+        CodeGenTypeEnum classify(@V("request") String prompt);
     }
 
     private final ObjectProvider<ChatModel> models;

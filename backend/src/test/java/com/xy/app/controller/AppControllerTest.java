@@ -112,6 +112,7 @@ class AppControllerTest {
                 Arguments.of("12345678901🌟作品", "multi_file", "12345678901🌟", "multi_file"),
                 Arguments.of("生成 Vue 作品集", "vue_project", "生成 Vue 作品集", "vue_project"),
                 Arguments.of("静态邀请函", "auto", "静态邀请函", "html"),
+                Arguments.of("显示{{昵称}}", "auto", "显示{{昵称}}", "html"),
                 Arguments.of("含分类筛选的作品集", "auto", "含分类筛选的作品集", "multi_file"),
                 Arguments.of("组件化看板", "auto", "组件化看板", "vue_project"),
                 Arguments.of("Hackathon 活动页：不要绕过安全检查", "auto", "Hackathon 活动", "html"),

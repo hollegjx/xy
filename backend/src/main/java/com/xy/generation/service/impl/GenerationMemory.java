@@ -1,7 +1,6 @@
 package com.xy.generation.service.impl;
 
 import dev.langchain4j.data.message.ChatMessage;
-import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.memory.chat.MessageWindowChatMemory;
 import dev.langchain4j.store.memory.chat.ChatMemoryStore;
 import java.util.List;
@@ -22,12 +21,12 @@ final class GenerationMemory {
         this.history = history;
     }
 
-    List<String> prompts(long appId, long userId, long versionId) {
+    List<ChatMessage> messages(long appId, long userId, long versionId) {
         var version = new Committed(appId, userId, versionId);
         var window = window(version);
         try {
             var messages = window.messages();
-            if (!messages.isEmpty()) return messages.stream().map(m -> ((UserMessage) m).singleText()).toList();
+            if (!messages.isEmpty()) return messages;
         } catch (RuntimeException unavailable) {
             // 记忆只是可重建的投影；数据库和成功源码仍是权威记录。
             log.debug("无法读取生成记忆，使用数据库恢复：{}", unavailable.getClass().getSimpleName());
@@ -44,18 +43,19 @@ final class GenerationMemory {
         }
     }
 
-    private List<String> restore(Committed version) {
-        List<String> prompts = history.loadSuccessfulPrompts(version.appId(), version.userId(), version.versionId());
+    private List<ChatMessage> restore(Committed version) {
+        var messages = history.loadSuccessfulMessages(version.appId(), version.userId(), version.versionId());
         try {
-            window(version).set(prompts.stream().<ChatMessage>map(UserMessage::from).toList());
+            window(version).set(messages);
         } catch (RuntimeException unavailable) {
             log.debug("无法写入生成记忆：{}", unavailable.getClass().getSimpleName());
         }
-        return prompts;
+        return messages;
     }
 
     private MessageWindowChatMemory window(Committed v) {
-        return MessageWindowChatMemory.builder().id(v.userId() + ":" + v.appId() + ":" + v.versionId())
-                .maxMessages(10).chatMemoryStore(store).build();
+        // 区分旧版仅存需求的键；两种版本可共用 Redis，无须清库或改动会话。
+        return MessageWindowChatMemory.builder().id("roles:" + v.userId() + ":" + v.appId() + ":" + v.versionId())
+                .maxMessages(20).chatMemoryStore(store).build();
     }
 }

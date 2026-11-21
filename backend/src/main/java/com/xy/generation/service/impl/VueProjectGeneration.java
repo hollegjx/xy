@@ -103,7 +103,7 @@ final class VueProjectGeneration implements GenerationSession.OutputHandler {
             });
             return;
         }
-        // 在工具写入候选工程之前取出继承的源码；生成对话中的 AI 消息只有文件清单。
+        // 质检比较真实源码；生成模型则从文件清单定位文件，按需读取。
         String previousSource;
         try {
             previousSource = choosingAssets ? null : mapper.writeValueAsString(sourcesForModel());

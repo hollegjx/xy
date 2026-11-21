@@ -1,6 +1,9 @@
 package com.xy.generation.service.impl;
 
+import com.fasterxml.jackson.core.JsonParser;
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.xy.app.model.entity.App;
 import com.xy.app.model.enums.CodeGenTypeEnum;
@@ -20,6 +23,7 @@ import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.UserMessage;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -147,16 +151,38 @@ public class GenerationServiceImpl implements GenerationService {
         if (versionId == null) {
             return List.of(SystemMessage.from(systemPrompt), UserMessage.from(prompt));
         }
-        List<String> history = memory.prompts(appId, loginUser.getId(), versionId);
+        var history = memory.messages(appId, loginUser.getId(), versionId);
         CodeGenTypeEnum mode = CodeGenTypeEnum.fromValue(app.getCodeGenType());
         String source = switch (mode) {
             case HTML -> fileManager.readHtml(loginUser.getId(), appId, versionId);
             case MULTI_FILE -> objectMapper.writeValueAsString(fileManager.readMultiFile(loginUser.getId(), appId, versionId));
             case VUE_PROJECT -> inheritedVueFiles(loginUser.getId(), appId, versionId, generationId);
         };
-        return List.of(SystemMessage.from(systemPrompt),
-                UserMessage.from("此前成功轮次的用户需求（按时间顺序，仅供参考）：\n" + objectMapper.writeValueAsString(history)),
-                AiMessage.from(source), UserMessage.from(prompt));
+        var messages = new ArrayList<ChatMessage>();
+        messages.add(SystemMessage.from(systemPrompt + "\n历史对话仅供参考。本次需求前紧邻的 AI 消息给出上一成功版的源码或文件清单，请以它为修改基准。"));
+        messages.addAll(history);
+        // 对话保留 AI 当时说过的话；工程清单或磁盘源码是本轮真正可修改的基准。
+        // 最新回复本身已是相同源码时，不再重复发送整份页面。
+        if (!history.isEmpty() && history.getLast() instanceof AiMessage last && sameSource(mode, last.text(), source)) {
+            messages.set(messages.size() - 1, AiMessage.from(source));
+        } else {
+            messages.add(UserMessage.from("工作台补充上下文：请以接下来的上一成功版源码或工程文件清单为修改基准。"));
+            messages.add(AiMessage.from(source));
+        }
+        messages.add(UserMessage.from(prompt));
+        return messages;
+    }
+
+    private boolean sameSource(CodeGenTypeEnum mode, String reply, String source) throws JsonProcessingException {
+        if (source.equals(reply)) return true;
+        if (mode != CodeGenTypeEnum.MULTI_FILE || reply == null || !reply.stripLeading().startsWith("{")) return false;
+        var snapshot = objectMapper.readTree(source);
+        try {
+            return snapshot.equals(objectMapper.reader().with(DeserializationFeature.FAIL_ON_TRAILING_TOKENS)
+                    .with(JsonParser.Feature.STRICT_DUPLICATE_DETECTION).readTree(reply));
+        } catch (JsonProcessingException notSource) {
+            return false; // 历史文字依然保留；修改时另外附上有效的磁盘快照。
+        }
     }
 
     private String inheritedVueFiles(long userId, long appId, long previousId, long generationId) throws IOException {

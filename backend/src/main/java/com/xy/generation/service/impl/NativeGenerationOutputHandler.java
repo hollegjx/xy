@@ -64,16 +64,21 @@ final class NativeGenerationOutputHandler implements GenerationSession.OutputHan
     public void generate(StreamingChatModel model, List<ChatMessage> messages, GenerationSession session) {
         var conversation = new ArrayList<>(messages);
         String previousSource = null;
-        for (int i = 0; i < conversation.size(); i++) {
-            if (!(conversation.get(i) instanceof AiMessage previous)) continue;
+        int baseline = conversation.size() - 2;
+        if (conversation.get(baseline) instanceof AiMessage previous) {
             try {
+                // 老回复提供对话线索；只有磁盘中最近成功的版本可以为本轮提供素材。
+                for (int i = 1; i < baseline; i++) {
+                    if (conversation.get(i) instanceof AiMessage reply) {
+                        conversation.set(i, AiMessage.from(editIndex(reply.text(), NativeAssetImages::historyText)));
+                    }
+                }
                 previousSource = editIndex(previous.text(), html -> images.conceal(photo.inherit(html)));
             } catch (IOException error) {
                 session.onContextError(error);
                 return;
             }
-            conversation.set(i, AiMessage.from(previousSource));
-            break;
+            conversation.set(baseline, AiMessage.from(previousSource));
         }
         boolean first = previousSource == null;
         if (first || photo.available()) {

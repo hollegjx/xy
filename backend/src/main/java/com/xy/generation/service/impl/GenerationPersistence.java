@@ -8,6 +8,9 @@ import com.xy.chat.model.enums.MessageRoleEnum;
 import com.xy.chat.model.enums.MessageStatusEnum;
 import com.xy.common.ErrorCode;
 import com.xy.exception.BusinessException;
+import dev.langchain4j.data.message.AiMessage;
+import dev.langchain4j.data.message.ChatMessage;
+import dev.langchain4j.data.message.UserMessage;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -53,7 +56,7 @@ public class GenerationPersistence {
         return saveMessage(appId, userId, MessageRoleEnum.ASSISTANT, "", MessageStatusEnum.RUNNING);
     }
 
-    public List<String> loadSuccessfulPrompts(long appId, long userId, long versionId) {
+    public List<ChatMessage> loadSuccessfulMessages(long appId, long userId, long versionId) {
         List<ChatHistory> recent = chatHistoryMapper.selectListByQuery(QueryWrapper.create()
                 .eq(ChatHistory::getAppId, appId)
                 .eq(ChatHistory::getUserId, userId)
@@ -65,7 +68,7 @@ public class GenerationPersistence {
                 || !MessageStatusEnum.COMPLETED.getValue().equals(recent.getFirst().getStatus())) {
             throw new BusinessException(ErrorCode.OPERATION_ERROR, "应用成功版本记录不可用");
         }
-        List<String> prompts = new ArrayList<>();
+        List<ChatMessage> messages = new ArrayList<>();
         // 同一应用串行生成，每轮事务内先存用户消息再存 AI 消息；不假定自增 ID 连续。
         for (int i = recent.size() - 1; i > 0; i--) {
             ChatHistory request = recent.get(i);
@@ -74,10 +77,11 @@ public class GenerationPersistence {
                     && MessageStatusEnum.COMPLETED.getValue().equals(request.getStatus())
                     && MessageRoleEnum.ASSISTANT.getValue().equals(reply.getMessageRole())
                     && MessageStatusEnum.COMPLETED.getValue().equals(reply.getStatus())) {
-                prompts.add(request.getContent());
+                messages.add(UserMessage.from(request.getContent()));
+                messages.add(AiMessage.from(reply.getContent()));
             }
         }
-        return prompts;
+        return messages;
     }
 
     @Transactional

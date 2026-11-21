@@ -1,6 +1,10 @@
 package com.xy.generation.service.impl;
 
 import com.xy.generation.GenerationTestRedis;
+import dev.langchain4j.data.message.AiMessage;
+import dev.langchain4j.data.message.ChatMessage;
+import dev.langchain4j.data.message.ChatMessageSerializer;
+import dev.langchain4j.data.message.UserMessage;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.List;
@@ -21,26 +25,37 @@ class GenerationMemoryRedisTest {
         var redis = GenerationTestRedis.start(dir);
         try {
             var sql = mock(GenerationPersistence.class);
-            when(sql.loadSuccessfulPrompts(55, 7, 101)).thenReturn(List.of("建立画廊", "放大标题"));
-            when(sql.loadSuccessfulPrompts(56, 8, 110)).thenReturn(List.of("独立应用"));
-            when(sql.loadSuccessfulPrompts(55, 7, 120)).thenReturn(List.of("新版本"));
+            var gallery = List.<ChatMessage>of(UserMessage.from("建立画廊"), AiMessage.from("首页是网格布局"),
+                    UserMessage.from("放大标题"), AiMessage.from("已将标题改为两行"));
+            var other = List.<ChatMessage>of(UserMessage.from("独立应用"), AiMessage.from("另一个用户的作品"));
+            var later = List.<ChatMessage>of(UserMessage.from("新版本"), AiMessage.from("新的回复"));
+            when(sql.loadSuccessfulMessages(55, 7, 101)).thenReturn(gallery);
+            when(sql.loadSuccessfulMessages(56, 8, 110)).thenReturn(other);
+            when(sql.loadSuccessfulMessages(55, 7, 120)).thenReturn(later);
             var contexts = new ApplicationContextRunner().withConfiguration(AutoConfigurations.of(RedisAutoConfiguration.class))
                     .withUserConfiguration(RedisGenerationMemoryStore.class, GenerationMemory.class)
                     .withBean(GenerationPersistence.class, () -> sql)
                     .withPropertyValues("spring.data.redis.port=" + redis.ports().getFirst(), "spring.data.redis.database=2");
-            contexts.run(first -> first.getBean(GenerationMemory.class).afterCommit(new GenerationMemory.Committed(55, 7, 101)));
+            contexts.run(first -> {
+                var store = first.getBean(StringRedisTemplate.class);
+                store.opsForValue().set("xy:chat:memory:7:55:101",
+                        ChatMessageSerializer.messagesToJson(List.of(UserMessage.from("只有需求的旧缓存"))));
+                assertThat(first.getBean(GenerationMemory.class).messages(55, 7, 101)).containsExactlyElementsOf(gallery);
+                first.getBean(GenerationMemory.class).afterCommit(new GenerationMemory.Committed(55, 7, 120));
+            });
             contexts.run(restarted -> {
                 var memory = restarted.getBean(GenerationMemory.class);
                 var store = restarted.getBean(StringRedisTemplate.class);
-                assertThat(memory.prompts(55, 7, 101)).containsExactly("建立画廊", "放大标题");
-                verify(sql).loadSuccessfulPrompts(55, 7, 101);
-                assertThat(memory.prompts(56, 8, 110)).containsExactly("独立应用");
-                assertThat(memory.prompts(55, 7, 120)).containsExactly("新版本");
-                String key = "xy:chat:memory:7:55:101";
+                assertThat(memory.messages(55, 7, 101)).containsExactlyElementsOf(gallery);
+                verify(sql).loadSuccessfulMessages(55, 7, 101);
+                assertThat(memory.messages(56, 8, 110)).containsExactlyElementsOf(other);
+                assertThat(memory.messages(55, 7, 120)).containsExactlyElementsOf(later);
+                verify(sql).loadSuccessfulMessages(55, 7, 120);
+                String key = "xy:chat:memory:roles:7:55:101";
                 assertThat(store.getExpire(key)).isBetween(3590L, 3600L);
                 store.expireAt(key, Instant.EPOCH);
-                assertThat(memory.prompts(55, 7, 101)).containsExactly("建立画廊", "放大标题");
-                verify(sql, times(2)).loadSuccessfulPrompts(55, 7, 101);
+                assertThat(memory.messages(55, 7, 101)).containsExactlyElementsOf(gallery);
+                verify(sql, times(2)).loadSuccessfulMessages(55, 7, 101);
             });
         } finally {
             redis.stop();

@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.xy.app.model.enums.CodeGenTypeEnum;
+import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.UserMessage;
@@ -56,10 +57,13 @@ final class GenerationQualityWorkflow {
         this.conversation = conversation;
         // 此时还没有候选稿或修复报告。两次检查共用原需求和同一份旧稿。
         var context = new StringBuilder();
-        for (ChatMessage message : conversation) {
+        for (int i = 0; i < conversation.size(); i++) {
+            ChatMessage message = conversation.get(i);
             if (message instanceof UserMessage user) {
-                if (message == conversation.getLast()) context.append("本次用户需求：\n");
-                context.append(user.singleText()).append('\n');
+                context.append(i == conversation.size() - 1 ? "本次用户需求：\n" : "历史用户消息：\n")
+                        .append(user.singleText()).append('\n');
+            } else if (message instanceof AiMessage ai && i != conversation.size() - 2) {
+                context.append("历史 AI 回复：\n").append(ai.text()).append('\n');
             }
         }
         if (previousSource != null) context.append("上一成功版源码：\n").append(previousSource).append('\n');

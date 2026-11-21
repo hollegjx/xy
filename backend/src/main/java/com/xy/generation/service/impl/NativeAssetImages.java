@@ -24,6 +24,15 @@ final class NativeAssetImages {
                 + providers.diagramImage(diagram) + "\" />" : NativeArchitectureSvg.render(diagram);
     }
 
+    static String historyText(String html) {
+        if (!html.toLowerCase(java.util.Locale.ROOT).contains("data:image/")) return html;
+        var doc = Jsoup.parse(html);
+        var bitmaps = doc.select("img[data-xy-photo][src^=data:image/], img[data-xy-artwork][src^=data:image/]");
+        if (bitmaps.isEmpty()) return html;
+        bitmaps.removeAttr("src");
+        return doc.outerHtml();
+    }
+
     String conceal(String html) {
         if (!html.contains("data-xy-artwork")) return html;
         var doc = Jsoup.parse(html);

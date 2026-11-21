@@ -863,7 +863,7 @@ class GenerationControllerTest {
                 review.set(((UserMessage) request.messages().getLast()).singleText());
                 handler.onCompleteResponse(response("{\"isValid\":true,\"errors\":[],\"suggestions\":[]}", FinishReason.STOP));
             } else if (!(request.messages().getLast() instanceof ToolExecutionResultMessage result)) {
-                manifest.set(((AiMessage) request.messages().get(2)).text());
+                manifest.set(((AiMessage) request.messages().get(request.messages().size() - 2)).text());
                 handler.onCompleteResponse(ChatResponse.builder().finishReason(FinishReason.TOOL_EXECUTION)
                         .aiMessage(AiMessage.from(ToolExecutionRequest.builder().name("readFile").id("credit")
                                 .arguments("{\"relativePath\":\"xy-photo.json\"}").build())).build());
@@ -1226,7 +1226,8 @@ class GenerationControllerTest {
         long previousId = generationId - 1000;
         app.setGeneratedVersion(previousId);
         when(appMapper.selectOneById(55L)).thenReturn(app);
-        when(persistence.loadSuccessfulPrompts(55, 42, previousId)).thenReturn(List.of("旧需求"));
+        when(persistence.loadSuccessfulMessages(55, 42, previousId)).thenReturn(List.of(
+                UserMessage.from("旧需求"), AiMessage.from("上一版使用紧凑卡片，备选样式是宽卡片")));
         fileManager.writeVueSource(42, 55, previousId, "src/App.vue", appSource);
         fileManager.writeVueSource(42, 55, previousId, "src/Card.vue", "<template>旧卡片</template>");
         Map<String, String> template = objectMapper.readValue(
@@ -1239,6 +1240,8 @@ class GenerationControllerTest {
     @Test
     void editsOneVueComponentFromThePersistedVersionWithoutRewritingOtherFiles() throws Exception {
         long previousId = preparePreviousVueProject(app(42L, "vue_project"));
+        String prompt = "用你上次提到的另一种布局";
+        when(persistence.start(55, 42, prompt)).thenReturn(generationId);
         doAnswer(invocation -> {
             ChatRequest request = invocation.getArgument(0);
             StreamingChatResponseHandler handler = invocation.getArgument(1);
@@ -1250,7 +1253,10 @@ class GenerationControllerTest {
                 } else handler.onCompleteResponse(response("已更新卡片", FinishReason.STOP));
             } else {
                 assertThat(request.toolSpecifications()).extracting("name").doesNotContain("findPhoto", "selectIllustration", "drawArchitecture", "generateLogo");
-                assertThat(((AiMessage) request.messages().get(2)).text())
+                assertThat(request.messages().subList(1, 3)).containsExactly(
+                        UserMessage.from("旧需求"), AiMessage.from("上一版使用紧凑卡片，备选样式是宽卡片"));
+                assertThat(request.messages().getLast()).isEqualTo(UserMessage.from(prompt));
+                assertThat(((AiMessage) request.messages().get(request.messages().size() - 2)).text())
                         .contains("src/App.vue", "src/Card.vue").doesNotContain("旧卡片", "旧作品");
                 handler.onCompleteResponse(ChatResponse.builder().finishReason(FinishReason.TOOL_EXECUTION)
                         .aiMessage(AiMessage.from(ToolExecutionRequest.builder().name("readFile").id("read-card")
@@ -1259,7 +1265,8 @@ class GenerationControllerTest {
             return null;
         }).when(model).chat(nonDraftRequest(), any(StreamingChatResponseHandler.class));
 
-        String events = finish(mockMvc.perform(generate().session(session())).andReturn());
+        String events = finish(mockMvc.perform(generate().session(session())
+                .content(objectMapper.writeValueAsString(Map.of("prompt", prompt)))).andReturn());
         assertThat(events).containsSubsequence("已读取：src/Card.vue", "已局部修改：src/Card.vue", "event:completed")
                 .doesNotContain("旧卡片", "已写入：src/App.vue");
         assertThat(fileManager.readVueProject(42, 55, generationId))
@@ -1388,7 +1395,7 @@ class GenerationControllerTest {
         long previousId = preparePreviousVueProject(app);
         doAnswer(invocation -> {
             ChatRequest request = invocation.getArgument(0);
-            assertThat(((AiMessage) request.messages().get(2)).text()).contains("src/App.vue");
+            assertThat(((AiMessage) request.messages().get(request.messages().size() - 2)).text()).contains("src/App.vue");
             StreamingChatResponseHandler handler = invocation.getArgument(1);
             if (outcome.equals("cancelled")) {
                 StreamingHandle handle = mock(StreamingHandle.class);
@@ -1459,7 +1466,8 @@ class GenerationControllerTest {
             if (request.toolSpecifications() == null || request.toolSpecifications().isEmpty()) {
                 int check = checks.incrementAndGet();
                 String input = ((UserMessage) request.messages().getLast()).singleText();
-                assertThat(input).containsSubsequence("摄影作品集", "上一成功版源码", "<template>旧作品</template>", "本次候选源码", "候选" + writes.get());
+                assertThat(input).containsSubsequence("历史用户消息：\n旧需求", "历史 AI 回复：\n上一版使用紧凑卡片，备选样式是宽卡片",
+                        "本次用户需求：\n摄影作品集", "上一成功版源码", "<template>旧作品</template>", "本次候选源码", "候选" + writes.get());
                 assertThat(input).contains("src/App.vue", "src/Card.vue");
                 boolean valid = outcome.equals("passed") || outcome.equals("repaired") && check == 2;
                 String report = outcome.equals("invalid_report") ? "检查好了"
@@ -1809,8 +1817,16 @@ class GenerationControllerTest {
         restored.setGeneratedVersion(versionId);
         // 入口快照尚无成功版本；取得生成占用后必须重新读取数据库。
         when(appMapper.selectOneById(55L)).thenReturn(app(42L, mode), restored);
-        when(persistence.loadSuccessfulPrompts(55, 42, versionId)).thenReturn(List.of("建立作品集", "保留联系按钮"));
         String source = mode.equals("html") ? HTML : objectMapper.writeValueAsString(multiFiles());
+        String lastReply = mode.equals("html") ? source : objectMapper.writerWithDefaultPrettyPrinter().writeValueAsString(multiFiles());
+        String olderHtml = HTML.replace("你好", "首轮宽卡片<img data-xy-photo='coffee' data-xy-source='旧图来源' "
+                + "data-xy-license='CC0' src='data:image/jpeg;base64,OLDPHOTO'><img data-xy-artwork='diagram' "
+                + "alt='旧架构图' src='data:image/png;base64,OLDDIAGRAM'>");
+        var olderFiles = new LinkedHashMap<>(multiFiles());
+        olderFiles.put("index.html", olderHtml);
+        String olderReply = mode.equals("html") ? olderHtml : objectMapper.writeValueAsString(olderFiles);
+        when(persistence.loadSuccessfulMessages(55, 42, versionId)).thenReturn(List.of(UserMessage.from("建立作品集"),
+                AiMessage.from(olderReply), UserMessage.from("保留联系按钮"), AiMessage.from(lastReply)));
         if (mode.equals("html")) fileManager.saveHtml(42, 55, versionId, source);
         else fileManager.saveMultiFile(42, 55, versionId, multiFiles());
         String prompt = "把背景改为黑色，保留其他内容";
@@ -1826,10 +1842,12 @@ class GenerationControllerTest {
                 .content(objectMapper.writeValueAsString(Map.of("prompt", prompt)))).andReturn());
 
         assertThat(events).contains("event:completed").doesNotContain("event:failed");
-        assertThat(sent.get()).hasSize(4);
-        assertThat(((UserMessage) sent.get().get(1)).singleText()).contains("建立作品集", "保留联系按钮")
-                .doesNotContain(prompt);
-        String baseline = ((AiMessage) sent.get().get(2)).text();
+        assertThat(sent.get()).hasSize(6);
+        assertThat(sent.get().get(1)).isEqualTo(UserMessage.from("建立作品集"));
+        assertThat(((AiMessage) sent.get().get(2)).text()).contains("首轮宽卡片", "旧图来源", "旧架构图");
+        assertThat(sent.get().get(3)).isEqualTo(UserMessage.from("保留联系按钮"));
+        assertThat(sent.get().toString()).doesNotContain("base64,", "OLDPHOTO", "OLDDIAGRAM", "已有 data-xy-photo 图片的来源和许可随标签提供");
+        String baseline = ((AiMessage) sent.get().get(4)).text();
         if (mode.equals("html")) assertThat(baseline).isEqualTo(HTML);
         else assertThat(objectMapper.readTree(baseline)).isEqualTo(objectMapper.valueToTree(multiFiles()));
         assertThat(((UserMessage) sent.get().getLast()).singleText()).isEqualTo(prompt);
@@ -1843,12 +1861,12 @@ class GenerationControllerTest {
         App restored = app(42L, failure.equals("missing_css") ? "multi_file" : "html");
         restored.setGeneratedVersion(versionId);
         when(appMapper.selectOneById(55L)).thenReturn(restored);
-        when(persistence.loadSuccessfulPrompts(55, 42, versionId)).thenReturn(List.of("建立作品集"));
+        when(persistence.loadSuccessfulMessages(55, 42, versionId)).thenReturn(List.of(UserMessage.from("建立作品集"), AiMessage.from("已建成作品集")));
         if (failure.equals("missing_css")) {
             fileManager.saveMultiFile(42, 55, versionId, multiFiles());
             Files.delete(directory.resolve("42/55/" + versionId + "/style.css"));
         } else if (failure.equals("history_error")) {
-            when(persistence.loadSuccessfulPrompts(55, 42, versionId))
+            when(persistence.loadSuccessfulMessages(55, 42, versionId))
                     .thenThrow(new DataAccessResourceFailureException("private storage detail"));
         }
 
@@ -1872,11 +1890,11 @@ class GenerationControllerTest {
         CountDownLatch reading = new CountDownLatch(1);
         CountDownLatch release = new CountDownLatch(1);
         AtomicReference<Thread> worker = new AtomicReference<>();
-        when(persistence.loadSuccessfulPrompts(55, 42, versionId)).thenAnswer(invocation -> {
+        when(persistence.loadSuccessfulMessages(55, 42, versionId)).thenAnswer(invocation -> {
             worker.set(Thread.currentThread());
             reading.countDown();
             if (!release.await(3, TimeUnit.SECONDS)) throw new IllegalStateException("test timeout");
-            return List.of("建立作品集");
+            return List.of(UserMessage.from("建立作品集"), AiMessage.from("已建成作品集"));
         });
         MvcResult result = mockMvc.perform(generate().session(session())).andReturn();
         try {

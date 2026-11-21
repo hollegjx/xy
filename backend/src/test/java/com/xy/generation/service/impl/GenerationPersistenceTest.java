@@ -10,6 +10,8 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import dev.langchain4j.data.message.AiMessage;
+import dev.langchain4j.data.message.UserMessage;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
@@ -33,7 +35,7 @@ class GenerationPersistenceTest {
     private final GenerationPersistence persistence = new GenerationPersistence(messages, apps, event -> {});
 
     @Test
-    void restoresSuccessfulPromptsInOrderFromABoundedOwnedHistoryWindow() {
+    void restoresBothRolesOfSuccessfulTurnsInOrderFromABoundedOwnedHistoryWindow() {
         when(messages.selectListByQuery(any(QueryWrapper.class))).thenReturn(List.of(
                 history(180, "assistant", "completed", "latest source"),
                 history(170, "user", "completed", "改为蓝色"),
@@ -45,7 +47,8 @@ class GenerationPersistenceTest {
                 history(100, "user", "completed", "摄影作品集"),
                 history(90, "assistant", "completed", "outside window")));
 
-        assertThat(persistence.loadSuccessfulPrompts(55, 42, 180)).containsExactly("摄影作品集", "改为蓝色");
+        assertThat(persistence.loadSuccessfulMessages(55, 42, 180)).containsExactly(
+                UserMessage.from("摄影作品集"), AiMessage.from("old source"), UserMessage.from("改为蓝色"), AiMessage.from("latest source"));
         ArgumentCaptor<QueryWrapper> query = ArgumentCaptor.forClass(QueryWrapper.class);
         verify(messages).selectListByQuery(query.capture());
         assertThat(query.getValue().toSQL())
@@ -61,7 +64,7 @@ class GenerationPersistenceTest {
         when(messages.selectListByQuery(any(QueryWrapper.class)))
                 .thenReturn(invalid.equals("missing") ? List.of() : List.of(version));
 
-        assertThatThrownBy(() -> persistence.loadSuccessfulPrompts(55, 42, 180))
+        assertThatThrownBy(() -> persistence.loadSuccessfulMessages(55, 42, 180))
                 .isInstanceOf(BusinessException.class).hasMessage("应用成功版本记录不可用");
     }
 

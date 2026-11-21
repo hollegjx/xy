@@ -99,6 +99,15 @@ final class VueProjectGeneration implements GenerationSession.OutputHandler {
     public void generate(StreamingChatModel model, List<ChatMessage> messages, GenerationSession session) {
         // 已有成功版本的上下文含上一版工程清单；修改时沿用复制过来的素材。
         choosingAssets = messages.stream().noneMatch(AiMessage.class::isInstance);
+        if (!choosingAssets) {
+            try {
+                if (files.hasVueArchitecture(userId, appId, generationId))
+                    inheritRenderedDiagram(files.readVueSources(userId, appId, generationId));
+            } catch (IOException error) {
+                session.onContextError(error);
+                return;
+            }
+        }
         var conversation = new ArrayList<>(messages);
         var history = new StringBuilder();
         if (!qualityCheck) {
@@ -127,6 +136,21 @@ final class VueProjectGeneration implements GenerationSession.OutputHandler {
                     session.onPartialResponse(text);
                 });
         workflow.runWithToolAssets(assetPrompt::manifest);
+    }
+
+    // 以模型动笔前的成功版为基准；只改文案或 JSON 排版时保留原图。
+    private void inheritRenderedDiagram(Map<String, String> sources) {
+        String image = sources.get(ArtworkProviders.MERMAID_IMAGE);
+        if (image == null) return;
+        try {
+            var src = mapper.readTree(image).path("src");
+            if (src.isTextual() && !src.textValue().isBlank()) {
+                renderedDiagram = VueArchitectureDiagram.parse(mapper, sources.get(VueArchitectureDiagram.DATA));
+                renderedImage = src.textValue();
+            }
+        } catch (IOException | IllegalArgumentException invalid) {
+            // 未配对的旧数据不能作为成图复用；交付时按最终关系重新校验和绘制。
+        }
     }
 
     @Override

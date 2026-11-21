@@ -26,7 +26,7 @@ class VueArtworkDeliveryTest {
     private final ObjectMapper json = new ObjectMapper();
 
     @Test
-    void reRendersEditedMermaidDataBeforeCommittingEachVueVersion(@TempDir Path dir) throws Exception {
+    void reRendersChangedRelationsAndReusesTheSuccessfulImageForPageOnlyEdits(@TempDir Path dir) throws Exception {
         var files = new GeneratedFileManager(dir);
         var artwork = mock(ArtworkProviders.class);
         when(artwork.rendersMermaid()).thenReturn(true);
@@ -36,9 +36,10 @@ class VueArtworkDeliveryTest {
         try (var in = new ClassPathResource("templates/vue-project.json").getInputStream()) {
             template = json.readValue(in, new TypeReference<>() {});
         }
-        for (long id : List.of(101L, 102L)) {
+        String page = "<script setup>import Graph from './components/XyArchitecture.vue'</script><template><Graph/></template>";
+        for (long id : List.of(101L, 102L, 103L)) {
             boolean first = id == 101;
-            if (!first) files.copyVueSources(1, 2, 101, id);
+            if (!first) files.copyVueSources(1, 2, id - 1, id);
             String end = first ? "接口" : "网关";
             var design = Map.of("nodes", List.of("客户端", end), "edges", List.of(Map.of("from", "客户端", "to", end)));
             var model = mock(StreamingChatModel.class);
@@ -51,8 +52,8 @@ class VueArtworkDeliveryTest {
                 if (first && step == 0) { tool = "drawArchitecture"; args = design; }
                 else if (step == (first ? 1 : 0)) {
                     tool = "writeFile";
-                    args = first ? Map.of("relativePath", "src/App.vue", "content",
-                            "<script setup>import Graph from './components/XyArchitecture.vue'</script><template><Graph/></template>")
+                    args = first || id == 103 ? Map.of("relativePath", "src/App.vue", "content",
+                            first ? page : page.replace("<Graph/>", "<h1>系统关系</h1><Graph/>"))
                             : Map.of("relativePath", VueArchitectureDiagram.DATA, "content", json.writeValueAsString(design));
                 }
                 var reply = tool == null ? AiMessage.from("完成") : AiMessage.from(ToolExecutionRequest.builder()
@@ -72,5 +73,6 @@ class VueArtworkDeliveryTest {
             assertThat(json.readTree(files.readVueProject(1,2,id).get(ArtworkProviders.MERMAID_IMAGE)).get("src").asText()).isEqualTo("image:" + end);
         }
         assertThat(files.readVueProject(1,2,101).get(ArtworkProviders.MERMAID_IMAGE)).contains("接口").doesNotContain("网关");
+        verify(artwork, times(2)).diagramImage(any());
     }
 }

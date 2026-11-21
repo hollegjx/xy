@@ -57,6 +57,13 @@ xy:
     image: xy-vue-builder:local
     timeout-seconds: 120
   cover:
+    # 使用已有私有 COS 存储桶时设为 cos，凭证只填本地配置。
+    storage: local
+    cos:
+      region: ''
+      bucket: ''
+      secret-id: ''
+      secret-key: ''
     # 先准备本机隔离截图镜像 xy-cover:1；不启用时作品仍可发布。
     enabled: false
   deployment:

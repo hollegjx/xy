@@ -16,6 +16,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.regex.Pattern;
@@ -24,6 +25,7 @@ import java.util.zip.ZipOutputStream;
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 @Component
@@ -38,7 +40,15 @@ public class GeneratedFileManager {
     private static final String VUE_ARCHITECTURE_MARKER = ".xy-architecture";
     private final Path root;
 
-    public GeneratedFileManager(@Value("${xy.generation.output-directory:./generated}") Path root) {
+    private final Optional<CosCoverStorage> coverStorage;
+
+    public GeneratedFileManager(Path root) {
+        this(root, Optional.empty());
+    }
+
+    @Autowired
+    GeneratedFileManager(@Value("${xy.generation.output-directory:./generated}") Path root, Optional<CosCoverStorage> coverStorage) {
+        this.coverStorage = coverStorage;
         this.root = root.toAbsolutePath().normalize();
     }
 
@@ -283,7 +293,12 @@ public class GeneratedFileManager {
                 StandardCharsets.UTF_8, StandardOpenOption.CREATE_NEW);
     }
 
+    private static String coverKey(long userId, long appId, long versionId) {
+        return "xy/covers/" + userId + "/" + appId + "/" + versionId + ".jpg";
+    }
+
     public boolean hasCover(long userId, long appId, long versionId) {
+        if (coverStorage.isPresent() && coverStorage.get().exists(coverKey(userId, appId, versionId))) return true;
         try {
             return Files.isRegularFile(versionDirectory(userId, appId, versionId).resolve("cover.jpg"), LinkOption.NOFOLLOW_LINKS);
         } catch (IOException unavailable) {
@@ -292,6 +307,10 @@ public class GeneratedFileManager {
     }
 
     public void saveCover(long userId, long appId, long versionId, byte[] jpeg) throws IOException {
+        if (coverStorage.isPresent()) {
+            coverStorage.get().save(coverKey(userId, appId, versionId), jpeg);
+            return;
+        }
         Path directory = versionDirectory(userId, appId, versionId);
         Path temporary = Files.createTempFile(directory, ".cover-", ".tmp");
         try {
@@ -303,6 +322,13 @@ public class GeneratedFileManager {
     }
 
     public byte[] readCover(long userId, long appId, long versionId) throws IOException {
+        if (coverStorage.isPresent()) {
+            try {
+                return coverStorage.get().read(coverKey(userId, appId, versionId));
+            } catch (NoSuchFileException migrated) {
+                // 启用 COS 前已发布的封面仍从原位置读取。
+            }
+        }
         Path file = versionDirectory(userId, appId, versionId).resolve("cover.jpg");
         if (!Files.isRegularFile(file, LinkOption.NOFOLLOW_LINKS)) throw new NoSuchFileException("无封面");
         try (var input = Files.newInputStream(file, LinkOption.NOFOLLOW_LINKS)) {

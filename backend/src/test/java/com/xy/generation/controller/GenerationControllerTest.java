@@ -327,8 +327,9 @@ class GenerationControllerTest {
                 {"from":"网关","to":"读者"},{"from":"书库","to":"书库","label":"自检"}]}""";
         if (!logoOk) logo = logo.replace("50,50,32", "50,50,0");
         if (!graphOk) graph = graph.replace("\"to\":\"网关\"", "\"to\":\"未定义节点\"");
-        String slots = "<span id='brand' class='brand' data-xy-logo='" + logo + "'>星云 &amp; 书屋</span>"
-                + "<figure id='diagram' data-xy-architecture='" + graph + "'><figcaption>节点说明</figcaption></figure>";
+        if (multi) planReturns("{\"logo\":" + logo + ",\"architecture\":" + graph + "}");
+        String slots = "<span id='brand' class='brand' data-xy-logo='" + (multi ? "prepared" : logo) + "'>星云 &amp; 书屋</span>"
+                + "<figure id='diagram' data-xy-architecture='" + (multi ? "prepared" : graph) + "'><figcaption>节点说明</figcaption></figure>";
         files.compute("index.html", (key, html) -> html.replace("你好", slots));
         String raw = multi ? objectMapper.writeValueAsString(files) : files.get("index.html");
         String edit = "把节点说明改成系统说明";
@@ -345,7 +346,12 @@ class GenerationControllerTest {
             List<ChatMessage> messages = call.<ChatRequest>getArgument(0).messages();
             String output = raw;
             if (writes.incrementAndGet() == 1) {
-                assertThat(((SystemMessage) messages.getFirst()).text()).contains("data-xy-logo", "data-xy-architecture");
+                if (multi) {
+                    String assets = ((UserMessage) messages.getLast()).singleText();
+                    assertThat(assets).contains("星云 & 书屋", "data-xy-logo=\"prepared\"").doesNotContain("<svg", "base64,");
+                    if (graphOk) assertThat(assets).contains("读者、网关、书库", "data-xy-architecture=\"prepared\"");
+                    else assertThat(assets).doesNotContain("data-xy-architecture");
+                } else assertThat(((SystemMessage) messages.getFirst()).text()).contains("data-xy-logo", "data-xy-architecture");
             } else {
                 output = messages.stream().filter(AiMessage.class::isInstance).map(AiMessage.class::cast)
                         .map(AiMessage::text).findFirst().orElseThrow();
@@ -357,7 +363,8 @@ class GenerationControllerTest {
         }).when(model).chat(draftRequest(), any(StreamingChatResponseHandler.class));
         doAnswer(call -> {
             String candidate = ((UserMessage) call.<ChatRequest>getArgument(0).messages().getLast()).singleText();
-            assertThat(candidate).contains("<svg").doesNotContain("data-xy-logo=", "data-xy-architecture=");
+            String source = candidate.substring(candidate.indexOf("本次候选源码："));
+            assertThat(source).contains("<svg").doesNotContain("data-xy-logo=", "data-xy-architecture=");
             call.<StreamingChatResponseHandler>getArgument(1).onCompleteResponse(response(
                     "{\"isValid\":true,\"errors\":[],\"suggestions\":[]}", FinishReason.STOP));
             return null;
@@ -375,6 +382,7 @@ class GenerationControllerTest {
             assertThat(edited).contains("event:completed").doesNotContain("event:failed", "已嵌入");
         }
         assertThat(writes).hasValue(followup ? 2 : 1);
+        verify(model, times(multi ? 1 : 0)).chat(planRequest(), any());
         Path download = downloads.resolve(mode + "-" + logoOk + "-" + graphOk + ".zip");
         Files.write(download, mockMvc.perform(get("/api/apps/55/source").contextPath("/api").session(session()))
                 .andExpect(status().isOk()).andReturn().getResponse().getContentAsByteArray());

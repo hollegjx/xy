@@ -86,10 +86,10 @@ final class NativeGenerationOutputHandler implements GenerationSession.OutputHan
             conversation.set(baseline, AiMessage.from(previousSource));
         }
         boolean first = previousSource == null;
-        if (first && qualityCheck) planned = new NativeWorkflowAssets(mapper, photo, executor);
+        if (first && qualityCheck) planned = new NativeWorkflowAssets(mapper, photo, images, executor);
         if (first || photo.available()) {
             var system = (SystemMessage) conversation.getFirst();
-            String hint = planned != null ? NativeVectorAssets.HTML_HINT
+            String hint = planned != null ? "本轮可用素材已在需求末尾列出。只使用清单里的标记和用途，保留可读的页面文字。"
                     : first ? String.join("\n", ThemeIllustrations.HTML_HINT, NativeContentPhoto.HTML_HINT, NativeVectorAssets.HTML_HINT)
                     : NativeContentPhoto.EDIT_HINT;
             conversation.set(0, SystemMessage.from(system.text() + "\n" + hint));
@@ -141,7 +141,8 @@ final class NativeGenerationOutputHandler implements GenerationSession.OutputHan
                         var illustrated = ThemeIllustrations.embedInBody(html, planned == null ? null : planned.illustrations());
                         if (!illustrated.labels().isEmpty()) session.onPartialResponse("\n候选页面已嵌入主题插画："
                                 + String.join("、", illustrated.labels()) + "。\n");
-                        html = images.conceal(NativeVectorAssets.embed(illustrated.html(), mapper, session::onPartialResponse, images));
+                        html = images.conceal(NativeVectorAssets.embed(illustrated.html(), planned != null ? planned::vector
+                                : (attribute, design) -> NativeVectorAssets.render(attribute, design, mapper, images), session::onPartialResponse));
                     }
                     return photo.prepare(html, first && planned == null, session);
                 });

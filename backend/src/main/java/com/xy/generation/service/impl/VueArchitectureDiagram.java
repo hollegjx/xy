@@ -32,7 +32,9 @@ final class VueArchitectureDiagram {
                                     .required("from", "to").additionalProperties(false).build()).build())
                     .required("nodes", "edges").additionalProperties(false).build()).build();
 
-    record Edge(String from, String to, String label) {}
+    record Edge(String from, String to, String label) {
+        Edge { if (label == null) label = ""; }
+    }
     record Diagram(List<String> nodes, List<Edge> edges) {}
 
     static String bundledRenderer() throws IOException {

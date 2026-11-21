@@ -80,7 +80,7 @@ final class ArtworkProviders {
             String name = design.path("name").asText("").strip();
             if (name.isEmpty()) return Optional.empty();
             // 不发送用户原始需求、历史或工程源码，只提交 Logo 的设计参数。
-            String brief = design.path("brief").asText("");
+            String brief = design.path("brief").asText("").strip();
             String prompt = "设计一个方形品牌标志。品牌：" + name + "。视觉简述：" + brief;
             var layers = design.path("layers");
             if (!layers.isMissingNode() && !layers.isArray()) return Optional.empty();

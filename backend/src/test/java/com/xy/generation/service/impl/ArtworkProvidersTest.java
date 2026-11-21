@@ -22,6 +22,31 @@ import static org.mockito.Mockito.*;
 
 class ArtworkProvidersTest {
     @Test
+    void equivalentLogoRequestsReuseTheSameDrawingAndVueComponent() {
+        var mapper = new ObjectMapper();
+        var provider = mock(ArtworkProviders.class);
+        when(provider.rendersLogo()).thenReturn(true);
+        when(provider.logoImage(any(), anyString())).thenReturn(Optional.of("<img alt='棱镜'>"));
+        String initial = """
+                {"name":"棱镜","purpose":"页头","layers":[{"shape":"circle","color":"#11aaBB","coordinates":[50,50,18]}]}""";
+        String repeated = """
+                {"name":" 棱镜 ","purpose":"页尾","brief":"","layers":[{"coordinates":[50,50,18],"color":"#11AAbb","shape":"circle","note":"内部"}]}""";
+        String changed = initial.replace("[50,50,18]", "[30,50,18]");
+        var vue = new VueLogoComponents();
+        var first = vue.prepare(initial, mapper, provider, Runnable::run);
+        var footer = vue.prepare(repeated, mapper, provider, Runnable::run);
+        assertThat(footer.drawing()).isSameAs(first.drawing());
+        assertThat(footer.purpose()).isEqualTo("页尾");
+        assertThat(vue.prepare(changed, mapper, provider, Runnable::run).drawing().path()).endsWith("/XyLogo2.vue");
+        verify(provider, times(2)).logoImage(any(), anyString());
+
+        clearInvocations(provider);
+        var nativeImages = new NativeAssetImages(provider);
+        for (String design : List.of(initial, repeated, changed)) assertThat(nativeImages.logo(mapper, design)).isPresent();
+        verify(provider, times(2)).logoImage(any(), anyString());
+    }
+
+    @Test
     void cloudLogoReceivesTheActualShapesInPaintOrderWithoutPageDetails() throws Exception {
         var png = new ByteArrayOutputStream();
         ImageIO.write(new BufferedImage(2, 2, BufferedImage.TYPE_INT_RGB), "png", png);

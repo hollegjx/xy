@@ -4,6 +4,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import dev.langchain4j.agent.tool.ToolSpecification;
 import dev.langchain4j.model.chat.request.json.JsonArraySchema;
 import dev.langchain4j.model.chat.request.json.JsonIntegerSchema;
@@ -11,6 +12,7 @@ import dev.langchain4j.model.chat.request.json.JsonObjectSchema;
 import java.awt.geom.Area;
 import java.awt.geom.Path2D;
 import java.util.List;
+import java.util.Locale;
 import java.util.Optional;
 import java.util.StringJoiner;
 import org.springframework.web.util.HtmlUtils;
@@ -31,6 +33,23 @@ final class VueBrandLogo {
                                             .items(JsonIntegerSchema.builder().build()).build())
                                     .required("shape", "color", "coordinates").additionalProperties(false).build()).build())
                     .required("name", "layers").additionalProperties(false).build()).build();
+
+    record DesignKey(String name, String brief, JsonNode layers) {}
+
+    // 比较实际设计而非请求的写法；首次请求的源码仍保留原色值和绘制顺序。
+    static DesignKey designKey(JsonNode design) {
+        JsonNode layers = design.path("layers").deepCopy();
+        if (layers.isArray()) {
+            for (var layer : layers) if (layer instanceof ObjectNode shape) {
+                shape.retain("shape", "color", "coordinates");
+                if (shape.path("color").isTextual())
+                    shape.put("color", shape.get("color").textValue().toLowerCase(Locale.ROOT));
+            }
+        }
+        if (layers.isMissingNode() || (layers.isArray() && layers.isEmpty())) layers = null;
+        return new DesignKey(design.path("name").isTextual() ? design.get("name").textValue().strip() : "",
+                design.path("brief").asText("").strip(), layers);
+    }
 
     static Optional<String> render(ObjectMapper mapper, String arguments) {
         return renderSvg(mapper, arguments).map(svg -> "<template>\n  " + svg + "\n</template>\n");

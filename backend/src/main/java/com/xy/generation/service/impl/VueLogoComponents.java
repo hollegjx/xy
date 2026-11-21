@@ -17,7 +17,7 @@ final class VueLogoComponents {
     record Drawing(String path, String brand, CompletableFuture<Optional<String>> source) {}
     record Use(Drawing drawing, String purpose) {}
 
-    private final Map<ObjectNode, Drawing> drawings = new LinkedHashMap<>();
+    private final Map<VueBrandLogo.DesignKey, Drawing> drawings = new LinkedHashMap<>();
     private final Set<String> written = new HashSet<>();
 
     Use prepare(String arguments, ObjectMapper mapper, ArtworkProviders artwork, Executor executor) {
@@ -28,12 +28,12 @@ final class VueLogoComponents {
         } catch (IOException | IllegalArgumentException invalid) { /* 不合规的标志只回退本处文字。 */ }
         String purpose = request.path("purpose").asText("").strip();
         var design = request.retain("name", "brief", "layers");
-        var drawing = drawings.computeIfAbsent(design, key -> {
-            String brand = key.path("name").isTextual() ? key.get("name").textValue().strip() : "";
+        var drawing = drawings.computeIfAbsent(VueBrandLogo.designKey(design), key -> {
+            String brand = key.name();
             String path = drawings.isEmpty() ? VueBrandLogo.COMPONENT : "src/components/XyLogo" + (drawings.size() + 1) + ".vue";
             var source = CompletableFuture.supplyAsync(() -> {
                 if (brand.isEmpty()) return Optional.<String>empty();
-                String json = key.toString();
+                String json = design.toString();
                 var image = artwork.rendersLogo() ? artwork.logoImage(mapper, json) : Optional.<String>empty();
                 return image.map(img -> "<template>" + img + "</template>").or(() -> VueBrandLogo.render(mapper, json));
             }, executor);

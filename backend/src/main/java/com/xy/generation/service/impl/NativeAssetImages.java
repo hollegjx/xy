@@ -16,14 +16,16 @@ import org.jsoup.Jsoup;
 final class NativeAssetImages {
     private final ArtworkProviders providers;
     private final Map<String,String> images = new HashMap<>();
-    private final Map<JsonNode, FutureTask<Optional<String>>> logos = new ConcurrentHashMap<>();
+    private final Map<VueBrandLogo.DesignKey, FutureTask<Optional<String>>> logos = new ConcurrentHashMap<>();
     NativeAssetImages(ArtworkProviders providers) { this.providers = providers; }
 
     Optional<String> logo(ObjectMapper mapper, String design) {
-        JsonNode key;
-        try { key = mapper.reader().with(DeserializationFeature.FAIL_ON_TRAILING_TOKENS).readTree(design); }
+        JsonNode parsed;
+        try { parsed = mapper.reader().with(DeserializationFeature.FAIL_ON_TRAILING_TOKENS).readTree(design); }
         catch (java.io.IOException | IllegalArgumentException invalid) { return Optional.empty(); }
-        if (key == null || !key.isObject() || key.path("name").asText("").isBlank()) return Optional.empty();
+        if (parsed == null || !parsed.isObject()) return Optional.empty();
+        var key = VueBrandLogo.designKey(parsed);
+        if (key.name().isEmpty()) return Optional.empty();
         // 只在表中登记任务，慢调用在表外运行；同一设计复用，不同设计可同时绘制。
         var task = logos.computeIfAbsent(key, ignored -> new FutureTask<>(
                 () -> providers.logoImage(mapper, design).or(() -> VueBrandLogo.renderSvg(mapper, design))));

@@ -126,6 +126,11 @@ final class GenerationSession implements StreamingChatResponseHandler {
 
     // 工作流的一次调用只结束当前节点；质检报告不进入 SSE，所有节点仍支持取消。
     StreamingChatResponseHandler modelStep(boolean showText, Consumer<ChatResponse> completed) {
+        return modelStep(showText, ignored -> {}, completed);
+    }
+
+    StreamingChatResponseHandler modelStep(boolean showText, Consumer<PartialToolCall> onToolFragment,
+            Consumer<ChatResponse> completed) {
         return new StreamingChatResponseHandler() {
             @Override
             public void onPartialResponse(String text) {
@@ -141,8 +146,15 @@ final class GenerationSession implements StreamingChatResponseHandler {
                 GenerationSession.this.onPartialThinking(text, context);
             }
             @Override
+            public void onPartialToolCall(PartialToolCall call) {
+                synchronized (GenerationSession.this) {
+                    if (!finished && call != null) onToolFragment.accept(call);
+                }
+            }
+            @Override
             public void onPartialToolCall(PartialToolCall call, PartialToolCallContext context) {
-                GenerationSession.this.onPartialToolCall(call, context);
+                trackHandle(context.streamingHandle());
+                onPartialToolCall(call);
             }
             @Override
             public void onError(Throwable error) { GenerationSession.this.onError(error); }

@@ -23,6 +23,7 @@ import dev.langchain4j.model.chat.request.ChatRequest;
 import dev.langchain4j.model.chat.response.ChatResponse;
 import dev.langchain4j.model.chat.response.PartialResponse;
 import dev.langchain4j.model.chat.response.PartialResponseContext;
+import dev.langchain4j.model.chat.response.PartialToolCall;
 import dev.langchain4j.model.chat.response.PartialToolCallContext;
 import dev.langchain4j.model.chat.response.StreamingChatResponseHandler;
 import dev.langchain4j.model.chat.response.StreamingHandle;
@@ -594,6 +595,33 @@ class GenerationControllerTest {
         Files.delete(htmlPath().resolveSibling("src/App.vue"));
         mockMvc.perform(get("/api/apps/55/source").contextPath("/api").session(session()))
                 .andExpect(status().isNotFound()).andExpect(content().contentType("application/json"));
+    }
+
+    @Test
+    void vueAnnouncesToolSelectionBeforeArgumentsFinishWithoutSendingArgumentsOrClaimingAWrite() throws Exception {
+        when(appMapper.selectOneById(55L)).thenReturn(app(42L, "vue_project"));
+        var first = new CompletableFuture<StreamingChatResponseHandler>();
+        doAnswer(invocation -> {
+            StreamingChatResponseHandler handler = invocation.getArgument(1);
+            if (!first.complete(handler)) handler.onCompleteResponse(response("完成", FinishReason.STOP));
+            return null;
+        }).when(model).chat(nonDraftRequest(), any(StreamingChatResponseHandler.class));
+
+        var stream = mockMvc.perform(generate().session(session())).andReturn();
+        var handler = first.get(3, TimeUnit.SECONDS);
+        var context = mock(PartialToolCallContext.class);
+        when(context.streamingHandle()).thenReturn(mock(StreamingHandle.class));
+        var fragment = PartialToolCall.builder().index(0).id("first").name("writeFile")
+                .partialArguments("这段未完成的源码不应回显").build();
+        handler.onPartialToolCall(fragment, context);
+        handler.onPartialToolCall(fragment);
+        assertThat(stream.getResponse().getContentAsString(StandardCharsets.UTF_8))
+                .containsOnlyOnce("已选择工具：写入文件").doesNotContain(fragment.partialArguments(), "已写入", "event:completed");
+        assertThat(htmlPath().resolveSibling("src/App.vue")).doesNotExist();
+
+        handler.onCompleteResponse(ChatResponse.builder().finishReason(FinishReason.TOOL_EXECUTION)
+                .aiMessage(AiMessage.from(writeFile("src/App.vue", "<template>完成的页面</template>"))).build());
+        assertThat(finish(stream)).containsSubsequence("已选择工具：写入文件", "已写入：src/App.vue", "event:completed");
     }
 
     @ParameterizedTest

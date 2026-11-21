@@ -35,6 +35,11 @@ import java.util.concurrent.FutureTask;
 
 // 一次 Vue 源码生成的工具循环；任务终态和 SSE 生命周期仍由 GenerationSession 管理。
 final class VueProjectGeneration implements GenerationSession.OutputHandler {
+    private static final Map<String, String> TOOL_LABELS = Map.of(
+            "listFiles", "列出工程文件", "readFile", "读取文件", "writeFile", "写入文件",
+            "replaceFragment", "替换代码片段", "deleteComponent", "删除组件",
+            "findPhoto", "查找照片", "selectIllustration", "选择插画",
+            "drawArchitecture", "绘制架构图", "generateLogo", "生成 Logo");
     private static final Set<String> ASSET_TOOLS = Set.of("findPhoto", "selectIllustration", "drawArchitecture", "generateLogo");
     private static final List<ToolSpecification> SOURCE_TOOLS = ToolSpecifications.toolSpecificationsFrom(SourceTools.class);
     private static final ToolSpecification FIND_PHOTO = ToolSpecification.builder().name("findPhoto")
@@ -127,9 +132,17 @@ final class VueProjectGeneration implements GenerationSession.OutputHandler {
             if (offerIllustration) tools.add(ThemeIllustrations.TOOL);
             if (offerDiagram) tools.add(VueArchitectureDiagram.TOOL);
             if (offerLogo) tools.add(VueBrandLogo.TOOL);
+            // index 只在本次模型响应内唯一；工具名可早于参数就绪，分片不代表文件已变更。
+            Set<Integer> announced = new HashSet<>();
             model.chat(
                 ChatRequest.builder().messages(assetPrompt.forGeneration(messages)).toolSpecifications(tools).build(),
-                session.modelStep(true, response -> {
+                session.modelStep(true, call -> {
+                    String name = call.name();
+                    if (name == null || !TOOL_LABELS.containsKey(name) || announced.contains(call.index())) return;
+                    if (tools.stream().anyMatch(spec -> spec.name().equals(name)) && announced.add(call.index())) {
+                        session.onPartialResponse("\n已选择工具：" + TOOL_LABELS.get(name) + "，正在接收参数…\n");
+                    }
+                }, response -> {
                     if (response.finishReason() != FinishReason.STOP && response.finishReason() != FinishReason.TOOL_EXECUTION) {
                         session.fail("模型未正常完成输出，请重试");
                         return;

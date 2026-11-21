@@ -18,7 +18,11 @@ import com.xy.manager.GeneratedFileManager;
 import com.xy.user.mapper.UserMapper;
 import com.xy.user.model.entity.User;
 import com.xy.user.model.enums.UserRoleEnum;
+import com.xy.user.service.UserDeletionService;
+import com.xy.user.service.UserService;
 import com.xy.user.service.impl.UserDeletionPersistence;
+import com.xy.user.service.impl.UserDeletionServiceImpl;
+import com.xy.user.service.impl.RoleAuthorizationAspect;
 import com.xy.user.service.impl.DatabaseUserIdentityLookup;
 import com.xy.user.service.impl.UserServiceImpl;
 import java.nio.file.Files;
@@ -30,6 +34,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.mockito.ArgumentCaptor;
+import org.springframework.aop.aspectj.annotation.AspectJProxyFactory;
 import org.springframework.http.MediaType;
 import org.springframework.mock.web.MockHttpSession;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -76,14 +81,16 @@ class UserDeleteControllerTest {
         featuredPages = spy(new FeaturedAppPages(apps, files));
         var appService = new AppServiceImpl(apps, messages, files, deployment,
                 mock(GenerationModeRouter.class), Optional.empty(), featuredPages);
-        var service = new UserServiceImpl(users, mock(PasswordEncoder.class), appService,
-                new UserDeletionPersistence(users, apps));
-        var factory = new org.springframework.aop.aspectj.annotation.AspectJProxyFactory(service);
-        factory.addAspect(com.xy.user.service.impl.RoleAuthorizationAspect.class);
-        com.xy.user.service.UserService userService = factory.getProxy();
+        var accounts = new AspectJProxyFactory(new UserServiceImpl(users, mock(PasswordEncoder.class)));
+        accounts.addAspect(RoleAuthorizationAspect.class);
+        UserService userService = accounts.getProxy();
+        var removals = new AspectJProxyFactory(new UserDeletionServiceImpl(users, appService, new UserDeletionPersistence(users, apps)));
+        removals.addAspect(RoleAuthorizationAspect.class);
+        UserDeletionService deletion = removals.getProxy();
+        var sessionUsers = new SessionUserResolver<>(new DatabaseUserIdentityLookup(users)::findById);
         // 只替换数据访问；使用真实业务类和临时文件，不连接数据库，也不测试事务框架本身。
-        mockMvc = MockMvcBuilders.standaloneSetup(new UserController(userService),
-                        new AppController(appService, new SessionUserResolver<>(new DatabaseUserIdentityLookup(users)::findById)))
+        mockMvc = MockMvcBuilders.standaloneSetup(new UserController(userService), new UserDeletionController(deletion, sessionUsers),
+                        new AppController(appService, sessionUsers))
                 .setControllerAdvice(new GlobalExceptionHandler()).build();
 
         admin = user(42L, UserRoleEnum.ADMIN);

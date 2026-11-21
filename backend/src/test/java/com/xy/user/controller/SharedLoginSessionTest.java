@@ -13,7 +13,6 @@ import com.xy.generation.controller.GenerationController;
 import com.xy.generation.service.GenerationService;
 import com.xy.user.mapper.UserMapper;
 import com.xy.user.model.entity.User;
-import com.xy.user.service.impl.UserDeletionPersistence;
 import com.xy.user.service.impl.UserServiceImpl;
 import jakarta.servlet.Filter;
 import java.nio.file.Path;
@@ -131,6 +130,6 @@ class SharedLoginSessionTest {
         when(users.selectOneByQuery(any())).thenReturn(user);
         when(users.selectOneById(42L)).thenReturn(user);
         when(passwords.matches("test-password", "hash")).thenReturn(true);
-        return new UserServiceImpl(users, passwords, mock(AppService.class), mock(UserDeletionPersistence.class));
+        return new UserServiceImpl(users, passwords);
     }
 }

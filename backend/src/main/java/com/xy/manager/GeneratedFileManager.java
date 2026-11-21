@@ -174,10 +174,22 @@ public class GeneratedFileManager {
     }
 
     public void markVueArchitecture(long userId, long appId, long generationId, int slot, DiagramRenderer kind) throws IOException {
-        if (slot < 1) throw new IllegalArgumentException("无效的架构图序号");
-        String marker = VUE_ARCHITECTURE_MARKER + (slot == 1 ? "" : "-" + slot);
-        Files.writeString(versionDirectory(userId, appId, generationId).resolve(marker),
+        Files.writeString(versionDirectory(userId, appId, generationId).resolve(architectureMarker(slot)),
                 kind == DiagramRenderer.LEGACY ? "" : kind.name(), StandardCharsets.UTF_8, StandardOpenOption.CREATE_NEW);
+    }
+
+    /** 只补记本轮草稿继承的空标记，已确定来源的素材不重新归类。 */
+    public void resolveVueArchitectureOrigin(long userId, long appId, long generationId, int slot, DiagramRenderer kind) throws IOException {
+        Path dir = versionDirectory(userId, appId, generationId);
+        String name = architectureMarker(slot);
+        if (kind != DiagramRenderer.LEGACY && readFile(dir, name).isEmpty())
+            Files.writeString(dir.resolve(name), kind.name(), StandardCharsets.UTF_8,
+                    StandardOpenOption.WRITE, StandardOpenOption.TRUNCATE_EXISTING, LinkOption.NOFOLLOW_LINKS);
+    }
+
+    private static String architectureMarker(int slot) {
+        if (slot < 1) throw new IllegalArgumentException("无效的架构图序号");
+        return VUE_ARCHITECTURE_MARKER + (slot == 1 ? "" : "-" + slot);
     }
 
     public List<String> copyVueSources(long userId, long appId, long previousId, long generationId) throws IOException {

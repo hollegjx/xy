@@ -18,6 +18,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
@@ -166,6 +167,61 @@ class VueArtworkDeliveryTest {
         assertThat(next.imageDescription(slot.image())).isNull();
         next.refreshImages(files.readVueSources(1,2,4), session);
         assertThat(files.readVueSource(1,2,4,slot.image())).isEqualTo(banner);
+        verify(artwork, never()).diagramImage(any());
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void legacyVersionKeepsTheUsersPngWhenThePageStartsShowingIt(boolean hasLocalRenderer, @TempDir Path dir) throws Exception {
+        var files = new GeneratedFileManager(dir);
+        var slot = new VueArchitectureDiagram.Slot(1);
+        String banner = "{\"src\":\"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+kRZkAAAAASUVORK5CYII=\"}";
+        files.writeVueSource(1,2,3,slot.image(),banner);
+        files.writeVueSource(1,2,3,slot.data(),"{\"nodes\":[\"甲\"],\"edges\":[{\"from\":\"甲\",\"to\":\"甲\"}]}");
+        if (hasLocalRenderer) files.writeVueSource(1,2,3,slot.component(),slot.renderer(false));
+        files.writeVueSource(1,2,3,"src/App.vue",hasLocalRenderer
+                ? "<script setup>import G from './components/XyArchitecture.vue'</script><template><G/></template>"
+                : "<template>旧版说明</template>");
+        files.markVueArchitecture(1,2,3,1,GeneratedFileManager.DiagramRenderer.LEGACY);
+        try (var in = new ClassPathResource("templates/vue-project.json").getInputStream()) {
+            files.finishVueProject(1,2,3,json.readValue(in,new TypeReference<>() {}));
+        }
+        files.copyVueSources(1,2,3,4);
+        var artwork = mock(ArtworkProviders.class);
+        var next = new VueDiagramAssets(json, artwork, files, 1, 2, 4);
+        next.inherit();
+        assertThat(next.imageDescription(slot.image())).isNull();
+        files.writeVueSource(1,2,4,"src/App.vue","""
+                <script setup>import cover from './components/xy-mermaid-image.json'; import relations from './components/xy-architecture.json'</script>
+                <template><h1>{{relations.nodes[0]}}</h1><img :src="cover.src" alt="作品封面"/></template>""");
+        var session = mock(GenerationSession.class);
+        when(session.isRunning()).thenReturn(true);
+        assertThat(next.refreshImages(files.readVueSources(1,2,4), session)).isTrue();
+        assertThat(files.readVueSource(1,2,4,slot.image())).isEqualTo(banner);
+        assertThat(files.vueArchitectureOrigins(1,2,3).get(1)).isEqualTo(GeneratedFileManager.DiagramRenderer.LEGACY);
+        verify(artwork, never()).diagramImage(any());
+    }
+
+    @Test
+    void legacyImageRendererReusesTheImageAfterComponentRenameAndRestyling(@TempDir Path dir) throws Exception {
+        var files = new GeneratedFileManager(dir);
+        var slot = new VueArchitectureDiagram.Slot(1);
+        String prior = "{\"src\":\"data:image/svg+xml;base64,PHN2Zy8+\"}";
+        files.writeVueSource(1,2,3,slot.image(),prior);
+        files.writeVueSource(1,2,3,slot.data(),"{\"nodes\":[\"甲\"],\"edges\":[{\"from\":\"甲\",\"to\":\"甲\"}]}");
+        files.writeVueSource(1,2,3,"src/components/Flow.vue",slot.renderer(true)
+                .replace("image from", "picture from").replace(":src=\"image.src\"", "v-bind:src=\"picture.src\"")
+                .replace("diagram from", "flow from").replace("diagram.nodes", "flow.nodes").replace("100%", "90%"));
+        files.writeVueSource(1,2,3,"src/App.vue","<script setup>import Flow from './components/Flow.vue'</script><template><Flow/></template>");
+        files.markVueArchitecture(1,2,3,1,GeneratedFileManager.DiagramRenderer.LEGACY);
+        var artwork = mock(ArtworkProviders.class);
+        var assets = new VueDiagramAssets(json, artwork, files, 1, 2, 3);
+        assets.inherit();
+        assertThat(assets.imageDescription(slot.image())).contains(slot.data());
+        var session = mock(GenerationSession.class);
+        when(session.isRunning()).thenReturn(true);
+        assertThat(assets.refreshImages(files.readVueSources(1,2,3),session)).isTrue();
+        assertThat(files.readVueSource(1,2,3,slot.image())).isEqualTo(prior);
         verify(artwork, never()).diagramImage(any());
     }
 }

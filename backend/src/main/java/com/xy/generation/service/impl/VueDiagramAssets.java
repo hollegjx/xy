@@ -29,6 +29,7 @@ final class VueDiagramAssets {
     private final Map<Task, Retry> retries = new HashMap<>();
     private final Set<Slot> saved = new LinkedHashSet<>();
     private final Set<Slot> platformImages = new LinkedHashSet<>();
+    private final Set<Slot> unresolved = new LinkedHashSet<>();
     private final Map<Slot, Rendered> rendered = new HashMap<>();
     private int next = 1;
     private final ObjectMapper mapper;
@@ -104,24 +105,33 @@ final class VueDiagramAssets {
         for (var origin : origins.entrySet()) {
             var slot = new Slot(origin.getKey());
             saved.add(slot);
-            if (origin.getValue() == DiagramRenderer.LOCAL) continue;
-            if (origin.getValue() == DiagramRenderer.IMAGE) platformImages.add(slot);
+            var kind = origin.getValue();
+            if (kind == DiagramRenderer.LEGACY) {
+                kind = legacyRenderer(sources, slot);
+                if (kind == DiagramRenderer.LEGACY) unresolved.add(slot);
+                else files.resolveVueArchitectureOrigin(user, app, version, slot.number(), kind);
+            }
+            if (kind != DiagramRenderer.IMAGE) continue;
+            platformImages.add(slot);
             String image = sources.get(slot.image());
             if (image == null) continue;
             try {
                 var data = mapper.readTree(image);
                 String src = data.path("src").textValue();
                 if (src == null || src.isBlank()) continue;
-                // 早期空标记不区分渲染方式；旧平台成图只有一个 src，内容是自包含的 PNG 或 SVG。
-                if (origin.getValue() == DiagramRenderer.LEGACY && data.size() == 1
-                        && (src.startsWith("data:image/png;base64,") || src.startsWith("data:image/svg+xml;base64,"))) platformImages.add(slot);
                 // 上版未使用的图像可能早于当前关系文件，重新启用时必须按最终关系绘制。
-                if (platformImages.contains(slot) && VueComponentReferences.references(sources, slot.image()))
+                if (VueComponentReferences.references(sources, slot.image()))
                     rendered.put(slot, new Rendered(VueArchitectureDiagram.parse(mapper, sources.get(slot.data())), src));
             } catch (IOException | IllegalArgumentException invalid) {
                 // 未配对的旧数据不能作为成图复用；交付时按最终关系重新校验和绘制。
             }
         }
+    }
+
+    private static DiagramRenderer legacyRenderer(Map<String, String> sources, Slot slot) {
+        if (VueArchitectureDiagram.containsLegacyRenderer(sources, slot)) return DiagramRenderer.LOCAL;
+        if (VueArchitectureDiagram.containsLegacyImageRenderer(sources, slot)) return DiagramRenderer.IMAGE;
+        return DiagramRenderer.LEGACY;
     }
 
     String imageDescription(String path) {
@@ -132,6 +142,18 @@ final class VueDiagramAssets {
     String findError(Map<String, String> sources) { return VueArchitectureDiagram.findError(mapper, sources, saved, platformImages); }
 
     boolean refreshImages(Map<String, String> sources, GenerationSession session) throws IOException {
+        // 上版可能已经移除旧组件。本轮恢复了可识别的图片组件才接管，并按最终关系画一张新图。
+        for (var it = unresolved.iterator(); it.hasNext(); ) {
+            var slot = it.next();
+            var kind = legacyRenderer(sources, slot);
+            synchronized (session) {
+                if (!session.isRunning()) return false;
+                if (kind == DiagramRenderer.LEGACY) continue;
+                files.resolveVueArchitectureOrigin(user, app, version, slot.number(), kind);
+                if (kind == DiagramRenderer.IMAGE) platformImages.add(slot);
+                it.remove();
+            }
+        }
         for (var slot : platformImages) {
             if (!session.isRunning()) return false;
             if (!VueComponentReferences.references(sources, slot.image())) continue;

@@ -60,9 +60,13 @@ final class VueComponentReferences {
     /** 旧版工具使用默认导入；区分图本身的数据和同一组件另外导入的标题等数据。 */
     static boolean readsDefaultImportFields(String importer, String script, Map<String, String> sources,
             String target, Set<String> fields) {
+        return readsDefaultImportFields(importer, script, sources, target, fields, script);
+    }
+
+    static boolean readsDefaultImportFields(String importer, String script, Map<String, String> sources,
+            String target, Set<String> fields, String expression) {
         var paths = referencePaths(sources, target);
         var bindings = new HashSet<String>();
-        var reads = new HashMap<String, Set<String>>();
         var tokens = JS_TOKEN.matcher(script);
         String third = "", second = "", previous = "";
         for (String token; (token = nextToken(script, tokens, previous)) != null; ) {
@@ -70,14 +74,24 @@ final class VueComponentReferences {
                     && token.length() >= 2 && resolve(importer, token.substring(1, token.length() - 1), paths::contains) != null) {
                 bindings.add(second);
             }
-            if (previous.equals(".") && fields.contains(token)) {
-                reads.computeIfAbsent(second, ignored -> new HashSet<>()).add(token);
-            }
             third = second;
             second = previous;
             previous = token;
         }
-        return bindings.stream().anyMatch(name -> reads.getOrDefault(name, Set.of()).containsAll(fields));
+        if (bindings.isEmpty()) return false;
+        var reads = new HashMap<String, Set<String>>();
+        tokens = JS_TOKEN.matcher(expression);
+        second = previous = "";
+        for (String token; (token = nextToken(expression, tokens, previous)) != null; ) {
+            if (previous.equals(".") && bindings.contains(second) && fields.contains(token)) {
+                var found = reads.computeIfAbsent(second, ignored -> new HashSet<>());
+                found.add(token);
+                if (found.containsAll(fields)) return true;
+            }
+            second = previous;
+            previous = token;
+        }
+        return false;
     }
 
     private static Set<String> referencePaths(Map<String, String> sources, String target) {

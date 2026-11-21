@@ -53,15 +53,43 @@ final class VueArchitectureDiagram {
     }
 
     static boolean containsLegacyRenderer(Map<String, String> sources) {
+        return containsLegacyRenderer(sources, new Slot(1));
+    }
+
+    static boolean containsLegacyRenderer(Map<String, String> sources, Slot slot) {
         for (var file : sources.entrySet()) {
             if (!file.getKey().endsWith(".vue")) continue;
             var blocks = VueComponentReferences.parseVueBlocks(file.getValue());
             if (blocks.select("template svg").stream().noneMatch(VueArchitectureDiagram::drawsNodesAndEdges)) continue;
             if (blocks.children().stream().anyMatch(block -> block.normalName().equals("script")
                     && VueComponentReferences.readsDefaultImportFields(file.getKey(), block.data(), sources,
-                            DATA, Set.of("nodes", "edges")))) return true;
+                            slot.data(), Set.of("nodes", "edges")))) return true;
         }
         return false;
+    }
+
+    static boolean containsLegacyImageRenderer(Map<String, String> sources, Slot slot) {
+        for (var file : sources.entrySet()) {
+            if (!file.getKey().endsWith(".vue")) continue;
+            var blocks = VueComponentReferences.parseVueBlocks(file.getValue());
+            for (var image : blocks.select("template img")) {
+                String src = binding(image, "src"), alt = binding(image, "alt");
+                if (src.isBlank() || alt.isBlank() || image.closest("[v-pre]") != null) continue;
+                // 旧 Kroki 组件在同一张图上绑定成图和节点说明；同页分别使用两个 JSON 不代表封面属于绘图工具。
+                for (var script : blocks.children()) {
+                    if (script.normalName().equals("script")
+                            && VueComponentReferences.readsDefaultImportFields(file.getKey(), script.data(), sources,
+                                    slot.image(), Set.of("src"), src)
+                            && VueComponentReferences.readsDefaultImportFields(file.getKey(), script.data(), sources,
+                                    slot.data(), Set.of("nodes"), alt)) return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    private static String binding(Element element, String name) {
+        return element.hasAttr(":" + name) ? element.attr(":" + name) : element.attr("v-bind:" + name);
     }
 
     private static boolean drawsNodesAndEdges(Element svg) {

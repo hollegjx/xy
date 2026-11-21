@@ -3,7 +3,6 @@ package com.xy.exception;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.xy.common.ApiResponse;
 import com.xy.common.ErrorCode;
-import io.lettuce.core.RedisCommandTimeoutException;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.Cookie;
@@ -53,7 +52,7 @@ public class SessionAvailabilityFilter extends OncePerRequestFilter {
 
     static boolean redisUnavailable(Throwable error) {
         for (Throwable cause = error; cause != null; cause = cause.getCause()) {
-            if (cause instanceof RedisConnectionFailureException || cause instanceof RedisCommandTimeoutException) return true;
+            if (cause instanceof RedisConnectionFailureException) return true;
         }
         return false;
     }

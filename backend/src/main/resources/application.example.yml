@@ -10,6 +10,10 @@ spring:
     type: redis
   data:
     redis:
+      client-type: jedis
+      jedis:
+        pool:
+          enabled: true
       host: 127.0.0.1
       port: 6379
       database: 0

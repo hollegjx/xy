@@ -230,6 +230,7 @@ for (const [codeGenType, modeLabel] of [
     await expect(history).toContainText('模型返回的文件不完整，请重试')
     await history.getByText('查看生成内容', { exact: true }).first().click()
     await expect(history.locator('pre').first()).toHaveText('<h1>摄影作品集</h1>')
+    await expect(history.locator('pre').first().locator('.hljs-name').first()).toHaveText('h1')
     await expect(history.getByRole('heading', { name: '摄影作品集', exact: true })).toHaveCount(0)
     await history.getByRole('button', { name: '加载更早消息', exact: true }).click()
     await expect(history).toContainText('更早消息暂时不可用')

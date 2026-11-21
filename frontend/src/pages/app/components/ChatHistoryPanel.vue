@@ -15,6 +15,7 @@ import { ApiError, errorMessage } from '@/request'
 import { getAppMessages } from '@/service/api/chat'
 import { cancelGeneration, generateApp } from '@/service/api/generation'
 import { useLoginUserStore } from '@/stores/useLoginUserStore'
+import AssistantMessage from './AssistantMessage.vue'
 import type {
   ChatHistoryPageVO,
   CodeGenType,
@@ -322,7 +323,7 @@ onBeforeUnmount(() => {
         :message="live.message || '本次生成失败，可再次提交需求'"
         show-icon
       />
-      <pre v-if="output">{{ output }}</pre>
+      <AssistantMessage v-if="output" :content="output" :streaming="generating" />
       <p v-else-if="generating" class="history-hint">正在等待生成内容…</p>
     </div>
   </section>
@@ -400,7 +401,7 @@ onBeforeUnmount(() => {
               <p v-else-if="item.status === 'cancelled'" class="history-hint">本次生成已停止。</p>
               <details v-if="item.content" class="model-output">
                 <summary>查看生成内容</summary>
-                <pre>{{ item.content }}</pre>
+                <AssistantMessage :content="item.content" />
               </details>
             </template>
           </li>
@@ -486,16 +487,5 @@ time,
 }
 summary {
   cursor: pointer;
-}
-pre {
-  max-height: 320px;
-  overflow: auto;
-  margin: 12px 0 0;
-  padding: 12px;
-  border-radius: var(--radius-sm);
-  background: var(--surface-soft);
-  font-size: 12px;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
 }
 </style>

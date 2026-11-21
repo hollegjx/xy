@@ -66,7 +66,7 @@ class UserDeleteControllerTest {
     @BeforeEach
     void prepare() {
         files = new GeneratedFileManager(directory.resolve("generated"));
-        var deployment = new DeploymentConfiguration(directory.resolve("published"), "", "http://localhost:5173");
+        var deployment = new DeploymentConfiguration(directory.resolve("published"), "https://sites.example.test", "http://localhost:5173");
         var appService = new AppServiceImpl(apps, messages, files, deployment,
                 mock(GenerationModeRouter.class), mock(AppCoverRenderer.class));
         var userService = new UserServiceImpl(users, mock(PasswordEncoder.class), appService,
@@ -152,6 +152,31 @@ class UserDeleteControllerTest {
             mockMvc.perform(get("/api/apps/{id}", app.getId()).contextPath("/api").session(session(42L)))
                     .andExpect(status().isNotFound()).andExpect(jsonPath("$.code").value(40400));
         }
+    }
+
+    @Test
+    void removingTheOwnerDropsTheirFeaturedCardAfterTheAppsAreDeleted() throws Exception {
+        App featured = ownedApps.getFirst();
+        featured.setAppName("待下线作品");
+        featured.setFeatured(true);
+        featured.setPublishedVersion(101L);
+        when(apps.selectListByQuery(any(QueryWrapper.class))).thenAnswer(call -> {
+            QueryWrapper query = call.getArgument(0);
+            if (!query.toSQL().contains("`featured`")) return ownedApps;
+            return featured.getIsDelete() == 0 ? List.of(featured) : List.of();
+        });
+        when(apps.deleteByQuery(any(QueryWrapper.class))).thenAnswer(call -> {
+            // 模拟另一名访客在删除写入之前刷新：首页此时仍能读到旧记录。
+            mockMvc.perform(get("/api/apps/featured").contextPath("/api"))
+                    .andExpect(jsonPath("$.data[0].appName").value("待下线作品"));
+            ownedApps.forEach(app -> app.setIsDelete(1));
+            return ownedApps.size();
+        });
+        mockMvc.perform(get("/api/apps/featured").contextPath("/api"))
+                .andExpect(jsonPath("$.data[0].appName").value("待下线作品"));
+        mockMvc.perform(remove(84L).session(session(42L))).andExpect(status().isOk());
+        mockMvc.perform(get("/api/apps/featured").contextPath("/api")).andExpect(status().isOk())
+                .andExpect(jsonPath("$.data").isEmpty());
     }
 
     @Test

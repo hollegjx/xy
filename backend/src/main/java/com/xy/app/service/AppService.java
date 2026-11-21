@@ -26,6 +26,9 @@ public interface AppService {
 
     List<AppFeaturedVO> listFeaturedApps();
 
+    /** 删除用户及其应用的事务提交后，清除旧的公开精选列表。 */
+    void invalidateFeaturedApps();
+
     byte[] getFeaturedCover(long id, long version);
 
     boolean updateApp(long id, AppUpdateRequest request, User loginUser);

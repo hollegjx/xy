@@ -80,10 +80,10 @@ public class AppController {
     }
 
     @Operation(summary = "查询公开精选作品", description = "无需登录；按发布时间和 ID 倒序返回最多 6 个有效精选作品。"
-            + "仅返回 ID、名称、生成模式、公开地址和可选封面，不提供私有工作台内容；未配置公开站点时返回空数组。")
+            + "仅返回 ID、名称、生成模式、公开地址和可选封面；未配置公开站点时返回空数组。服务端短时缓存，精选变更后刷新即生效。")
     @GetMapping("/featured")
-    public ApiResponse<List<AppFeaturedVO>> listFeaturedApps() {
-        return ApiResponse.success(appService.listFeaturedApps());
+    public ResponseEntity<ApiResponse<List<AppFeaturedVO>>> listFeaturedApps() {
+        return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(ApiResponse.success(appService.listFeaturedApps()));
     }
 
     @Operation(summary = "查看精选作品封面", description = "无需登录。仅提供已精选作品当前发布版本的 JPEG；无封面返回 404。")

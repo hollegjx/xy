@@ -95,6 +95,7 @@ public class UserServiceImpl implements UserService {
         }
         appService.removeUserDeployments(id);
         deletionPersistence.deleteUserAndApps(id);
+        appService.invalidateFeaturedApps();
         return true;
     }
 

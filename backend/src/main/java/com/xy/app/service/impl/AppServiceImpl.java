@@ -47,6 +47,7 @@ public class AppServiceImpl implements AppService {
     private final DeploymentConfiguration deployment;
     private final GenerationModeRouter modeRouter;
     private final AppCoverRenderer coverRenderer;
+    private final FeaturedAppCache featuredCache = new FeaturedAppCache(System::nanoTime);
 
     public AppServiceImpl(AppMapper appMapper, ChatHistoryMapper chatHistoryMapper, GeneratedFileManager fileManager,
             DeploymentConfiguration deployment, GenerationModeRouter modeRouter, AppCoverRenderer coverRenderer) {
@@ -109,6 +110,15 @@ public class AppServiceImpl implements AppService {
 
     @Override
     public List<AppFeaturedVO> listFeaturedApps() {
+        return featuredCache.get(this::loadFeaturedApps);
+    }
+
+    @Override
+    public void invalidateFeaturedApps() {
+        featuredCache.invalidate();
+    }
+
+    private List<AppFeaturedVO> loadFeaturedApps() {
         QueryWrapper query = QueryWrapper.create()
                 .eq(App::getFeatured, true)
                 .isNotNull(App::getPublishedVersion)
@@ -150,6 +160,7 @@ public class AppServiceImpl implements AppService {
         if (appMapper.updateAppName(id, loginUser.getId(), request.appName()) != 1) {
             throw new BusinessException(ErrorCode.SYSTEM_ERROR, "应用名称保存失败，请重试");
         }
+        invalidateFeaturedApps();
         return true;
     }
 
@@ -168,6 +179,7 @@ public class AppServiceImpl implements AppService {
         if (appMapper.updateAppName(id, app.getUserId(), request.appName()) != 1) {
             throw new BusinessException(ErrorCode.SYSTEM_ERROR, "应用名称保存失败，请重试");
         }
+        invalidateFeaturedApps();
         return true;
     }
 
@@ -194,6 +206,7 @@ public class AppServiceImpl implements AppService {
         if (appMapper.updateFeatured(id, app.getUserId(), request.featured()) != 1) {
             throw new BusinessException(ErrorCode.SYSTEM_ERROR, "精选状态保存失败，请重试");
         }
+        invalidateFeaturedApps();
         return true;
     }
 
@@ -222,6 +235,7 @@ public class AppServiceImpl implements AppService {
         if (appMapper.markDeleted(app.getId(), app.getUserId()) != 1) {
             throw new BusinessException(ErrorCode.SYSTEM_ERROR, "应用删除失败，请重试");
         }
+        invalidateFeaturedApps();
         return true;
     }
 
@@ -293,6 +307,9 @@ public class AppServiceImpl implements AppService {
                 if (jpeg != null) fileManager.saveCover(app.getUserId(), id, versionId, jpeg);
             } catch (IOException error) {
                 log.warn("应用 {} 版本 {} 已发布，封面未生成：{}", id, versionId, error.getClass().getSimpleName());
+            } finally {
+                // 发布记录已提交；本次截图无论有无结果，下一次读取都要使用新的发布版本。
+                invalidateFeaturedApps();
             }
             return new AppDeployVO(deployment.siteUrl(key), Long.toString(versionId), deployedAt);
         } catch (IOException error) {

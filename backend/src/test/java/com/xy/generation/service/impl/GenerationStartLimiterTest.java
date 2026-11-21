@@ -99,7 +99,33 @@ class GenerationStartLimiterTest {
                 .isInstanceOfSatisfying(BusinessException.class, e -> assertThat(e.getCode()).isEqualTo(50300)));
     }
 
+    @Test
+    void endpointAndIpScopesCanSharePermitsAcrossAccounts() {
+        backend.run(ctx -> {
+            var task = ctx.getBean(Task.class);
+            task.byEndpoint(1, 7);
+            assertThatThrownBy(() -> task.byEndpoint(2, 8)).isInstanceOf(BusinessException.class);
+            var request = new org.springframework.mock.web.MockHttpServletRequest();
+            var context = new org.springframework.web.context.request.ServletRequestAttributes(request);
+            org.springframework.web.context.request.RequestContextHolder.setRequestAttributes(context);
+            try {
+                request.setRemoteAddr("192.0.2.1");
+                task.byIp(1, 7);
+                assertThatThrownBy(() -> task.byIp(2, 8)).isInstanceOf(BusinessException.class);
+                request.setRemoteAddr("192.0.2.2");
+                task.byIp(2, 8);
+            } finally {
+                org.springframework.web.context.request.RequestContextHolder.resetRequestAttributes();
+            }
+        });
+    }
+
     static class Task {
+        @LimitGenerationStarts(scope = LimitGenerationStarts.Scope.ENDPOINT, permits = 1, seconds = 60)
+        public void byEndpoint(long app, long user) {}
+        @LimitGenerationStarts(scope = LimitGenerationStarts.Scope.IP, permits = 1, seconds = 60)
+        public void byIp(long app, long user) {}
+
         @LimitGenerationStarts(permits = 5, seconds = 60)
         public long start(long appId, long userId) {
             return appId;

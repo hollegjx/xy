@@ -14,6 +14,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
+import org.springframework.web.context.request.RequestContextHolder;
+import org.springframework.web.context.request.ServletRequestAttributes;
 
 @Aspect
 @Component
@@ -29,7 +31,16 @@ public class GenerationStartLimiter {
 
     @Around("@annotation(limit) && args(*,userId,..)")
     public Object limit(ProceedingJoinPoint call, LimitGenerationStarts limit, long userId) throws Throwable {
-        String account = "xy:generation:starts:{" + userId + "}";
+        String endpoint = call.getSignature().getDeclaringTypeName() + "." + call.getSignature().getName();
+        String key = switch (limit.scope()) {
+            case ACCOUNT -> Long.toString(userId);
+            case ENDPOINT -> "api:" + endpoint;
+            case IP -> {
+                var request = (ServletRequestAttributes) RequestContextHolder.currentRequestAttributes();
+                yield "ip:" + endpoint + ":" + request.getRequest().getRemoteAddr();
+            }
+        };
+        String account = "xy:generation:starts:{" + key + "}";
         var lock = redis.getLock(account + ":lock");
         try {
             // 只串行同账号的建任务事务，离开这里之后才开始模型调用。
@@ -75,7 +86,7 @@ public class GenerationStartLimiter {
             waitMillis = Math.min(waitMillis, slot.remainTimeToLive());
         }
         long seconds = Math.max(1, Math.ceilDiv(waitMillis, 1000));
-        throw new BusinessException(ErrorCode.TOO_MANY_REQUESTS, "每个账号 " + limit.seconds()
+        throw new BusinessException(ErrorCode.TOO_MANY_REQUESTS, limit.scope().label + " " + limit.seconds()
                 + " 秒内最多发起 " + limit.permits() + " 次生成，请在 " + seconds + " 秒后重试");
     }
 

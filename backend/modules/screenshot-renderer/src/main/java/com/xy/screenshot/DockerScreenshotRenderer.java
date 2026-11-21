@@ -1,19 +1,14 @@
-package com.xy.manager;
+package com.xy.screenshot;
 
 import com.xy.client.ScreenshotService;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.util.concurrent.TimeUnit;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
-import org.springframework.stereotype.Component;
 
-@Component
-@ConditionalOnProperty(name = "xy.cover.enabled", havingValue = "true")
-public class AppCoverRenderer implements ScreenshotService {
+public class DockerScreenshotRenderer implements ScreenshotService {
     private final String docker;
 
-    public AppCoverRenderer(@Value("${xy.vue-build.docker-executable:docker}") String docker) {
+    public DockerScreenshotRenderer(String docker) {
         this.docker = docker;
     }
 

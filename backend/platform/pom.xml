@@ -28,6 +28,10 @@
     </dependency>
     <dependency>
       <groupId>com.xy</groupId>
+      <artifactId>xy-screenshot-renderer</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>com.xy</groupId>
       <artifactId>xy-common</artifactId>
     </dependency>
     <dependency>

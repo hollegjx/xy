@@ -17,6 +17,7 @@
     <module>modules/common</module>
     <module>modules/model</module>
     <module>modules/client</module>
+    <module>modules/screenshot-renderer</module>
     <module>platform</module>
   </modules>
   <properties>
@@ -40,6 +41,11 @@
       <dependency>
         <groupId>com.xy</groupId>
         <artifactId>xy-client</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>com.xy</groupId>
+        <artifactId>xy-screenshot-renderer</artifactId>
         <version>${project.version}</version>
       </dependency>
       <dependency>

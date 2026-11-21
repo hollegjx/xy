@@ -24,7 +24,7 @@ xy/
 └── .gitignore      本地文件与构建产物忽略规则
 ```
 
-IDEA 从 `backend/pom.xml` 导入 Maven 父工程。`backend/modules/common` 独立打包统一响应、业务异常、错误码和 Session 用户键；`backend/modules/model` 提供用户实体、角色与脱敏视图。可执行模块 `backend/platform` 直接依赖这些 JAR，平台源码和本地配置仍在 `backend/src`。在 `backend/` 执行 `sh mvnw package` 会构建依赖并生成部署用的 `target/xy-backend-0.0.1-SNAPSHOT.jar`。
+IDEA 从 `backend/pom.xml` 导入 Maven 父工程。`backend/modules/` 下的 `common` 提供响应、异常和 Session 用户键，`model` 提供用户模型，`client` 提供内部服务接口。`screenshot-renderer` 从发布快照渲染 JPEG，不需要数据库或平台凭证。应用代码和本地配置仍在 `backend/src`。在 `backend/` 执行 `sh mvnw package` 会构建各模块并生成部署用的 `target/xy-backend-0.0.1-SNAPSHOT.jar`。
 
 模块内沿用以下 Java 包：
 

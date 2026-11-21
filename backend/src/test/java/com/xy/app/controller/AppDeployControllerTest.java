@@ -10,7 +10,7 @@ import com.xy.common.ErrorCode;
 import com.xy.config.DeploymentConfiguration;
 import com.xy.exception.BusinessException;
 import com.xy.manager.GeneratedFileManager;
-import com.xy.manager.AppCoverRenderer;
+import com.xy.screenshot.DockerScreenshotRenderer;
 import com.xy.client.ScreenshotService;
 import com.xy.user.mapper.UserMapper;
 import com.xy.user.model.entity.User;
@@ -318,7 +318,7 @@ class AppDeployControllerTest {
     @Test
     @EnabledIfEnvironmentVariable(named = "XY_TEST_DOCKER_COVER", matches = "true")
     void rendersRepublishedFeaturedWorkInDocker() throws Exception {
-        var renderer = new AppCoverRenderer(System.getenv().getOrDefault("XY_TEST_DOCKER_CLI", "docker"));
+        var renderer = new DockerScreenshotRenderer(System.getenv().getOrDefault("XY_TEST_DOCKER_CLI", "docker"));
         when(covers.render(anyString())).thenAnswer(call -> renderer.render(call.getArgument(0)));
         app.setFeatured(true);
         when(apps.selectListByQuery(any(QueryWrapper.class))).thenReturn(List.of(app));

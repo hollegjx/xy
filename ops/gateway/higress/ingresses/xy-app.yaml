@@ -1,0 +1,20 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: xy-app
+  namespace: higress-system
+  annotations:
+    higress.io/destination: xy-app-http.xy-http.public.nacos
+    higress.io/timeout: "360"
+spec:
+  ingressClassName: higress
+  rules:
+    - http:
+        paths:
+          - path: /api
+            pathType: Prefix
+            backend:
+              resource:
+                apiGroup: networking.higress.io
+                kind: McpBridge
+                name: default

@@ -1,0 +1,21 @@
+name: XY Higress gateway
+on:
+  push:
+    paths:
+      - 'ops/gateway/**'
+      - '.github/workflows/higress.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  http-routes:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - name: Route through real Higress and Nacos
+        env:
+          XY_TEST_HIGRESS: '1'
+        run: python3 -Bu ops/gateway/test_higress.py -v

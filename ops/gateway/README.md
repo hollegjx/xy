@@ -18,3 +18,15 @@ python3 ops/gateway/nacos_http.py --nacos http://<注册中心>:8848/nacos list 
 ```
 
 这是持久实例，登记命令退出后地址仍然有效。换端口时先登记新地址，确认新实例健康、HTTP 可用后再撤下旧地址：`remove user --ip <旧IP> --port <旧端口>`。只删除这个地址，不删除整个服务或修改 Dubbo 注册。Higress 的服务来源应订阅同一命名空间的 `xy-http` 组。多服务分流需要两个进程使用同一个 Redis 会话。
+
+**通过 Higress 访问。** [higress/](higress/) 是 standalone 文件模式配置，对应网关的数据目录 `/data`。将其中的 `mcpbridges/` 和 `ingresses/` 放入独立的 XY 网关数据目录。样例使用内网服务名 `nacos:8848`、内置命名空间 `public`。如使用其他命名空间，同步替换两条路由目标中的命名空间。启用 Nacos 鉴权的环境须在私有部署配置中给网关提供发现服务的凭证；登记命令的令牌不会传给 Higress。
+
+| 浏览器请求（路径不改写） | 网关送达 |
+| --- | --- |
+| `/api/users` 及其子路径的 GET、HEAD、POST、PATCH | 用户服务；例如登录响应的 `Set-Cookie` 原样返回 |
+| `DELETE /api/users/{id}` | 应用服务；在同一次操作中下线作品、删除应用和用户 |
+| 其余 `/api` 请求，包括 `POST /api/apps/{id}/generations` | 应用服务；生成过程按 SSE 分片返回，路由超时为 360 秒，调大应用的生成时限时需同步调整 |
+
+前端始终向同一来源请求 `/api`，浏览器的会话 Cookie 可随请求到达两个服务。服务端仍校验身份、角色和归属。这份样例不需要修改域名或防火墙，也不改变已有单体部署的入口。
+
+在**隔离的 Linux Docker 测试机**上运行 `XY_TEST_HIGRESS=1 python3 -Bu ops/gateway/test_higress.py -v`。测试创建专用 Docker 网络、真实 Nacos 和 Higress，使用宿主回环的随机端口，退出时清理。两个临时 HTTP 上游代替业务服务，用于单独验证路由、Cookie、流式转发以及 Nacos 地址变更；不连接模型或业务数据库。

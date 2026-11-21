@@ -1,0 +1,21 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: xy-user
+  namespace: higress-system
+  annotations:
+    higress.io/destination: xy-user-http.xy-http.public.nacos
+    # DELETE 仍由平台事务下线作品与删除账号。Higress 的方法列表用空格分隔。
+    higress.io/match-method: "GET HEAD POST PATCH"
+spec:
+  ingressClassName: higress
+  rules:
+    - http:
+        paths:
+          - path: /api/users
+            pathType: Prefix
+            backend:
+              resource:
+                apiGroup: networking.higress.io
+                kind: McpBridge
+                name: default

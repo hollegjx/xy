@@ -16,6 +16,9 @@ spring:
       # 若启用 Redis 认证，请仅在本机 application.yml 填写 username / password。
       connect-timeout: 1s
       timeout: 1s
+  session:
+    redis:
+      namespace: xy:session
   datasource:
     driver-class-name: com.mysql.cj.jdbc.Driver
     url: jdbc:mysql://127.0.0.1:3306/xy?useUnicode=true&characterEncoding=UTF-8&serverTimezone=Asia/Shanghai

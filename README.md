@@ -207,7 +207,7 @@ WHERE userAccount IN ('xy_demo', 'xy_role_test');
 | 5 | 用 GET 请求 `/api/users/login` | HTTP 405 / `code: 40000`，提示「请求方法不支持」，`Allow` 响应头包含 `POST` |
 | 6 | 用 POST 请求登录接口，设置 `Content-Type: text/plain` 并提交请求体 | HTTP 415 / `code: 40000`，提示「请求内容类型不支持」，`Accept` 响应头保留支持的内容类型 |
 
-在浏览器开发者工具的 Network 中选中成功的登录请求，响应头应有 `Set-Cookie: JSESSIONID=...`。再次成功登录时会更换 Session ID。服务端 Session 只保存用户 ID，密码和角色不写入会话；后续请求由浏览器携带 Cookie。实际浏览器 Cookie 行为由此步骤验收；自动测试验证的是会话属性、登录失败不创建会话以及成功时更新会话 ID。
+在浏览器开发者工具的 Network 中选中成功的登录请求，响应头应有 `Set-Cookie: SESSION=...`。再次成功登录时会更换 Session ID。服务端 Session 只保存用户 ID，密码和角色不写入会话；后续请求由浏览器携带 Cookie。登录和退出经过 Spring Session Data Redis。多个后端共用同一 Redis 库及 Session 命名空间时可复用 Cookie；旧版内存会话不会迁移，升级后需重新登录。
 
 ## 当前用户验收
 
@@ -220,7 +220,7 @@ WHERE userAccount IN ('xy_demo', 'xy_role_test');
 | 1 | 在新的无痕窗口直接访问 `http://localhost:8101/api/users/me` | HTTP 401 / `code: 40100`，提示「请先登录」 |
 | 2 | 在同一窗口、相同主机地址下登录，再查询当前用户 | HTTP 200 / `code: 0`，返回已登录账号的信息，不含密码散列 |
 | 3 | 登录后访问 `/api/users/me?userId=0` | 仍返回当前登录账号的信息，查询参数不改变身份 |
-| 4 | 清除该站点的 `JSESSIONID` Cookie 后重新请求 | 再次返回 HTTP 401 / `code: 40100` |
+| 4 | 清除该站点的 `SESSION` Cookie 后重新请求 | 再次返回 HTTP 401 / `code: 40100` |
 
 无会话的请求不会创建新 Session。会话对应账号不存在或被逻辑删除时，查询返回 401 并清除会话内的登录身份；此路径由 Mapper 替身测试覆盖，常规验收无需修改或删除数据库里的账号。
 
@@ -228,7 +228,7 @@ WHERE userAccount IN ('xy_demo', 'xy_role_test');
 
 在 IDEA 重启后端，本步无需执行新的 SQL。在同一浏览器窗口、相同主机地址的 Knife4j 中先登录，再调用 `POST /users/logout`（完整路径为 `/api/users/logout`），无需请求体。
 
-成功返回 `{"code":0,"data":true,"message":"ok"}`，服务端销毁当前 Session；浏览器即使仍保留旧的 `JSESSIONID` Cookie，也无法再凭它获取当前用户信息。
+成功返回 `{"code":0,"data":true,"message":"ok"}`，服务端销毁当前 Session；浏览器即使仍保留旧的 `SESSION` Cookie，也无法再凭它获取当前用户信息。
 
 | # | 操作 | 预期结果 |
 | --- | --- | --- |

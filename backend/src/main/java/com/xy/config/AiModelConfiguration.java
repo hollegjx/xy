@@ -13,6 +13,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Primary;
 import org.springframework.context.annotation.Scope;
 import org.springframework.beans.factory.config.ConfigurableBeanFactory;
 
@@ -32,6 +33,7 @@ public class AiModelConfiguration {
     }
 
     @Bean
+    @Primary
     @Scope(ConfigurableBeanFactory.SCOPE_PROTOTYPE)
     @ConditionalOnProperty(prefix = "xy.ai", name = "enabled", havingValue = "true")
     public StreamingChatModel streamingChatModel(
@@ -40,6 +42,21 @@ public class AiModelConfiguration {
             @Value("${xy.ai.model-name}") String modelName,
             @Value("${xy.ai.timeout-seconds:180}") long timeoutSeconds,
             @Value("${xy.ai.max-completion-tokens:16384}") int maxCompletionTokens) {
+        return streamingModel(baseUrl, apiKey, modelName, timeoutSeconds, maxCompletionTokens);
+    }
+
+    @Bean
+    @Scope(ConfigurableBeanFactory.SCOPE_PROTOTYPE)
+    @ConditionalOnProperty(prefix = "xy.ai", name = "enabled", havingValue = "true")
+    public StreamingChatModel vueStreamingChatModel(@Value("${xy.ai.base-url}") String baseUrl,
+            @Value("${xy.ai.api-key}") String apiKey, @Value("${xy.ai.model-name}") String defaultName,
+            @Value("${xy.ai.vue-model-name:}") String vueName, @Value("${xy.ai.timeout-seconds:180}") long timeoutSeconds,
+            @Value("${xy.ai.vue-max-completion-tokens:${xy.ai.max-completion-tokens:16384}}") int maxCompletionTokens) {
+        return streamingModel(baseUrl, apiKey, vueName.isBlank() ? defaultName : vueName.strip(), timeoutSeconds, maxCompletionTokens);
+    }
+
+    private StreamingChatModel streamingModel(String baseUrl, String apiKey, String modelName,
+            long timeoutSeconds, int maxCompletionTokens) {
         return OpenAiStreamingChatModel.builder()
                 .baseUrl(baseUrl).apiKey(apiKey).modelName(modelName)
                 .timeout(Duration.ofSeconds(timeoutSeconds)).maxCompletionTokens(maxCompletionTokens)

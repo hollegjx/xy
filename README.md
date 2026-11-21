@@ -68,6 +68,8 @@ com.xy/
 
 首页的「自动选择」只负责判断应用适合哪种生成模式。可将 `xy.ai.routing-model-name` 设为同一网关提供的轻量模型；不填或留空就沿用 `model-name`。选择哪种分类模型不影响实际写代码和质检使用的模型。
 
+Vue 工程可单独配置同一网关下支持流式工具调用的 `xy.ai.vue-model-name`，以及可选的 `xy.ai.vue-max-completion-tokens`。未配置时，Vue 和原生模式继续用原生成模型及其输出上限。可选质检使用该工程的生成模型。
+
 首页「精选作品」每页默认 6 张。前 10 页缓存 5 分钟，键形如 `xy:featured:pages::<公开站点地址>:<版本>:1:6`。更换公开地址并重启后端后，首页使用新地址；清空地址则直接返回空列表，无需清理 Redis。已配置站点但 Redis 暂不可用时直接查询 MySQL。可在 `backend/` 执行 `sh mvnw -Dtest=FeaturedRedisCacheTest test` 验证共享缓存与站点切换；测试自带临时 Redis，不使用开发库。
 
 生成额度按账号计算：最近 60 秒最多发起 5 轮，在不同应用或不同后端发起也合并计数。超限时工作台显示还要等几秒；Redis 不可用时，新生成返回 503。可在 `backend/` 执行 `sh mvnw -Dtest=GenerationStartLimiterTest,ConcurrentGenerationTest test`，用临时 Redis 和模型替身复验。

@@ -42,6 +42,10 @@ xy:
     model-name: gpt-6.1-sol
     # 可填同一网关支持的轻量模型，仅用于创建应用时的「自动选择」；留空沿用 model-name。
     routing-model-name: ''
+    # Vue 工程生成、续改及其质检可单独使用支持流式工具调用的模型。留空沿用 model-name。
+    vue-model-name: ''
+    # 可按模型单独设置 Vue 的输出上限；不设置则继承 max-completion-tokens。
+    # vue-max-completion-tokens: 32768
     timeout-seconds: 180
     max-completion-tokens: 16384
   generation:

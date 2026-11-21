@@ -16,12 +16,19 @@ class GenerationModelsTest {
         var a = mock(StreamingChatModel.class);
         var b = mock(StreamingChatModel.class);
         when(provider.getIfAvailable()).thenReturn(a, b);
-        var models = new GenerationModels(provider);
+        ObjectProvider<StreamingChatModel> vue = mock(ObjectProvider.class);
+        var reasoningModel = mock(StreamingChatModel.class);
+        when(vue.getIfAvailable(any())).thenReturn(reasoningModel);
+        var models = new GenerationModels(provider, vue);
         var first = models.forApp(7, 55, CodeGenTypeEnum.HTML);
         assertThat(models.forApp(7, 55, CodeGenTypeEnum.HTML)).isSameAs(first);
         var second = models.forApp(8, 56, CodeGenTypeEnum.HTML);
         assertThat(second.writer()).isNotSameAs(first.writer());
         assertThat(second.model()).isSameAs(b);
+        var vueClient = models.forApp(7, 55, CodeGenTypeEnum.VUE_PROJECT);
+        assertThat(vueClient.model()).isSameAs(reasoningModel);
+        assertThat(models.forApp(7, 55, CodeGenTypeEnum.VUE_PROJECT)).isSameAs(vueClient);
+        verify(vue).getIfAvailable(any());
         verify(provider, times(2)).getIfAvailable();
     }
 }

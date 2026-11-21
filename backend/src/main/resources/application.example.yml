@@ -51,6 +51,9 @@ xy:
     max-completion-tokens: 16384
   generation:
     output-directory: ./generated
+  artwork:
+    # 已有的自托管 Kroki 根地址；只向该服务发送图的节点与关系。
+    kroki-url: ''
   vue-build:
     enabled: false
     docker-executable: docker

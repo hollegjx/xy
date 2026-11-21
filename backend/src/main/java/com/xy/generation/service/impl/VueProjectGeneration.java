@@ -48,6 +48,7 @@ final class VueProjectGeneration implements GenerationSession.OutputHandler {
                     .required("theme").additionalProperties(false).build()).build();
     private final OpenversePhotoSearch photoSearch;
     private final Executor executor;
+    private final ArtworkProviders artwork;
     private FutureTask<Optional<OpenversePhotoSearch.Photo>> pendingPhoto;
     private final long userId, appId, generationId;
     private final GeneratedFileManager files;
@@ -67,8 +68,9 @@ final class VueProjectGeneration implements GenerationSession.OutputHandler {
 
     VueProjectGeneration(long userId, long appId, long generationId, GeneratedFileManager files,
             ObjectMapper mapper, Map<String, String> template, VueProjectBuildManager builder, boolean qualityCheck,
-            OpenversePhotoSearch photoSearch, Executor executor, int maxToolRounds) {
+            OpenversePhotoSearch photoSearch, Executor executor, int maxToolRounds, ArtworkProviders artwork) {
         this.remainingToolRounds = maxToolRounds;
+        this.artwork = artwork;
         this.userId = userId;
         this.appId = appId;
         this.generationId = generationId;
@@ -94,7 +96,7 @@ final class VueProjectGeneration implements GenerationSession.OutputHandler {
         // 在工具写入候选工程之前取出继承的源码；生成对话中的 AI 消息只有文件清单。
         String previousSource;
         try {
-            previousSource = choosingAssets ? null : mapper.writeValueAsString(files.readVueSources(userId, appId, generationId));
+            previousSource = choosingAssets ? null : mapper.writeValueAsString(sourcesForModel());
         } catch (IOException error) {
             session.onContextError(error);
             return;
@@ -102,7 +104,7 @@ final class VueProjectGeneration implements GenerationSession.OutputHandler {
         workflow = new GenerationQualityWorkflow(CodeGenTypeEnum.VUE_PROJECT, model, mapper, session, conversation, previousSource,
                 () -> {
                     var sources = new java.util.LinkedHashMap<>(template);
-                    sources.putAll(files.readVueSources(userId, appId, generationId));
+                    sources.putAll(sourcesForModel());
                     if (files.hasVuePhoto(userId, appId, generationId)) {
                         sources.put(GeneratedFileManager.VUE_PHOTO, readPhotoAttribution());
                     }
@@ -237,6 +239,7 @@ final class VueProjectGeneration implements GenerationSession.OutputHandler {
         @Tool("读取 src 源文件或只读照片署名 xy-photo.json")
         public String readFile(@P("相对路径") String relativePath) throws IOException {
             progress = "已读取：" + relativePath;
+            if (ArtworkProviders.MERMAID_IMAGE.equals(relativePath)) return "图像由平台生成，节点和连线见 xy-architecture.json";
             return GeneratedFileManager.VUE_PHOTO.equals(relativePath) ? readPhotoAttribution()
                     : files.readVueSource(userId, appId, generationId, relativePath);
         }
@@ -353,7 +356,8 @@ final class VueProjectGeneration implements GenerationSession.OutputHandler {
             session.onPartialResponse("\n" + progress + "\n");
             return progress + invalid.getMessage() + "；未生成文件，不要引用不存在的组件。";
         }
-        var component = VueArchitectureDiagram.bundledRenderer();
+        var component = artwork.rendersMermaid() ? ArtworkProviders.MERMAID_COMPONENT : VueArchitectureDiagram.bundledRenderer();
+        if (artwork.rendersMermaid()) files.writeVueSource(userId, appId, generationId, ArtworkProviders.MERMAID_IMAGE, "{}");
         files.writeVueSource(userId, appId, generationId, VueArchitectureDiagram.DATA, mapper.writeValueAsString(diagram));
         files.writeVueSource(userId, appId, generationId, VueArchitectureDiagram.COMPONENT, component);
         files.markVueArchitecture(userId, appId, generationId);
@@ -430,6 +434,13 @@ final class VueProjectGeneration implements GenerationSession.OutputHandler {
         return result;
     }
 
+    private Map<String, String> sourcesForModel() throws IOException {
+        var sources = files.readVueSources(userId, appId, generationId);
+        sources.computeIfPresent(ArtworkProviders.MERMAID_IMAGE, (k,v) -> "平台按最终节点和连线渲染的图像");
+        sources.replaceAll((k,v) -> v.contains("data-xy-artwork=") ? v.replaceAll("data:image/png;base64,[A-Za-z0-9+/=]+", "[本地图像]") : v);
+        return sources;
+    }
+
     private String readPhotoAttribution() throws IOException {
         var attribution = mapper.readValue(files.readVuePhoto(userId, appId, generationId), OpenversePhotoSearch.Attribution.class);
         return mapper.writeValueAsString(attribution);
@@ -462,6 +473,18 @@ final class VueProjectGeneration implements GenerationSession.OutputHandler {
             if (error != null) {
                 session.fail(error);
                 return;
+            }
+            if (files.hasVueArchitecture(userId, appId, generationId)) {
+                var sources = files.readVueSources(userId, appId, generationId);
+                if (VueComponentReferences.references(sources, ArtworkProviders.MERMAID_IMAGE)) {
+                    var diagram = VueArchitectureDiagram.parse(mapper, sources.get(VueArchitectureDiagram.DATA));
+                    String src = artwork.diagramImage(diagram);
+                    synchronized (session) {
+                        if (!session.isRunning()) return;
+                        files.writeVueSource(userId, appId, generationId, ArtworkProviders.MERMAID_IMAGE,
+                                mapper.writeValueAsString(Map.of("src", src)));
+                    }
+                }
             }
             if (builder.enabled()) {
                 synchronized (session) {

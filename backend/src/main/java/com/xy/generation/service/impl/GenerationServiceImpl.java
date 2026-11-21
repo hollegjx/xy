@@ -37,6 +37,7 @@ public class GenerationServiceImpl implements GenerationService {
 
     private final AppService appService;
     private final GenerationMemory memory;
+    private final ArtworkProviders artwork;
     private final GenerationPersistence persistence;
     private final GeneratedFileManager fileManager;
     private final VueProjectBuildManager vueBuilder;
@@ -58,11 +59,12 @@ public class GenerationServiceImpl implements GenerationService {
             @Qualifier("generationHeartbeatScheduler") ScheduledExecutorService heartbeatScheduler,
             @Value("classpath:prompts/single-html.txt") Resource htmlPrompt,
             @Value("classpath:prompts/multi-file.txt") Resource multiFilePrompt,
-            ObjectMapper objectMapper, GenerationMemory memory, VueProjectBuildManager vueBuilder, OpenversePhotoSearch photoSearch,
+            ObjectMapper objectMapper, GenerationMemory memory, ArtworkProviders artwork, VueProjectBuildManager vueBuilder, OpenversePhotoSearch photoSearch,
             @Value("${xy.ai.timeout-seconds:180}") long timeoutSeconds,
             @Value("${xy.ai.max-tool-rounds:40}") int maxToolRounds) throws IOException {
         this.appService = appService;
         this.memory = memory;
+        this.artwork = artwork;
         this.persistence = persistence;
         this.fileManager = fileManager;
         this.models = models;
@@ -106,9 +108,9 @@ public class GenerationServiceImpl implements GenerationService {
             long generationId = persistence.start(appId, userId, request.prompt());
             GenerationSession.OutputHandler outputHandler = CodeGenTypeEnum.VUE_PROJECT.getValue().equals(app.codeGenType())
                     ? new VueProjectGeneration(loginUser.getId(), appId, generationId, fileManager, objectMapper,
-                            vueTemplate, vueBuilder, qualityCheck, photoSearch, executor, maxToolRounds)
+                            vueTemplate, vueBuilder, qualityCheck, photoSearch, executor, maxToolRounds, artwork)
                     : new NativeGenerationOutputHandler(
-                            loginUser.getId(), appId, generationId, app.codeGenType(), fileManager, objectMapper, qualityCheck, photoSearch, client.writer());
+                            loginUser.getId(), appId, generationId, app.codeGenType(), fileManager, objectMapper, qualityCheck, photoSearch, client.writer(), artwork);
             return new GenerationSession(appId, loginUser.getId(), generationId,
                     emitter, persistence, outputHandler, () -> runningSessions.remove(appId), heartbeatScheduler);
         });

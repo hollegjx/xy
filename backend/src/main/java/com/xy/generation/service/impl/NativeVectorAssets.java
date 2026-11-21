@@ -18,7 +18,7 @@ final class NativeVectorAssets {
             <figcaption>浏览器向网关发出请求</figcaption></figure>。节点名唯一，连线使用实际节点名；label 可省略。
             示例内容须换成用户自己的品牌或系统。按 HTML 属性规则转义 JSON，保留有意义的品牌名或关系说明；不需要图时省略标记。""";
 
-    static String embed(String html, ObjectMapper mapper, Consumer<String> progress) {
+    static String embed(String html, ObjectMapper mapper, Consumer<String> progress, NativeAssetImages images) {
         if (!MARKER.matcher(html).find()) return html;
         var body = Parser.htmlParser().setTrackPosition(true).parseInput(html, "").body();
         var slots = body.select("span[data-xy-logo], figure[data-xy-architecture]").stream()
@@ -32,7 +32,7 @@ final class NativeVectorAssets {
             boolean logo = slot.normalName().equals("span");
             String attribute = logo ? "data-xy-logo" : "data-xy-architecture";
             String design = slot.attr(attribute);
-            var svg = logo ? VueBrandLogo.renderSvg(mapper, design) : architecture(mapper, design);
+            var svg = logo ? VueBrandLogo.renderSvg(mapper, design) : architecture(mapper, design, images);
             var range = slot.sourceRange();
             // 只改占位元素的起始标签。视觉样式、按钮目标、说明文字与页面脚本都保持原样。
             slot.removeAttr(attribute);
@@ -46,9 +46,9 @@ final class NativeVectorAssets {
         return out.append(html, offset, html.length()).toString();
     }
 
-    private static Optional<String> architecture(ObjectMapper mapper, String design) {
+    private static Optional<String> architecture(ObjectMapper mapper, String design, NativeAssetImages images) {
         try {
-            return Optional.of(NativeArchitectureSvg.render(VueArchitectureDiagram.parse(mapper, design)));
+            return Optional.of(images.diagram(VueArchitectureDiagram.parse(mapper, design)));
         } catch (IllegalArgumentException invalid) {
             return Optional.empty();
         }

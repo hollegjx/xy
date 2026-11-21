@@ -40,11 +40,13 @@ final class NativeGenerationOutputHandler implements GenerationSession.OutputHan
     private GenerationQualityWorkflow workflow;
     private ChatResponse candidate;
     private final NativeCodeStream writer;
+    private final NativeAssetImages images;
     private final Disposable.Swap stream = Disposables.swap();
 
     NativeGenerationOutputHandler(long userId, long appId, long generationId, String codeGenType,
-            GeneratedFileManager fileManager, ObjectMapper objectMapper, boolean qualityCheck, OpenversePhotoSearch photoSearch, NativeCodeStream writer) {
+            GeneratedFileManager fileManager, ObjectMapper objectMapper, boolean qualityCheck, OpenversePhotoSearch photoSearch, NativeCodeStream writer, ArtworkProviders artwork) {
         this.writer = writer;
+        this.images = new NativeAssetImages(artwork);
         this.userId = userId;
         this.appId = appId;
         this.generationId = generationId;
@@ -65,7 +67,7 @@ final class NativeGenerationOutputHandler implements GenerationSession.OutputHan
         for (int i = 0; i < conversation.size(); i++) {
             if (!(conversation.get(i) instanceof AiMessage previous)) continue;
             try {
-                previousSource = editIndex(previous.text(), photo::inherit);
+                previousSource = editIndex(previous.text(), html -> images.conceal(photo.inherit(html)));
             } catch (IOException error) {
                 session.onContextError(error);
                 return;
@@ -123,7 +125,7 @@ final class NativeGenerationOutputHandler implements GenerationSession.OutputHan
                         var illustrated = ThemeIllustrations.embedInBody(html);
                         if (!illustrated.labels().isEmpty()) session.onPartialResponse("\n候选页面已嵌入主题插画："
                                 + String.join("、", illustrated.labels()) + "。\n");
-                        html = NativeVectorAssets.embed(illustrated.html(), mapper, session::onPartialResponse);
+                        html = images.conceal(NativeVectorAssets.embed(illustrated.html(), mapper, session::onPartialResponse, images));
                     }
                     return photo.prepare(html, first, session);
                 });
@@ -161,10 +163,10 @@ final class NativeGenerationOutputHandler implements GenerationSession.OutputHan
     public void save(String output) throws IOException {
         if (mode == CodeGenTypeEnum.MULTI_FILE) {
             var files = parseMultiFile(output);
-            files.computeIfPresent("index.html", (key, html) -> photo.embed(html));
+            files.computeIfPresent("index.html", (key, html) -> images.embed(photo.embed(html)));
             fileManager.saveMultiFile(userId, appId, generationId, files);
         } else {
-            fileManager.saveHtml(userId, appId, generationId, photo.embed(output));
+            fileManager.saveHtml(userId, appId, generationId, images.embed(photo.embed(output)));
         }
     }
 

@@ -327,8 +327,22 @@ class GenerationControllerTest {
                 {"from":"网关","to":"读者"},{"from":"书库","to":"书库","label":"自检"}]}""";
         if (!logoOk) logo = logo.replace("50,50,32", "50,50,0");
         if (!graphOk) graph = graph.replace("\"to\":\"网关\"", "\"to\":\"未定义节点\"");
-        if (multi) planReturns("{\"logo\":" + logo + ",\"architecture\":" + graph + "}");
-        String slots = "<span id='brand' class='brand' data-xy-logo='" + (multi ? "prepared" : logo) + "'>星云 &amp; 书屋</span>"
+        boolean partners = multi && logoOk && graphOk;
+        String partnerLogo = logo.replace("星云 & 书屋", "乐团").replace("#24516B", "#d58341");
+        String partnerGraph = """
+                {"nodes":["乐手","舞台"],"edges":[{"from":"乐手","to":"舞台","label":"演奏"}]}""";
+        if (multi) {
+            var logos = new java.util.ArrayList<>(List.of(Map.of("design", objectMapper.readTree(logo))));
+            var graphs = new java.util.ArrayList<>(List.of(Map.of("design", objectMapper.readTree(graph))));
+            if (partners) {
+                logos.add(Map.of("design", objectMapper.readTree(partnerLogo)));
+                graphs.add(Map.of("design", objectMapper.readTree(partnerGraph)));
+            }
+            planReturns(objectMapper.writeValueAsString(Map.of("logos", logos, "architectures", graphs)));
+        }
+        String partnerSlots = partners ? "<span id='partner' data-xy-logo='prepared-2'>乐团</span>"
+                + "<figure id='stage' data-xy-architecture='prepared-2'><figcaption>演出</figcaption></figure>" : "";
+        String slots = partnerSlots + "<span id='brand' class='brand' data-xy-logo='" + (multi ? "prepared" : logo) + "'>星云 &amp; 书屋</span>"
                 + "<figure id='diagram' data-xy-architecture='" + (multi ? "prepared" : graph) + "'><figcaption>节点说明</figcaption></figure>";
         files.compute("index.html", (key, html) -> html.replace("你好", slots));
         String raw = multi ? objectMapper.writeValueAsString(files) : files.get("index.html");
@@ -351,6 +365,7 @@ class GenerationControllerTest {
                     assertThat(assets).contains("星云 & 书屋", "data-xy-logo=\"prepared\"").doesNotContain("<svg", "base64,");
                     if (graphOk) assertThat(assets).contains("读者、网关、书库", "data-xy-architecture=\"prepared\"");
                     else assertThat(assets).doesNotContain("data-xy-architecture");
+                    if (partners) assertThat(assets).contains("乐团", "乐手、舞台", "data-xy-logo=\"prepared-2\"", "data-xy-architecture=\"prepared-2\"");
                 } else assertThat(((SystemMessage) messages.getFirst()).text()).contains("data-xy-logo", "data-xy-architecture");
             } else {
                 output = messages.stream().filter(AiMessage.class::isInstance).map(AiMessage.class::cast)
@@ -399,6 +414,10 @@ class GenerationControllerTest {
                 if (graphOk) assertThat(body.select("#diagram path title").eachText())
                         .containsExactly("读者 → 网关：查书", "网关 → 读者", "书库 → 书库：自检");
                 assertThat(body.expectFirst("#diagram figcaption").text()).isEqualTo(followup ? "系统说明" : "节点说明");
+                if (partners) {
+                    assertThat(body.select("#partner > svg[aria-label=乐团] circle")).hasSize(1);
+                    assertThat(body.select("#stage path title").eachText()).containsExactly("乐手 → 舞台：演奏");
+                }
             }
         }
         verifyNoInteractions(builder, photoSearch);

@@ -28,17 +28,20 @@ final class NativeWorkflowAssets {
     record Layer(String shape, String color, List<Integer> coordinates) {}
     record Logo(String name, String brief, List<Layer> layers) {}
     record Themed(String theme, String purpose) {}
-    record Plan(List<Themed> photos, List<Themed> illustrations, Logo logo, VueArchitectureDiagram.Diagram architecture) {}
+    record LogoTask(String purpose, Logo design) {}
+    record DiagramTask(String purpose, VueArchitectureDiagram.Diagram design) {}
+    record Plan(List<Themed> photos, List<Themed> illustrations, List<LogoTask> logos, List<DiagramTask> architectures) {}
+    private record VectorSlot(String attribute, String marker) {}
 
     interface Planner {
         @SystemMessage("""
-                你是 XY 页面素材规划师。按用户需求选素材，不写页面代码。photos、illustrations 分别是任务列表，不需要时填 []。
+                你是 XY 页面素材规划师。按用户需求选素材，不写页面代码。photos、illustrations、logos、architectures 各是任务列表，不需要时填 []。
                 每张图片各占一项，purpose 描述该图在页面的用途或位置。需要同主题的不同照片，可为每张分别列一项。
                 照片 theme 只能是公开主题：{{themes}}。不要在主题里填写姓名、地址或自由搜索词。
                 插画 theme 只可选 reading（学习阅读）、teamwork（团队协作）、analytics（数据分析）。
-                需要品牌 Logo 才填 logo：name 为品牌名称，brief 仅写图形意象，不含用户原文或个人信息。
+                每个 Logo 或架构图任务分别填写 purpose 和 design。Logo 的 design.name 为品牌名，brief 仅写图形意象，不含用户原文或个人信息。
                 layers 用六位十六进制色，坐标 0–100：circle 是 [圆心x,圆心y,半径]，line 和 polygon 分别是至少两对、三对 x,y。
-                需要说明系统关系才填 architecture：nodes 为不重复的模块名，edges 的 from、to 必须是其中的名称，label 可省略。
+                架构图的 design.nodes 为不重复的模块名，edges 的 from、to 必须是其中的名称，label 可省略。
                 """)
         @dev.langchain4j.service.UserMessage("{{prompt}}")
         CompletableFuture<Result<Plan>> plan(@V("prompt") String prompt, @V("themes") String themes);
@@ -49,7 +52,7 @@ final class NativeWorkflowAssets {
     private final NativeAssetImages images;
     private final WorkflowAssetTasks tasks;
     private final Map<String, ThemeIllustrations.Illustration> illustrations = new HashMap<>();
-    private final Map<String, String> vectors = new HashMap<>();
+    private final Map<VectorSlot, String> vectors = new HashMap<>();
 
     NativeWorkflowAssets(ObjectMapper mapper, NativeContentPhoto photo, NativeAssetImages images, Executor executor) {
         this.mapper = mapper;
@@ -111,16 +114,36 @@ final class NativeWorkflowAssets {
     }
 
     private void collectVectors(Plan plan, Batch batch) {
-        if (plan.logo() != null) batch.use(prepare(() -> images.logo(mapper, mapper.writeValueAsString(plan.logo()))), logo -> logo.ifPresent(markup -> {
-            vectors.put("data-xy-logo", markup);
-            batch.add("品牌 Logo：" + plan.logo().name() + "，放置 <span data-xy-logo=\"prepared\">品牌文字</span>", null);
-        }));
-        if (plan.architecture() != null) batch.use(prepare(() -> Optional.of(images.diagram(
-                VueArchitectureDiagram.parse(mapper, mapper.writeValueAsString(plan.architecture()))))), diagram -> diagram.ifPresent(markup -> {
-            vectors.put("data-xy-architecture", markup);
-            batch.add("架构图：" + String.join("、", plan.architecture().nodes())
-                    + "，放置 <figure data-xy-architecture=\"prepared\"><figcaption>关系说明</figcaption></figure>", null);
-        }));
+        var logos = entries(plan.logos());
+        for (int i = 0; i < logos.size(); i++) {
+            var task = logos.get(i);
+            if (task.design() == null) continue;
+            var slot = slot("data-xy-logo", i);
+            var result = prepare(() -> images.logo(mapper, mapper.writeValueAsString(task.design())));
+            batch.use(result, ready -> ready.ifPresent(markup -> {
+                vectors.put(slot, markup);
+                batch.add("品牌 Logo：" + task.design().name() + "，放置 <span data-xy-logo=\"" + slot.marker()
+                        + "\">品牌文字</span>", task.purpose());
+            }));
+        }
+        var diagrams = entries(plan.architectures());
+        var drawings = new HashMap<VueArchitectureDiagram.Diagram, CompletableFuture<Optional<String>>>();
+        for (int i = 0; i < diagrams.size(); i++) {
+            var task = diagrams.get(i);
+            if (task.design() == null) continue;
+            var slot = slot("data-xy-architecture", i);
+            var result = drawings.computeIfAbsent(task.design(), design -> prepare(() -> Optional.of(images.diagram(
+                    VueArchitectureDiagram.parse(mapper, mapper.writeValueAsString(design))))));
+            batch.use(result, ready -> ready.ifPresent(markup -> {
+                vectors.put(slot, markup);
+                batch.add("架构图：" + String.join("、", task.design().nodes()) + "，放置 <figure data-xy-architecture=\""
+                        + slot.marker() + "\"><figcaption>关系说明</figcaption></figure>", task.purpose());
+            }));
+        }
+    }
+
+    private static VectorSlot slot(String attribute, int index) {
+        return new VectorSlot(attribute, index == 0 ? "prepared" : "prepared-" + (index + 1));
     }
 
     private static <T> List<T> entries(List<T> items) {
@@ -161,7 +184,7 @@ final class NativeWorkflowAssets {
 
     Map<String, ThemeIllustrations.Illustration> illustrations() { return illustrations; }
     Optional<String> vector(String attribute, String marker) {
-        return "prepared".equals(marker) ? Optional.ofNullable(vectors.get(attribute)) : Optional.empty();
+        return Optional.ofNullable(vectors.get(new VectorSlot(attribute, marker)));
     }
     void stop() { tasks.stop(); }
 }

@@ -30,12 +30,21 @@ import static org.mockito.Mockito.*;
 
 class NativeWorkflowAssetsTest {
     private static final String PLAN = """
-            {"photos":[{"theme":"coffee"}],"illustrations":[{"theme":"reading"}],"logo":{"name":"书屋","brief":"书页","layers":[]},
-             "architecture":{"nodes":["入口","书库"],"edges":[{"from":"入口","to":"书库"}]}}""";
+            {"photos":[{"theme":"coffee"}],"illustrations":[{"theme":"reading"}],
+             "logos":[{"purpose":"主品牌位置","design":{"name":"书屋","brief":"书页","layers":[]}},
+                      {"purpose":"合作区","design":{"name":"乐队","brief":"音符","layers":[]}},
+                      {"purpose":"页脚品牌","design":{"name":"书屋","brief":"书页","layers":[]}}],
+             "architectures":[{"purpose":"借书流程","design":{"nodes":["入口","书库"],"edges":[{"from":"入口","to":"书库"}]}},
+                        {"purpose":"失效关系","design":{"nodes":["甲"],"edges":[{"from":"甲","to":"未定义"}]}},
+                        {"purpose":"付款流程","design":{"nodes":["订单","银行"],"edges":[{"from":"订单","to":"银行"}]}},
+                        {"purpose":"借书说明","design":{"nodes":["入口","书库"],"edges":[{"from":"入口","to":"书库"}]}}]}""";
     private static final String PAGE = """
             <!DOCTYPE html><html><head><title>书屋</title></head><body><img data-xy-photo="coffee" alt="咖啡">
-            <!--xy:illustration:reading--><span data-xy-logo="prepared">书屋</span>
-            <figure data-xy-architecture="prepared"><figcaption>读者与书库</figcaption></figure>
+            <!--xy:illustration:reading--><span id="band" data-xy-logo="prepared-2">乐队</span><span id="book" data-xy-logo="prepared">书屋</span>
+            <figure id="pay" data-xy-architecture="prepared-3"><figcaption>订单结算</figcaption></figure>
+            <figure id="borrow" data-xy-architecture="prepared"><figcaption>读者与书库</figcaption></figure>
+            <figure id="missing" data-xy-architecture="prepared-2">仍可看说明</figure>
+            <span id="footer" data-xy-logo="prepared-3">书屋</span><figure id="help" data-xy-architecture="prepared-4">借书说明</figure>
             <span id="other" data-xy-logo='{"name":"另一个标志"}'>其他品牌</span></body></html>""";
 
     @ParameterizedTest
@@ -43,9 +52,9 @@ class NativeWorkflowAssetsTest {
     void startsOnlyThePlannedProvidersTogetherAndReusesTheirResultsOnRepair(boolean cancel, @TempDir Path dir) throws Exception {
         var providers = mock(ArtworkProviders.class);
         var photos = mock(OpenversePhotoSearch.class);
-        var started = new CountDownLatch(3);
+        var started = new CountDownLatch(5);
         var release = new CountDownLatch(1);
-        var interrupted = new CountDownLatch(3);
+        var interrupted = new CountDownLatch(5);
         Runnable waitForAll = () -> {
             started.countDown();
             try { if (!release.await(12, SECONDS)) throw new AssertionError("素材未收齐"); }
@@ -56,12 +65,18 @@ class NativeWorkflowAssetsTest {
             return Optional.of(new OpenversePhotoSearch.Photo("data:image/jpeg;base64,Y29mZmVl", "https://example.org/credit", "CC0"));
         });
         when(providers.logoImage(any(), anyString())).thenAnswer(i -> {
-            assertThat(i.<String>getArgument(1)).contains("书屋", "书页").doesNotContain("私人备注");
+            String design = i.getArgument(1);
+            assertThat(design).doesNotContain("私人备注", "位置", "合作区", "页脚", "purpose");
             waitForAll.run();
-            return Optional.of("<img data-xy-artwork='logo' alt='书屋' src='data:image/png;base64,bG9nbw=='>");
+            return Optional.of(design.contains("书页") ? "<img data-xy-artwork='logo' alt='书屋' src='data:image/png;base64,Ym9vaw=='>"
+                    : "<img data-xy-artwork='logo' alt='乐队' src='data:image/png;base64,YmFuZA=='>");
         });
         when(providers.rendersMermaid()).thenReturn(true);
-        when(providers.diagramImage(any())).thenAnswer(i -> { waitForAll.run(); return "data:image/png;base64,ZGlhZ3JhbQ=="; });
+        when(providers.diagramImage(any())).thenAnswer(i -> {
+            waitForAll.run();
+            return i.<VueArchitectureDiagram.Diagram>getArgument(0).nodes().contains("银行")
+                    ? "data:image/png;base64,cGF5" : "data:image/png;base64,Ym9ycm93";
+        });
         var model = mock(StreamingChatModel.class);
         var plans = new CopyOnWriteArrayList<String>();
         var reviews = new CopyOnWriteArrayList<String>();
@@ -94,19 +109,19 @@ class NativeWorkflowAssetsTest {
             var session = new GenerationSession(2, 1, 3, new SseEmitter(), db, output, () -> {}, mock(ScheduledExecutorService.class));
             var run = workers.submit(() -> session.generate(model, List.of(SystemMessage.from("设计网页"), UserMessage.from("书屋 {{私人备注}}"))));
             try {
-                assertThat(started.await(4, SECONDS)).as("不用等图库返回，Logo 和架构图也要开始").isTrue();
+                assertThat(started.await(4, SECONDS)).as("一个图库、两个不同的 Logo 和两份有效的绘图请求都能先开始").isTrue();
                 assertThat(drafts).isEmpty();
                 if (cancel) {
                     session.cancel();
-                    assertThat(interrupted.await(4, SECONDS)).as("停止应中断三个正在等待的调用").isTrue();
+                    assertThat(interrupted.await(4, SECONDS)).as("停止应中断所有正在等待的调用").isTrue();
                 }
             } finally { release.countDown(); }
             run.get(4, SECONDS);
         }
         assertThat(plans).singleElement().asString().contains("书屋 {{私人备注}}");
         verify(photos).find("coffee");
-        verify(providers).logoImage(any(), anyString());
-        verify(providers).diagramImage(any());
+        verify(providers, times(2)).logoImage(any(), anyString());
+        verify(providers, times(2)).diagramImage(any());
         if (cancel) {
             assertThat(drafts).isEmpty();
             assertThat(reviews).isEmpty();
@@ -115,12 +130,16 @@ class NativeWorkflowAssetsTest {
         } else {
             assertThat(drafts).hasSize(2).allSatisfy(messages ->
                     assertThat(((UserMessage) messages.get(1)).singleText()).contains("书屋 {{私人备注}}", "data-xy-photo", "CC0",
-                            "xy:illustration:reading", "data-xy-logo", "data-xy-architecture", "入口、书库").doesNotContain("base64,", "<svg"));
+                            "xy:illustration:reading", "data-xy-logo", "data-xy-architecture", "入口、书库", "订单、银行",
+                            "主品牌位置", "合作区", "页脚品牌", "借书流程", "付款流程", "借书说明")
+                            .doesNotContain("base64,", "<svg", "失效关系", "data-xy-architecture=\"prepared-2\""));
             assertThat(reviews).hasSize(2).allSatisfy(review -> assertThat(review).contains("CC0", "data-xy-art-id").doesNotContain("base64,"));
             var html = org.jsoup.Jsoup.parse(files.readHtml(1, 2, 3));
             assertThat(html.expectFirst("h1").text()).isEqualTo("书屋");
             assertThat(html.select("img").eachAttr("src")).containsExactly("data:image/jpeg;base64,Y29mZmVl",
-                    "data:image/png;base64,bG9nbw==", "data:image/png;base64,ZGlhZ3JhbQ==");
+                    "data:image/png;base64,YmFuZA==", "data:image/png;base64,Ym9vaw==", "data:image/png;base64,cGF5",
+                    "data:image/png;base64,Ym9ycm93", "data:image/png;base64,Ym9vaw==", "data:image/png;base64,Ym9ycm93");
+            assertThat(html.expectFirst("#missing").html()).isEqualTo("仍可看说明");
             assertThat(html.select("svg")).hasSize(1);
             assertThat(html.expectFirst("#other").html()).isEqualTo("其他品牌");
             verify(db).complete(eq(2L), eq(1L), eq(3L), anyString());

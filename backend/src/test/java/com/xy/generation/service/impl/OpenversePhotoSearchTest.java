@@ -10,32 +10,39 @@ import java.util.ArrayList;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 class OpenversePhotoSearchTest {
-    @Test
-    void collectsDistinctPhotosPerThemeWithoutLosingSiblingsWhenOneOriginalIsUnavailable() throws Exception {
+    @ParameterizedTest
+    @CsvSource({"2, duplicate", "2, changed-license", "2, unavailable", "21, exhausted"})
+    void fillsEachPlaceWithAVerifiedPhotoUntilTheGalleryRunsOut(int count, String scenario) throws Exception {
         String gallery = "https://www.flickr.com/photos/demo/";
         var jpeg = new ByteArrayOutputStream();
         ImageIO.write(new BufferedImage(2, 2, BufferedImage.TYPE_INT_RGB), "jpeg", jpeg);
         var urls = new ArrayList<String>();
         var mapper = new ObjectMapper();
+        String searchUrl = "https://api.openverse.org/v1/images/?q=latte&license=cc0&source=flickr&page_size="
+                + Math.min(count, 20) + "&page=";
         var search = new OpenversePhotoSearch(mapper) {
             @Override byte[] get(String url, int limit) throws IOException {
                 urls.add(url);
                 if (url.startsWith("https://api.openverse.org/")) {
-                    assertThat(url).contains("q=latte&license=cc0&source=flickr&page_size=20&page=");
-                    var ids = url.endsWith("page=1") ? List.of("1", "1", "2") : List.of("3");
-                    return mapper.writeValueAsBytes(java.util.Map.of("page_count", 2, "results", ids.stream()
+                    assertThat(url).isIn(searchUrl + "1", searchUrl + "2");
+                    var ids = url.equals(searchUrl + "1")
+                            ? List.of("1", scenario.equals("duplicate") ? "1" : "2")
+                            : (count == 2 ? List.of("3", "4") : List.of("3"));
+                    return mapper.writeValueAsBytes(java.util.Map.of("page_count", count == 2 ? 3 : 2, "results", ids.stream()
                             .map(id -> java.util.Map.of("source", "flickr", "license", "cc0", "foreign_landing_url", gallery + id)).toList()));
                 }
                 if (url.startsWith(gallery)) {
                     String id = url.substring(gallery.length());
-                    if (id.equals("2")) throw new IOException("该原页不可用");
+                    if (id.equals("2") && !scenario.equals("changed-license")) throw new IOException("该原页不可用");
+                    String license = id.equals("2") ? "licenses/by/4.0/" : "publicdomain/zero/1.0/";
                     return ("<meta property='og:image' content='https://live.staticflickr.com/12/" + id + "_aabb.jpg'>"
-                            + "<div class='photo-license-info'><a rel='license' href='https://creativecommons.org/publicdomain/zero/1.0/'></a></div>")
+                            + "<div class='photo-license-info'><a rel='license' href='https://creativecommons.org/" + license + "'></a></div>")
                             .getBytes(StandardCharsets.UTF_8);
                 }
                 assertThat(url).matches("https://live\\.staticflickr\\.com/12/[13]_aabb_z\\.jpg");
@@ -44,8 +51,10 @@ class OpenversePhotoSearchTest {
         };
         assertThat(search.findMany("姓名或自由词", 21)).isEmpty();
         assertThat(urls).isEmpty();
-        assertThat(search.findMany("coffee", 21)).extracting(OpenversePhotoSearch.Photo::source)
+        assertThat(search.findMany("coffee", count)).extracting(OpenversePhotoSearch.Photo::source)
                 .containsExactly(gallery + "1", gallery + "3");
+        assertThat(urls).filteredOn((String url) -> url.startsWith(searchUrl)).containsExactly(searchUrl + "1", searchUrl + "2");
+        assertThat(urls).doesNotContain(gallery + "4");
         assertThat(urls).filteredOn((String url) -> url.equals(gallery + "1")).hasSize(1);
     }
 

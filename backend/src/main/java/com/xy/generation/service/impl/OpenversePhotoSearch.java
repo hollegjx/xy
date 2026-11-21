@@ -67,12 +67,14 @@ public class OpenversePhotoSearch {
         var seen = new HashSet<String>();
         String base = "https://api.openverse.org/v1/images/?q=" + URLEncoder.encode(query, StandardCharsets.UTF_8)
                 + "&license=cc0&source=flickr&page_size=" + pageSize;
-        int pages = Math.ceilDiv(count, pageSize);
-        for (int page = 1; page <= pages && !Thread.currentThread().isInterrupted(); page++) {
+        boolean hasNext = true;
+        for (int page = 1; hasNext && !Thread.currentThread().isInterrupted(); page++) {
             try {
                 var result = mapper.reader().readTree(get(base + "&page=" + page, 512_000));
-                pages = Math.min(pages, result.path("page_count").asInt(1));
-                for (var hit : result.path("results")) {
+                var hits = result.path("results");
+                if (hits.isEmpty()) break;
+                hasNext = page < result.path("page_count").asInt(page);
+                for (var hit : hits) {
                     if (Thread.currentThread().isInterrupted()) return List.copyOf(photos);
                     var landing = LANDING.matcher(hit.path("foreign_landing_url").asText());
                     if (!landing.matches() || seen.contains(landing.group(1))) continue;

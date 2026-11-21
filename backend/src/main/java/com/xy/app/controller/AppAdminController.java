@@ -4,7 +4,8 @@ import com.xy.app.model.dto.AppUpdateRequest;
 import com.xy.app.model.dto.AppFeaturedRequest;
 import com.xy.app.service.AppService;
 import com.xy.common.ApiResponse;
-import com.xy.user.service.UserService;
+import com.xy.common.SessionUserResolver;
+import com.xy.user.model.dto.UserIdentity;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -24,11 +25,11 @@ import org.springframework.web.bind.annotation.RestController;
 public class AppAdminController {
 
     private final AppService appService;
-    private final UserService userService;
+    private final SessionUserResolver<UserIdentity> sessionUsers;
 
-    public AppAdminController(AppService appService, UserService userService) {
+    public AppAdminController(AppService appService, SessionUserResolver<UserIdentity> sessionUsers) {
         this.appService = appService;
-        this.userService = userService;
+        this.sessionUsers = sessionUsers;
     }
 
     @Operation(summary = "管理员修改应用名称", description = "仅管理员可修改任一有效应用的名称；"
@@ -41,7 +42,7 @@ public class AppAdminController {
             @Positive @PathVariable long id, @Valid @RequestBody AppUpdateRequest request,
             HttpServletRequest servletRequest) {
         return ApiResponse.success(appService.updateAppForAdmin(id, request,
-                userService.getLoginUser(servletRequest)));
+                sessionUsers.require(servletRequest)));
     }
 
     @Operation(summary = "管理员设置或取消精选", description = "仅管理员可调用；featured 为 true 时应用须已发布，"
@@ -54,7 +55,7 @@ public class AppAdminController {
             @Positive @PathVariable long id, @Valid @RequestBody AppFeaturedRequest request,
             HttpServletRequest servletRequest) {
         return ApiResponse.success(appService.updateFeaturedForAdmin(id, request,
-                userService.getLoginUser(servletRequest)));
+                sessionUsers.require(servletRequest)));
     }
 
     @Operation(summary = "管理员删除应用", description = "仅管理员可删除任一有效应用；"
@@ -65,6 +66,6 @@ public class AppAdminController {
     public ApiResponse<Boolean> deleteAppForAdmin(
             @Parameter(description = "应用 ID，必须大于 0", example = "55")
             @Positive @PathVariable long id, HttpServletRequest servletRequest) {
-        return ApiResponse.success(appService.deleteAppForAdmin(id, userService.getLoginUser(servletRequest)));
+        return ApiResponse.success(appService.deleteAppForAdmin(id, sessionUsers.require(servletRequest)));
     }
 }

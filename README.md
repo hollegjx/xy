@@ -34,6 +34,8 @@ IDEA 从 `backend/pom.xml` 导入 Maven 父工程。`backend/modules/` 下的 `c
 - 分开部署时，把这些账号请求转到用户服务；**仅 `DELETE /api/users/{id}` 保留在平台**，因为它要下线作品并在一个事务里删除账号和应用。应用等其他请求仍发给平台。分流完成后，可只在平台设置 `xy.user.http-enabled: false` 撤下本地七个入口；用户服务保持默认开启。回到单体时恢复为 `true`。同一浏览器在用户服务登录后即可访问平台，退出在两边生效。
 - Triple 默认监听 `127.0.0.1:50051`。平台 `xy.user.rpc-url` 填 `'tri://127.0.0.1:50051'` 后按 Session 中的账号 ID 远程复核身份；留空则沿用本机查询。仅运行身份 RPC 时，可给用户进程追加 `--spring.main.web-application-type=none`。
 
+已有 Nacos 2.x 时，用户和截图进程可在各自的服务端配置中设置 `dubbo.registry.address: 'nacos://127.0.0.1:8848'`，分别以 `xy-user`、`xy-screenshot` 登记 Triple 实例。默认值 `N/A` 不连接注册中心。注册中心与服务同机时保留默认回环监听；跨机器部署需要指定调用方可达的内网 `dubbo.protocol.host`。不要把两个内部 RPC 端口开放给访客。
+
 模块内沿用以下 Java 包：
 
 ```text

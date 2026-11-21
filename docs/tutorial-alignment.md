@@ -17,7 +17,7 @@
 | 11 系统优化 | 多例模型、Spring Cache + Redis、Redisson + AOP、实时预览、输入/输出护轨、工具上限与分类成本 | [模型 Bean](../backend/src/main/java/com/xy/config/AiModelConfiguration.java)为 prototype，路由、原生生成、Vue 工程可选不同模型；未配 Vue 模型时仍用原模型。精选缓存、限流使用教程点名的框架。Vue 启用构建时，成功构建后才发完成事件；源码模式的完成只表示源码已保存。输入护轨与 SDK 输出护轨的区别见下表。 |
 | 12 部署上线 | 教程给出服务器部署方式 | 已有独立静态站、Docker 构建和本项目部署约定。此次核查不改变服务器、Cloudflare、路由或线上配置。 |
 | 13 可观测性 | ARMS 系统探针；Actuator/Micrometer、LangChain4j 监听器、Prometheus 与 Grafana 业务监控 | [AI 调用监听](../backend/src/main/java/com/xy/manager/AiModelMetrics.java)覆盖分类、原生与 Vue，按用户/应用/模型记录次数、耗时、用量与失败。已有[独立抓取端口、Prometheus 配置与 Grafana 看板](../ops/monitoring/README.md)。本机验证了真 SDK 走模型替身、抓取格式和看板查询；未开通 ARMS，也未计作 gc 已运行监控服务。 |
-| 14 微服务改造 | 服务拆分、Nacos、Dubbo、Higress 等 | [Maven 父工程](../backend/pom.xml)已拆出公共代码、用户模型、内部接口和截图渲染库。[截图服务](../backend/services/screenshot)可单独启动；平台既可本机截图，也可用 Dubbo 3.3 的 Triple 协议传递快照、取回 JPEG。[用户服务](../backend/services/user)可独立接收应用发来的账号 ID，用同一套 MyBatis-Flex 查询返回当前角色；账号已删除时返回空。两种服务均用不同 JVM 验证了 Triple 直连。用户服务还提供七个账号 HTTP 接口，与应用平台共用 Redis 会话。删号涉及作品下线和跨表事务，保留在平台；Nacos 服务发现及 Higress 尚未接入。共享 Session 和模型记忆不意味着运行中生成任务能跨实例接管。 |
+| 14 微服务改造 | 服务拆分、Nacos、Dubbo、Higress 等 | [Maven 父工程](../backend/pom.xml)已拆出公共代码、用户模型、内部接口和截图渲染库。[截图服务](../backend/services/screenshot)可单独启动；平台既可本机截图，也可用 Dubbo 3.3 的 Triple 协议传递快照、取回 JPEG。[用户服务](../backend/services/user)可独立接收应用发来的账号 ID，用同一套 MyBatis-Flex 查询返回当前角色；账号已删除时返回空。两种服务均用不同 JVM 验证了 Triple 直连。用户服务还提供七个账号 HTTP 接口，与应用平台共用 Redis 会话。删号涉及作品下线和跨表事务，保留在平台。两个提供方可选择向 Nacos 登记 Triple 实例；平台自动发现及 Higress 尚未接入。共享 Session 和模型记忆不意味着运行中生成任务能跨实例接管。 |
 
 **插画服务的限制。** [unDraw 当前许可](https://undraw.co/license)要求集成、自动检索或抓取事先获得同意；本项目未提供此授权。未复用教程里的私有前端接口，没有把三幅本地插画记作已完成 unDraw 搜索。
 

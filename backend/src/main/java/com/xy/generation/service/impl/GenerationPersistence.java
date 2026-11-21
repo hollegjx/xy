@@ -12,6 +12,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -20,12 +21,14 @@ public class GenerationPersistence {
 
     private final ChatHistoryMapper chatHistoryMapper;
     private final AppMapper appMapper;
+    private final ApplicationEventPublisher events;
     private boolean interruptedGenerationsRecovered;
     private final Map<Long, PendingFailure> pendingFailures = new LinkedHashMap<>();
 
-    public GenerationPersistence(ChatHistoryMapper chatHistoryMapper, AppMapper appMapper) {
+    public GenerationPersistence(ChatHistoryMapper chatHistoryMapper, AppMapper appMapper, ApplicationEventPublisher events) {
         this.chatHistoryMapper = chatHistoryMapper;
         this.appMapper = appMapper;
+        this.events = events;
     }
 
     // 单实例首次生成/查询共用这道入口。恢复独立提交后才允许新任务写入，避免误伤本进程任务。
@@ -81,6 +84,7 @@ public class GenerationPersistence {
     public void complete(long appId, long userId, long generationId, String content) {
         checkSaved(chatHistoryMapper.finishGeneration(generationId, MessageStatusEnum.COMPLETED.getValue(), content, null));
         checkSaved(appMapper.updateGeneratedVersion(appId, userId, generationId));
+        events.publishEvent(new GenerationMemory.Committed(appId, userId, generationId));
     }
 
     public synchronized void fail(long generationId, String content, String message) {

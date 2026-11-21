@@ -118,6 +118,8 @@ class GenerationControllerTest {
     @MockitoBean
     GenerationPersistence persistence;
     @MockitoBean
+    dev.langchain4j.store.memory.chat.ChatMemoryStore memoryStore;
+    @MockitoBean
     AppMapper appMapper;
     @MockitoBean
     UserMapper userMapper;
@@ -1362,7 +1364,7 @@ class GenerationControllerTest {
                 ? Collections.nCopies(5, "请检查表单按钮的点击事件及其绑定。".repeat(5)) : List.of();
         if (outcome.equals("failed")) {
             // 使用实际的失败补写队列，只在 Mapper 边界模拟 VARCHAR(256)。
-            var storage = delegatesTo(new GenerationPersistence(chatHistoryMapper, appMapper));
+            var storage = delegatesTo(new GenerationPersistence(chatHistoryMapper, appMapper, event -> {}));
             doAnswer(storage).when(persistence).fail(eq(generationId), any(), any());
             doAnswer(storage).when(persistence).recoverInterruptedGenerations();
             when(chatHistoryMapper.finishGeneration(eq(generationId), eq("failed"), any(), any())).thenAnswer(call -> {

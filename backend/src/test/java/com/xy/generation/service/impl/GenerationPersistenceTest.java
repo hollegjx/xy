@@ -30,7 +30,7 @@ class GenerationPersistenceTest {
 
     private final ChatHistoryMapper messages = mock(ChatHistoryMapper.class);
     private final AppMapper apps = mock(AppMapper.class);
-    private final GenerationPersistence persistence = new GenerationPersistence(messages, apps);
+    private final GenerationPersistence persistence = new GenerationPersistence(messages, apps, event -> {});
 
     @Test
     void restoresSuccessfulPromptsInOrderFromABoundedOwnedHistoryWindow() {

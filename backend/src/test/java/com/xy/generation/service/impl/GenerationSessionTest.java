@@ -197,7 +197,7 @@ class GenerationSessionTest {
     void messageQueryRepairsAFailureAfterDatabaseRecoveryWithoutRestarting(boolean timedOut) {
         ChatHistoryMapper messages = mock(ChatHistoryMapper.class);
         AppMapper apps = mock(AppMapper.class);
-        GenerationPersistence actualPersistence = new GenerationPersistence(messages, apps);
+        GenerationPersistence actualPersistence = new GenerationPersistence(messages, apps, event -> {});
         // 首次恢复早已执行，必须验证同一进程内发生的新失败仍可补写。
         actualPersistence.recoverInterruptedGenerations();
         ChatHistory stored = new ChatHistory();

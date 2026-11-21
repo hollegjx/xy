@@ -38,6 +38,7 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 public class GenerationServiceImpl implements GenerationService {
 
     private final AppService appService;
+    private final GenerationMemory memory;
     private final GenerationPersistence persistence;
     private final GeneratedFileManager fileManager;
     private final VueProjectBuildManager vueBuilder;
@@ -58,9 +59,10 @@ public class GenerationServiceImpl implements GenerationService {
             @Qualifier("generationHeartbeatScheduler") ScheduledExecutorService heartbeatScheduler,
             @Value("classpath:prompts/single-html.txt") Resource htmlPrompt,
             @Value("classpath:prompts/multi-file.txt") Resource multiFilePrompt,
-            ObjectMapper objectMapper, VueProjectBuildManager vueBuilder, OpenversePhotoSearch photoSearch,
+            ObjectMapper objectMapper, GenerationMemory memory, VueProjectBuildManager vueBuilder, OpenversePhotoSearch photoSearch,
             @Value("${xy.ai.timeout-seconds:180}") long timeoutSeconds) throws IOException {
         this.appService = appService;
+        this.memory = memory;
         this.persistence = persistence;
         this.fileManager = fileManager;
         this.modelProvider = modelProvider;
@@ -141,7 +143,7 @@ public class GenerationServiceImpl implements GenerationService {
         if (versionId == null) {
             return List.of(SystemMessage.from(systemPrompt), UserMessage.from(prompt));
         }
-        List<String> history = persistence.loadSuccessfulPrompts(appId, loginUser.getId(), versionId);
+        List<String> history = memory.prompts(appId, loginUser.getId(), versionId);
         CodeGenTypeEnum mode = CodeGenTypeEnum.fromValue(app.getCodeGenType());
         String source = switch (mode) {
             case HTML -> fileManager.readHtml(loginUser.getId(), appId, versionId);

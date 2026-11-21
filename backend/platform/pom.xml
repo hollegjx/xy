@@ -14,7 +14,6 @@
   <description>星云 AI 零代码应用生成平台后端</description>
 
   <properties>
-    <mybatis-flex.version>1.11.8</mybatis-flex.version>
     <knife4j.version>4.5.0</knife4j.version>
     <springdoc.version>2.8.17</springdoc.version>
     <langchain4j.version>1.22.0</langchain4j.version>
@@ -26,6 +25,10 @@
     <dependency>
       <groupId>com.xy</groupId>
       <artifactId>xy-common</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>com.xy</groupId>
+      <artifactId>xy-model</artifactId>
     </dependency>
     <dependency>
       <groupId>cn.hutool</groupId>

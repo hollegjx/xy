@@ -15,18 +15,25 @@
   <name>星云 · 后端模块</name>
   <modules>
     <module>modules/common</module>
+    <module>modules/model</module>
     <module>platform</module>
   </modules>
   <properties>
     <java.version>21</java.version>
     <maven.compiler.parameters>true</maven.compiler.parameters>
     <swagger-annotations.version>2.2.47</swagger-annotations.version>
+    <mybatis-flex.version>1.11.8</mybatis-flex.version>
   </properties>
   <dependencyManagement>
     <dependencies>
       <dependency>
         <groupId>com.xy</groupId>
         <artifactId>xy-common</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>com.xy</groupId>
+        <artifactId>xy-model</artifactId>
         <version>${project.version}</version>
       </dependency>
       <dependency>

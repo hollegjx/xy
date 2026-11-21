@@ -18,6 +18,7 @@
     <module>modules/model</module>
     <module>modules/client</module>
     <module>modules/screenshot-renderer</module>
+    <module>services/screenshot</module>
     <module>platform</module>
   </modules>
   <properties>
@@ -25,9 +26,16 @@
     <maven.compiler.parameters>true</maven.compiler.parameters>
     <swagger-annotations.version>2.2.47</swagger-annotations.version>
     <mybatis-flex.version>1.11.8</mybatis-flex.version>
+    <dubbo.version>3.3.7</dubbo.version>
   </properties>
   <dependencyManagement>
     <dependencies>
+      <dependency>
+        <groupId>org.apache.dubbo</groupId><artifactId>dubbo</artifactId><version>${dubbo.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.apache.dubbo</groupId><artifactId>dubbo-spring-boot-starter</artifactId><version>${dubbo.version}</version>
+      </dependency>
       <dependency>
         <groupId>com.xy</groupId>
         <artifactId>xy-common</artifactId>

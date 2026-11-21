@@ -8,4 +8,7 @@
   </parent>
   <artifactId>xy-client</artifactId>
   <properties><surefire.failIfNoSpecifiedTests>false</surefire.failIfNoSpecifiedTests></properties>
+  <dependencies>
+    <dependency><groupId>org.apache.dubbo</groupId><artifactId>dubbo</artifactId><optional>true</optional></dependency>
+  </dependencies>
 </project>

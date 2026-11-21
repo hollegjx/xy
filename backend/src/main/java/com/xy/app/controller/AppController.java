@@ -19,6 +19,7 @@ import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Positive;
 import java.util.List;
 import org.springdoc.core.annotations.ParameterObject;
@@ -35,6 +36,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 @Tag(name = "应用")
@@ -79,11 +81,18 @@ public class AppController {
         return ApiResponse.success(appService.listMyApps(request, userService.getLoginUser(servletRequest)));
     }
 
-    @Operation(summary = "查询公开精选作品", description = "无需登录；按发布时间和 ID 倒序返回最多 6 个有效精选作品。"
-            + "仅返回 ID、名称、生成模式、公开地址和可选封面；未配置公开站点时返回空数组。服务端短时缓存，精选变更后刷新即生效。")
+    @Operation(summary = "查询公开精选作品", description = "无需登录；按发布时间和 ID 倒序排列。默认第 1 页、每页 6 个，有下一页时通过 Link 响应头返回。"
+            + "仅返回公开卡片；未配置公开站点时返回空数组。前 10 页按页码和每页数量在 Redis 中缓存 5 分钟。")
     @GetMapping("/featured")
-    public ResponseEntity<ApiResponse<List<AppFeaturedVO>>> listFeaturedApps() {
-        return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(ApiResponse.success(appService.listFeaturedApps()));
+    public ResponseEntity<ApiResponse<List<AppFeaturedVO>>> listFeaturedApps(
+            @Parameter(description = "页码，从 1 开始") @Positive @RequestParam(defaultValue = "1") int current,
+            @Parameter(description = "每页 1 至 20 个") @Positive @Max(20) @RequestParam(defaultValue = "6") int pageSize) {
+        var page = appService.listFeaturedApps(current, pageSize);
+        var response = ResponseEntity.ok().cacheControl(CacheControl.noStore());
+        if (page.hasNext()) {
+            response.header(HttpHeaders.LINK, "<?current=" + (current + 1L) + "&pageSize=" + pageSize + ">; rel=\"next\"");
+        }
+        return response.body(ApiResponse.success(page.records()));
     }
 
     @Operation(summary = "查看精选作品封面", description = "无需登录。仅提供已精选作品当前发布版本的 JPEG；无封面返回 404。")

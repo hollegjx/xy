@@ -13,7 +13,7 @@ import com.xy.app.model.enums.CodeGenTypeEnum;
 import com.xy.app.model.vo.AppDeployVO;
 import com.xy.app.model.vo.AppAdminPageVO;
 import com.xy.app.model.vo.AppAdminVO;
-import com.xy.app.model.vo.AppFeaturedVO;
+import com.xy.app.model.vo.AppFeaturedSlice;
 import com.xy.app.model.vo.AppPageVO;
 import com.xy.app.model.vo.AppVO;
 import com.xy.app.service.AppService;
@@ -47,16 +47,18 @@ public class AppServiceImpl implements AppService {
     private final DeploymentConfiguration deployment;
     private final GenerationModeRouter modeRouter;
     private final AppCoverRenderer coverRenderer;
-    private final FeaturedAppCache featuredCache = new FeaturedAppCache(System::nanoTime);
+    private final FeaturedAppPages featuredPages;
 
     public AppServiceImpl(AppMapper appMapper, ChatHistoryMapper chatHistoryMapper, GeneratedFileManager fileManager,
-            DeploymentConfiguration deployment, GenerationModeRouter modeRouter, AppCoverRenderer coverRenderer) {
+            DeploymentConfiguration deployment, GenerationModeRouter modeRouter, AppCoverRenderer coverRenderer,
+            FeaturedAppPages featuredPages) {
         this.appMapper = appMapper;
         this.chatHistoryMapper = chatHistoryMapper;
         this.fileManager = fileManager;
         this.deployment = deployment;
         this.modeRouter = modeRouter;
         this.coverRenderer = coverRenderer;
+        this.featuredPages = featuredPages;
     }
 
     @Override
@@ -109,30 +111,17 @@ public class AppServiceImpl implements AppService {
     }
 
     @Override
-    public List<AppFeaturedVO> listFeaturedApps() {
-        return featuredCache.get(this::loadFeaturedApps);
+    public AppFeaturedSlice listFeaturedApps(int current, int pageSize) {
+        if (deployment.publicOrigin().isEmpty()) {
+            return new AppFeaturedSlice(List.of(), false);
+        }
+        String revision = current <= FeaturedAppPages.CACHED_PAGES ? featuredPages.currentRevision() : null;
+        return featuredPages.read(current, pageSize, revision, deployment);
     }
 
     @Override
     public void invalidateFeaturedApps() {
-        featuredCache.invalidate();
-    }
-
-    private List<AppFeaturedVO> loadFeaturedApps() {
-        QueryWrapper query = QueryWrapper.create()
-                .eq(App::getFeatured, true)
-                .isNotNull(App::getPublishedVersion)
-                .isNotNull(App::getDeployKey)
-                .orderBy(App::getDeployedAt, false)
-                .orderBy(App::getId, false)
-                .limit(6);
-        return appMapper.selectListByQuery(query).stream()
-                .map(app -> new AppFeaturedVO(Long.toString(app.getId()), app.getAppName(),
-                        app.getCodeGenType(), deployment.siteUrl(app.getDeployKey()),
-                        fileManager.hasCover(app.getUserId(), app.getId(), app.getPublishedVersion())
-                                ? "/api/apps/" + app.getId() + "/covers/" + app.getPublishedVersion() : null))
-                .filter(app -> app.deployUrl() != null)
-                .toList();
+        featuredPages.changeRevision();
     }
 
     @Override

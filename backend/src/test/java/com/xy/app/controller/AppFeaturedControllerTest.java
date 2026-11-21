@@ -24,6 +24,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
 import org.springframework.mock.web.MockHttpSession;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 
@@ -44,7 +45,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.MOCK, properties = {
-        "server.servlet.context-path=/api", "xy.ai.enabled=false",
+        "server.servlet.context-path=/api", "xy.ai.enabled=false", "xy.deployment.public-url=https://sites.example.test",
         "spring.datasource.url=jdbc:mysql://unused.invalid:3306/xy_test",
         "spring.datasource.username=test", "spring.datasource.password=test",
         "spring.datasource.driver-class-name=com.mysql.cj.jdbc.Driver",
@@ -61,7 +62,7 @@ class AppFeaturedControllerTest {
     AppMapper apps;
     @MockitoBean
     UserMapper users;
-    @MockitoBean
+    @MockitoSpyBean
     DeploymentConfiguration deployment;
 
     @BeforeEach
@@ -72,7 +73,6 @@ class AppFeaturedControllerTest {
     @Test
     void letsVisitorsReadOnlyPublicSummariesFromTheSixLatestPublishedFeaturedApps() throws Exception {
         when(apps.selectListByQuery(any(QueryWrapper.class))).thenReturn(List.of(app()));
-        when(deployment.siteUrl("a".repeat(32))).thenReturn("https://sites.example.test/" + "a".repeat(32) + "/");
 
         mockMvc.perform(get("/api/apps/featured").contextPath("/api"))
                 .andExpect(status().isOk())
@@ -91,17 +91,36 @@ class AppFeaturedControllerTest {
         ArgumentCaptor<QueryWrapper> query = ArgumentCaptor.forClass(QueryWrapper.class);
         verify(apps).selectListByQuery(query.capture());
         assertThat(query.getValue().toSQL()).contains("`featured`", "`publishedVersion` IS NOT NULL",
-                "`deployKey` IS NOT NULL", "`deployedAt` DESC", "`id` DESC", "LIMIT 6");
+                "`deployKey` IS NOT NULL", "`deployedAt` DESC", "`id` DESC");
+        assertThat(CPI.getLimitRows(query.getValue())).isEqualTo(7L);
         assertThat(CPI.getValueArray(query.getValue())).contains(true);
         verifyNoInteractions(users);
     }
 
     @Test
+    void returnsOnlyTheRequestedSliceAndLinksToTheNextPageWhenItExists() throws Exception {
+        var work = storedWork();
+        when(apps.selectListByQuery(any(QueryWrapper.class))).thenReturn(List.of(work, work, work));
+        mockMvc.perform(get("/api/apps/featured").contextPath("/api").param("current", "2").param("pageSize", "2"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.length()").value(2))
+                .andExpect(header().string("Link", "<?current=3&pageSize=2>; rel=\"next\""));
+        var query = ArgumentCaptor.forClass(QueryWrapper.class);
+        verify(apps).selectListByQuery(query.capture());
+        assertThat(CPI.getLimitOffset(query.getValue())).isEqualTo(2L);
+        assertThat(CPI.getLimitRows(query.getValue())).isEqualTo(3L);
+        mockMvc.perform(get("/api/apps/featured").contextPath("/api").param("current", "0"))
+                .andExpect(status().isBadRequest());
+        mockMvc.perform(get("/api/apps/featured").contextPath("/api").param("pageSize", "21"))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
     void omitsWorksWithoutAConfiguredPublicAddress() throws Exception {
-        when(apps.selectListByQuery(any(QueryWrapper.class))).thenReturn(List.of(app()));
+        when(deployment.publicOrigin()).thenReturn("");
         mockMvc.perform(get("/api/apps/featured").contextPath("/api"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data").isEmpty());
+                .andExpect(jsonPath("$.data").isEmpty()).andExpect(header().doesNotExist("Link"));
+        verifyNoInteractions(apps, users);
     }
 
     @Test
@@ -110,7 +129,8 @@ class AppFeaturedControllerTest {
         mockMvc.perform(get("/api/apps/featured").contextPath("/api"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data").isEmpty());
-        verifyNoInteractions(deployment, users);
+        verify(apps).selectListByQuery(any(QueryWrapper.class));
+        verifyNoInteractions(users);
     }
 
     @Test
@@ -167,7 +187,6 @@ class AppFeaturedControllerTest {
         when(apps.selectOneById(work.getId())).thenReturn(work);
         when(apps.selectListByQuery(any(QueryWrapper.class))).thenAnswer(call ->
                 work.getFeatured() && work.getIsDelete() == 0 ? List.of(work) : List.of());
-        when(deployment.siteUrl(work.getDeployKey())).thenReturn("https://sites.example.test/" + work.getDeployKey() + "/");
         return work;
     }
 

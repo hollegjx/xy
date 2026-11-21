@@ -33,6 +33,10 @@ public class DeploymentConfiguration {
         return directory;
     }
 
+    public String publicOrigin() {
+        return publicUrl;
+    }
+
     public String siteUrl(String deployKey) {
         return publicUrl.isEmpty() ? null : publicUrl + "/" + deployKey + "/";
     }

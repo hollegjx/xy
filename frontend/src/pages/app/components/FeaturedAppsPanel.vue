@@ -12,19 +12,29 @@ import type { AppFeaturedVO } from '@/types/api'
 import { generationModes } from '../generationModes'
 
 const rows = ref<AppFeaturedVO[]>([])
+const current = ref(1)
+const hasNext = ref(false)
+const requested = ref(1)
 const loading = ref(false)
 const error = ref('')
 const brokenCovers = ref(new Set<string>())
 let active = true
 
-async function load(): Promise<void> {
+async function load(page: number): Promise<void> {
   if (loading.value) return
+  requested.value = page
   loading.value = true
   error.value = ''
   try {
-    const result = await listFeaturedApps()
+    let result = await listFeaturedApps(page)
+    if (active && page > 1 && !result.records.length) {
+      page = 1
+      result = await listFeaturedApps(page)
+    }
     if (active) {
-      rows.value = result
+      rows.value = result.records
+      current.value = page
+      hasNext.value = result.hasNext
       brokenCovers.value.clear()
     }
   } catch (cause) {
@@ -34,7 +44,7 @@ async function load(): Promise<void> {
   }
 }
 
-onMounted(load)
+onMounted(() => load(1))
 onBeforeUnmount(() => {
   active = false
 })
@@ -47,7 +57,7 @@ onBeforeUnmount(() => {
         <h2 id="featured-apps-title">精选作品</h2>
         <p class="muted">看看灵感如何成形，浏览最近发布的精选作品。</p>
       </div>
-      <AButton :loading="loading" @click="load">刷新</AButton>
+      <AButton :loading="loading" @click="load(current)">刷新</AButton>
     </header>
     <ASkeleton v-if="loading" active :paragraph="{ rows: 3 }" aria-label="正在读取精选作品" />
     <AAlert
@@ -58,7 +68,7 @@ onBeforeUnmount(() => {
       show-icon
       role="alert"
     >
-      <template #action><AButton @click="load">重试</AButton></template>
+      <template #action><AButton @click="load(requested)">重试</AButton></template>
     </AAlert>
     <AEmpty
       v-else-if="rows.length === 0"
@@ -82,6 +92,11 @@ onBeforeUnmount(() => {
         <AButton :href="app.deployUrl" target="_blank" rel="noopener noreferrer">查看作品</AButton>
       </li>
     </ul>
+    <nav v-if="current > 1 || hasNext" class="featured-pages" aria-label="精选作品分页">
+      <AButton :disabled="loading || current === 1" @click="load(current - 1)">上一页</AButton>
+      <span aria-live="polite">第 {{ current }} 页</span>
+      <AButton :disabled="loading || !hasNext" @click="load(current + 1)">下一页</AButton>
+    </nav>
   </section>
 </template>
 
@@ -127,6 +142,15 @@ h3 {
 }
 .featured-card .muted {
   margin-bottom: 16px;
+}
+.featured-pages {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  margin-top: 24px;
+  color: var(--muted);
+  font-size: 14px;
 }
 .work-cover {
   display: block;

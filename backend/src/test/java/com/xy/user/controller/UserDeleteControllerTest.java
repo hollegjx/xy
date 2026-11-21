@@ -8,6 +8,7 @@ import com.xy.app.model.entity.App;
 import com.xy.app.model.enums.CodeGenTypeEnum;
 import com.xy.app.service.impl.GenerationModeRouter;
 import com.xy.app.service.impl.AppServiceImpl;
+import com.xy.app.service.impl.FeaturedAppPages;
 import com.xy.chat.mapper.ChatHistoryMapper;
 import com.xy.common.UserConstant;
 import com.xy.config.DeploymentConfiguration;
@@ -39,7 +40,9 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -60,6 +63,7 @@ class UserDeleteControllerTest {
     private final List<App> ownedApps = new ArrayList<>();
     private MockMvc mockMvc;
     private GeneratedFileManager files;
+    private FeaturedAppPages featuredPages;
     private User admin;
     private User member;
 
@@ -67,8 +71,9 @@ class UserDeleteControllerTest {
     void prepare() {
         files = new GeneratedFileManager(directory.resolve("generated"));
         var deployment = new DeploymentConfiguration(directory.resolve("published"), "https://sites.example.test", "http://localhost:5173");
+        featuredPages = spy(new FeaturedAppPages(apps, files));
         var appService = new AppServiceImpl(apps, messages, files, deployment,
-                mock(GenerationModeRouter.class), mock(AppCoverRenderer.class));
+                mock(GenerationModeRouter.class), mock(AppCoverRenderer.class), featuredPages);
         var userService = new UserServiceImpl(users, mock(PasswordEncoder.class), appService,
                 new UserDeletionPersistence(users, apps));
         // 只替换数据访问；使用真实业务类和临时文件，不连接数据库，也不测试事务框架本身。
@@ -175,6 +180,9 @@ class UserDeleteControllerTest {
         mockMvc.perform(get("/api/apps/featured").contextPath("/api"))
                 .andExpect(jsonPath("$.data[0].appName").value("待下线作品"));
         mockMvc.perform(remove(84L).session(session(42L))).andExpect(status().isOk());
+        var removal = inOrder(users, featuredPages);
+        removal.verify(users).deleteById(84L);
+        removal.verify(featuredPages).changeRevision();
         mockMvc.perform(get("/api/apps/featured").contextPath("/api")).andExpect(status().isOk())
                 .andExpect(jsonPath("$.data").isEmpty());
     }

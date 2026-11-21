@@ -47,11 +47,15 @@ async function sendRequest<T>(
   }
 }
 
-export default async function request<T>(url: string, config: AxiosRequestConfig = {}): Promise<T> {
-  const { data } = await sendRequest<ApiResponse<T>>(url, config)
+export async function requestWithHeaders<T>(url: string, config: AxiosRequestConfig = {}) {
+  const { data, headers } = await sendRequest<ApiResponse<T>>(url, config)
   if (!isApiResponse(data)) throw new ApiError('接口返回格式不正确，请稍后重试')
   if (data.code !== 0) throw new ApiError(data.message || '请求失败，请重试', data.code)
-  return data.data
+  return { data: data.data, headers }
+}
+
+export default async function request<T>(url: string, config: AxiosRequestConfig = {}): Promise<T> {
+  return (await requestWithHeaders<T>(url, config)).data
 }
 
 export async function requestHtml(url: string): Promise<string> {

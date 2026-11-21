@@ -73,6 +73,11 @@ export interface AppFeaturedVO {
   deployUrl: string
 }
 
+export interface AppFeaturedSlice {
+  records: AppFeaturedVO[]
+  hasNext: boolean
+}
+
 export interface AppVO {
   id: string
   userId: string

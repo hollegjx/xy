@@ -1,10 +1,11 @@
-import request, { ApiError, requestHtml, requestZip } from '@/request'
+import request, { ApiError, requestHtml, requestWithHeaders, requestZip } from '@/request'
 import type {
   AppAddRequest,
   AppAdminPageVO,
   AppAdminQueryRequest,
   AppDeployVO,
   AppFeaturedRequest,
+  AppFeaturedSlice,
   AppFeaturedVO,
   AppPageVO,
   AppQueryRequest,
@@ -43,8 +44,15 @@ export const listMyApps = (params: AppQueryRequest): Promise<AppPageVO> =>
 export const listAppsForAdmin = (params: AppAdminQueryRequest): Promise<AppAdminPageVO> =>
   request<AppAdminPageVO>('/api/apps', { params })
 
-export const listFeaturedApps = (): Promise<AppFeaturedVO[]> =>
-  request<AppFeaturedVO[]>('/api/apps/featured')
+export async function listFeaturedApps(current: number): Promise<AppFeaturedSlice> {
+  const { data, headers } = await requestWithHeaders<AppFeaturedVO[]>('/api/apps/featured', {
+    params: { current },
+  })
+  return {
+    records: data,
+    hasNext: typeof headers.link === 'string' && headers.link.includes('rel="next"'),
+  }
+}
 
 export const getAppSource = (id: string): Promise<Blob> =>
   requestZip(`/api/apps/${encodeURIComponent(id)}/source`)

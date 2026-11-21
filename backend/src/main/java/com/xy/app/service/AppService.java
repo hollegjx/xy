@@ -8,11 +8,10 @@ import com.xy.app.model.dto.AppUpdateRequest;
 import com.xy.app.model.entity.App;
 import com.xy.app.model.vo.AppDeployVO;
 import com.xy.app.model.vo.AppAdminPageVO;
-import com.xy.app.model.vo.AppFeaturedVO;
+import com.xy.app.model.vo.AppFeaturedSlice;
 import com.xy.app.model.vo.AppPageVO;
 import com.xy.app.model.vo.AppVO;
 import com.xy.user.model.entity.User;
-import java.util.List;
 
 public interface AppService {
 
@@ -24,7 +23,7 @@ public interface AppService {
 
     AppAdminPageVO listAppsForAdmin(AppAdminQueryRequest request, User loginUser);
 
-    List<AppFeaturedVO> listFeaturedApps();
+    AppFeaturedSlice listFeaturedApps(int current, int pageSize);
 
     /** 删除用户及其应用的事务提交后，清除旧的公开精选列表。 */
     void invalidateFeaturedApps();

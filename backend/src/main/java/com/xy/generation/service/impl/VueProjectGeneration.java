@@ -13,11 +13,18 @@ import dev.langchain4j.service.tool.DefaultToolExecutor;
 import dev.langchain4j.invocation.InvocationContext;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
+import dev.langchain4j.data.message.UserMessage;
+import dev.langchain4j.memory.chat.MessageWindowChatMemory;
+import dev.langchain4j.service.AiServices;
+import dev.langchain4j.service.TokenStream;
+import dev.langchain4j.service.tool.ToolExecutor;
 import dev.langchain4j.data.message.ToolExecutionResultMessage;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.model.chat.request.ChatRequest;
+import dev.langchain4j.model.chat.request.ChatRequestParameters;
 import dev.langchain4j.model.chat.request.json.JsonObjectSchema;
 import dev.langchain4j.model.chat.response.ChatResponse;
+import dev.langchain4j.model.chat.response.StreamingChatResponseHandler;
 import dev.langchain4j.model.output.FinishReason;
 import java.io.IOException;
 import java.nio.file.NoSuchFileException;
@@ -90,7 +97,7 @@ final class VueProjectGeneration implements GenerationSession.OutputHandler {
         var conversation = new ArrayList<>(messages);
         var history = new StringBuilder();
         if (!qualityCheck) {
-            next(model, conversation, session, history, () -> complete(session, history));
+            generateTurn(model, conversation, session, history, () -> complete(session, history));
             return;
         }
         // 在工具写入候选工程之前取出继承的源码；生成对话中的 AI 消息只有文件清单。
@@ -109,7 +116,7 @@ final class VueProjectGeneration implements GenerationSession.OutputHandler {
                         sources.put(GeneratedFileManager.VUE_PHOTO, readPhotoAttribution());
                     }
                     return mapper.writeValueAsString(sources);
-                }, done -> next(model, conversation, session, history, done),
+                }, done -> generateTurn(model, conversation, session, history, done),
                 () -> complete(session, history), text -> {
                     history.append(text);
                     session.onPartialResponse(text);
@@ -123,106 +130,150 @@ final class VueProjectGeneration implements GenerationSession.OutputHandler {
         if (workflow != null) workflow.stop();
     }
 
-    private void next(StreamingChatModel model, List<ChatMessage> messages,
+    private interface Writer {
+        TokenStream write(@dev.langchain4j.service.UserMessage String prompt);
+    }
+
+    private void generateTurn(StreamingChatModel model, List<ChatMessage> conversation,
             GenerationSession session, StringBuilder history, Runnable done) {
         if (!session.isRunning()) return;
+        var turn = new ToolTurn(session, history);
+        var memory = MessageWindowChatMemory.withMaxMessages(Integer.MAX_VALUE);
+        memory.set(conversation.subList(0, conversation.size() - 1));
+        var input = ((UserMessage) conversation.getLast()).singleText();
         try {
-            boolean offerPhoto = choosingAssets && !changedSource && !photoRequested;
-            boolean offerIllustration = choosingAssets && !changedSource && !illustrationRequested;
-            boolean offerDiagram = choosingAssets && !changedSource && remainingDiagramAttempts > 0;
-            boolean offerLogo = choosingAssets && !changedSource && !logoRequested;
-            var tools = new ArrayList<>(SOURCE_TOOLS);
-            if (offerPhoto) tools.add(FIND_PHOTO);
-            if (offerIllustration) tools.add(ThemeIllustrations.TOOL);
-            if (offerDiagram) tools.add(VueArchitectureDiagram.TOOL);
-            if (offerLogo) tools.add(VueBrandLogo.TOOL);
-            // index 只在本次模型响应内唯一；工具名可早于参数就绪，分片不代表文件已变更。
-            Set<Integer> announced = new HashSet<>();
-            model.chat(
-                ChatRequest.builder().messages(assetPrompt.forGeneration(messages)).toolSpecifications(tools).build(),
-                session.modelStep(true, call -> {
-                    String name = call.name();
-                    if (name == null || !TOOL_LABELS.containsKey(name) || announced.contains(call.index())) return;
-                    if (tools.stream().anyMatch(spec -> spec.name().equals(name)) && announced.add(call.index())) {
-                        session.onPartialResponse("\n已选择工具：" + TOOL_LABELS.get(name) + "，正在接收参数…\n");
-                    }
-                }, response -> {
-                    if (response.finishReason() != FinishReason.STOP && response.finishReason() != FinishReason.TOOL_EXECUTION) {
-                        session.fail("模型未正常完成输出，请重试");
-                        return;
-                    }
-                    AiMessage reply = response.aiMessage();
-                    if (reply.hasToolExecutionRequests() && remainingToolRounds-- <= 0) {
-                        session.fail("已达到本轮工具调用上限，请缩小修改范围后重试");
-                        return;
-                    }
-                    int previousAssetCount = assetPrompt.size();
-                    AssetBatch batch;
-                    try {
-                        batch = reply.hasToolExecutionRequests() ? prepareAssets(reply.toolExecutionRequests(), tools, session, history)
-                                : AssetBatch.EMPTY;
-                    } catch (IOException | RuntimeException error) {
-                        session.fail("Vue 工程素材准备失败，请重试");
-                        return;
-                    }
-                    boolean hasTools;
-                    synchronized (session) {
-                        if (!session.isRunning()) return;
-                        if (reply.text() != null) history.append(reply.text());
-                        hasTools = reply.hasToolExecutionRequests();
-                        if (hasTools) try {
-                            messages.add(reply);
-                            for (var tool : reply.toolExecutionRequests()) {
-                                String receipt = batch.receipts().get(tool);
-                                if (receipt != null) {
-                                    messages.add(ToolExecutionResultMessage.from(tool, receipt));
-                                    continue;
-                                }
-                                if (batch.preparing() && Set.of("writeFile", "replaceFragment", "deleteComponent").contains(tool.name())) {
-                                    messages.add(ToolExecutionResultMessage.from(tool,
-                                            "本批只准备素材，此文件操作未执行。请根据返回的素材结果重新提交需要的源码操作。"));
-                                    continue;
-                                }
-                                var spec = SOURCE_TOOLS.stream().filter(t -> t.name().equals(tool.name())).findFirst().orElseThrow();
-                                var args = mapper.readTree(tool.arguments());
-                                if (args == null || !args.isObject() || spec.parameters() != null
-                                        && !spec.parameters().required().stream().allMatch(k -> args.path(k).isTextual())) {
-                                    throw new IllegalArgumentException();
-                                }
-                                var execution = new DefaultToolExecutor(sourceTools, tool).executeWithContext(tool, InvocationContext.builder().build());
-                                if (execution.isError()) {
-                                    if ("replaceFragment".equals(tool.name()) && SourceTools.NO_MATCH.equals(execution.resultText())) {
-                                        session.fail(SourceTools.NO_MATCH);
-                                        return;
-                                    }
-                                    throw new IllegalArgumentException();
-                                }
-                                String result = execution.resultText();
-                                String progress = "\n" + sourceTools.progress + "\n";
-                                history.append(progress);
-                                session.onPartialResponse(progress);
-                                if (!session.isRunning()) return;
-                                messages.add(ToolExecutionResultMessage.from(tool, result));
-                            }
-                            if (assetPrompt.size() > previousAssetCount) {
-                                String progress = assetPrompt.progress();
-                                history.append(progress);
-                                session.onPartialResponse(progress);
-                            }
-                        } catch (IOException | RuntimeException error) {
-                            session.fail("Vue 工程文件操作失败，请检查工具参数和文件路径后重试");
-                            return;
-                        }
-                        else {
-                            choosingAssets = false;
-                            messages.add(reply);
-                        }
-                    }
-                    if (hasTools) next(model, messages, session, history, done);
-                    else done.run();
-                }));
+            // 已停止任务仍可能收到上游滞后的工具回执，拦在 SDK 发起下一次真实模型调用之前。
+            StreamingChatModel activeModel = new StreamingChatModel() {
+                @Override public ChatRequestParameters defaultRequestParameters() { return model.defaultRequestParameters(); }
+                @Override public void chat(ChatRequest request, StreamingChatResponseHandler handler) {
+                    if (session.isRunning()) model.chat(request, handler);
+                }
+            };
+            var writer = AiServices.builder(Writer.class).streamingChatModel(activeModel).chatMemory(memory)
+                    .tools(turn.registry()).chatRequestTransformer(turn::request)
+                    .maxToolCallingRoundTrips(Math.max(1, remainingToolRounds))
+                    .hallucinatedToolNameStrategy(call -> {
+                        session.fail(FILE_ERROR);
+                        return ToolExecutionResultMessage.from(call, FILE_ERROR);
+                    }).build();
+            var events = session.modelStep(true, call -> {
+                if (call.name() != null && turn.offered.stream().anyMatch(t -> t.name().equals(call.name()))
+                        && turn.announced.add(call.index()))
+                    session.onPartialResponse("\n已选择工具：" + TOOL_LABELS.get(call.name()) + "，正在接收参数…\n");
+            }, response -> {
+                if (!turn.accept(response)) return;
+                synchronized (session) {
+                    if (!session.isRunning()) return;
+                    choosingAssets = false;
+                    conversation.clear();
+                    conversation.addAll(memory.messages());
+                }
+                done.run();
+            });
+            writer.write(input)
+                    .onPartialResponseWithContext(events::onPartialResponse)
+                    .onPartialThinkingWithContext(events::onPartialThinking)
+                    .onPartialToolCallWithContext(events::onPartialToolCall)
+                    .onIntermediateResponse(turn::prepare)
+                    .onCompleteResponse(events::onCompleteResponse)
+                    .onError(turn::error).start();
         } catch (RuntimeException error) {
-            session.onError(error);
+            turn.error(error);
+        }
+    }
+
+    private static final String FILE_ERROR = "Vue 工程文件操作失败，请检查工具参数和文件路径后重试";
+    private static final String LIMIT_ERROR = "已达到本轮工具调用上限，请缩小修改范围后重试";
+
+    // SDK 负责按顺序执行工具、向对话添加回执并发起下一轮；每轮只提供当前阶段可用的工具。
+    private final class ToolTurn {
+        final GenerationSession session;
+        final StringBuilder history;
+        final Set<Integer> announced = new HashSet<>();
+        List<ToolSpecification> offered = List.of();
+        AssetBatch batch = AssetBatch.EMPTY;
+        int previousAssetCount = assetPrompt.size();
+
+        ToolTurn(GenerationSession session, StringBuilder history) {
+            this.session = session;
+            this.history = history;
+        }
+
+        Map<ToolSpecification, ToolExecutor> registry() {
+            var registry = new java.util.LinkedHashMap<ToolSpecification, ToolExecutor>();
+            for (var spec : SOURCE_TOOLS) registry.put(spec, (call, id) -> execute(spec, call));
+            for (var spec : List.of(FIND_PHOTO, ThemeIllustrations.TOOL, VueArchitectureDiagram.TOOL, VueBrandLogo.TOOL))
+                registry.put(spec, (call, id) -> session.isRunning() ? batch.receipts().get(call) : "任务已结束");
+            return registry;
+        }
+
+        ChatRequest request(ChatRequest request) {
+            synchronized (session) {
+                if (!session.isRunning()) return request;
+                if (assetPrompt.size() > previousAssetCount) report(assetPrompt.progress());
+                previousAssetCount = assetPrompt.size();
+                announced.clear();
+                var tools = new ArrayList<>(SOURCE_TOOLS);
+                if (choosingAssets && !changedSource) {
+                    if (!photoRequested) tools.add(FIND_PHOTO);
+                    if (!illustrationRequested) tools.add(ThemeIllustrations.TOOL);
+                    if (remainingDiagramAttempts > 0) tools.add(VueArchitectureDiagram.TOOL);
+                    if (!logoRequested) tools.add(VueBrandLogo.TOOL);
+                }
+                offered = tools;
+                return ChatRequest.builder().messages(assetPrompt.forGeneration(request.messages())).toolSpecifications(tools).build();
+            }
+        }
+
+        boolean accept(ChatResponse response) {
+            if (!session.isRunning()) return false;
+            if (response.finishReason() != FinishReason.STOP && response.finishReason() != FinishReason.TOOL_EXECUTION) {
+                session.fail("模型未正常完成输出，请重试");
+                return false;
+            }
+            if (response.aiMessage().text() != null) history.append(response.aiMessage().text());
+            return true;
+        }
+
+        void prepare(ChatResponse response) {
+            if (!accept(response)) return;
+            if (remainingToolRounds-- <= 0) { session.fail(LIMIT_ERROR); return; }
+            try {
+                batch = prepareAssets(response.aiMessage().toolExecutionRequests(), offered, session, history);
+            } catch (IOException | RuntimeException error) {
+                session.fail("Vue 工程素材准备失败，请重试");
+            }
+        }
+
+        String execute(ToolSpecification spec, ToolExecutionRequest call) {
+            synchronized (session) {
+                if (!session.isRunning()) return "任务已结束";
+                if (batch.preparing() && Set.of("writeFile", "replaceFragment", "deleteComponent").contains(call.name()))
+                    return "本批只准备素材，此文件操作未执行。请根据返回的素材结果重新提交需要的源码操作。";
+                try {
+                    var args = mapper.readTree(call.arguments());
+                    if (args == null || !args.isObject() || spec.parameters() != null
+                            && !spec.parameters().required().stream().allMatch(k -> args.path(k).isTextual()))
+                        throw new IllegalArgumentException();
+                    var result = new DefaultToolExecutor(sourceTools, call).executeWithContext(call, InvocationContext.builder().build());
+                    if (result.isError()) {
+                        session.fail(SourceTools.NO_MATCH.equals(result.resultText()) ? SourceTools.NO_MATCH : FILE_ERROR);
+                        return FILE_ERROR;
+                    }
+                    report("\n" + sourceTools.progress + "\n");
+                    return result.resultText();
+                } catch (IOException | RuntimeException invalid) {
+                    session.fail(FILE_ERROR);
+                    return FILE_ERROR;
+                }
+            }
+        }
+
+        void report(String text) { history.append(text); session.onPartialResponse(text); }
+        void error(Throwable error) {
+            if (remainingToolRounds <= 0 && String.valueOf(error.getMessage()).contains("maxToolCallingRoundTrips"))
+                session.fail(LIMIT_ERROR);
+            else if (session.isRunning()) session.onError(error);
         }
     }
 

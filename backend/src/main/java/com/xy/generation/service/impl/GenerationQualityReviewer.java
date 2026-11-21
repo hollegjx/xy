@@ -4,11 +4,7 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import dev.langchain4j.model.chat.Capability;
-import dev.langchain4j.model.chat.ChatModel;
 import dev.langchain4j.model.chat.StreamingChatModel;
-import dev.langchain4j.model.chat.request.ChatRequest;
-import dev.langchain4j.model.chat.response.ChatResponse;
 import dev.langchain4j.model.output.FinishReason;
 import dev.langchain4j.service.AiServices;
 import dev.langchain4j.service.Result;
@@ -16,7 +12,6 @@ import dev.langchain4j.service.SystemMessage;
 import dev.langchain4j.service.UserMessage;
 import dev.langchain4j.service.V;
 import java.util.List;
-import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 
 final class GenerationQualityReviewer {
@@ -39,21 +34,7 @@ final class GenerationQualityReviewer {
     static CompletableFuture<Report> check(StreamingChatModel upstream, GenerationSession session,
             CompletableFuture<?> node, ObjectMapper mapper, String mode, String context) {
         // AI Service 生成请求、解析 Report。复用本次生成模型的传输，使工作台在质检中也能取消上游。
-        var response = new CompletableFuture<ChatResponse>();
-        node.whenComplete((ignored, error) -> { if (node.isCancelled()) response.cancel(false); });
-        var transport = new ChatModel() {
-            @Override public Set<Capability> supportedCapabilities() { return upstream.supportedCapabilities(); }
-            @Override public CompletableFuture<ChatResponse> doChatAsync(ChatRequest request) {
-                if (session.isRunning() && !response.isDone()) {
-                    try {
-                        upstream.chat(request, session.modelStep(false, response::complete));
-                    } catch (RuntimeException error) {
-                        session.onError(error);
-                    }
-                } else response.cancel(false);
-                return response;
-            }
-        };
+        var transport = WorkflowNodeModel.adapt(upstream, session, node, upstream.supportedCapabilities(), session::onError);
         return AiServices.builder(Reviewer.class).chatModel(transport).build().check(mode, context)
                 .thenApply(result -> {
                     // SDK 可宽松读取带围栏或可强转的 JSON；工作台只接受完整且字段类型准确的检查报告。

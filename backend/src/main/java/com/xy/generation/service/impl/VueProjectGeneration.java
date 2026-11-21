@@ -56,7 +56,7 @@ final class VueProjectGeneration implements GenerationSession.OutputHandler {
     private final OpenversePhotoSearch photoSearch;
     private final Executor executor;
     private final ArtworkProviders artwork;
-    private VueAssetTasks pendingAssets;
+    private WorkflowAssetTasks pendingAssets;
     private VueArchitectureDiagram.Diagram renderedDiagram;
     private String renderedImage;
     private final long userId, appId, generationId;
@@ -343,7 +343,7 @@ final class VueProjectGeneration implements GenerationSession.OutputHandler {
             groups.computeIfAbsent(call.name(), ignored -> new ArrayList<>()).add(call);
         if (groups.isEmpty()) return AssetBatch.EMPTY;
         var permitted = tools.stream().map(ToolSpecification::name).toList();
-        var tasks = new VueAssetTasks(executor);
+        var tasks = new WorkflowAssetTasks(executor);
         synchronized (session) {
             if (!session.isRunning()) return AssetBatch.EMPTY;
             pendingAssets = tasks;

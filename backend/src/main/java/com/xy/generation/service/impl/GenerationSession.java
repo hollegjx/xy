@@ -131,6 +131,11 @@ final class GenerationSession implements StreamingChatResponseHandler {
 
     StreamingChatResponseHandler modelStep(boolean showText, Consumer<PartialToolCall> onToolFragment,
             Consumer<ChatResponse> completed) {
+        return modelStep(showText, onToolFragment, completed, this::onError);
+    }
+
+    StreamingChatResponseHandler modelStep(boolean showText, Consumer<PartialToolCall> onToolFragment,
+            Consumer<ChatResponse> completed, Consumer<Throwable> failed) {
         return new StreamingChatResponseHandler() {
             @Override
             public void onPartialResponse(String text) {
@@ -157,7 +162,7 @@ final class GenerationSession implements StreamingChatResponseHandler {
                 onPartialToolCall(call);
             }
             @Override
-            public void onError(Throwable error) { GenerationSession.this.onError(error); }
+            public void onError(Throwable error) { failed.accept(error); }
             @Override
             public void onCompleteResponse(ChatResponse response) {
                 if (isRunning()) completed.accept(response);

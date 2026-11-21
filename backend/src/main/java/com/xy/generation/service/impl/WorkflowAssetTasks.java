@@ -8,12 +8,12 @@ import java.util.concurrent.Executor;
 import java.util.concurrent.FutureTask;
 
 /** 一批素材复用生成执行器；会话停止时同时唤醒汇总方并中断供应方调用。 */
-final class VueAssetTasks implements Executor {
+final class WorkflowAssetTasks implements Executor {
     private final Executor executor;
     private final List<FutureTask<Void>> workers = new ArrayList<>();
     private final CompletableFuture<Void> stopped = new CompletableFuture<>();
 
-    VueAssetTasks(Executor executor) { this.executor = executor; }
+    WorkflowAssetTasks(Executor executor) { this.executor = executor; }
 
     @Override public void execute(Runnable work) {
         var worker = new FutureTask<Void>(work, null);

@@ -188,9 +188,9 @@ public class GenerationServiceImpl implements GenerationService {
     private String inheritedVueFiles(long userId, long appId, long previousId, long generationId) throws IOException {
         var paths = fileManager.copyVueSources(userId, appId, previousId, generationId);
         // 旧版本没有来源标记；根据继承的绘图组件补记在本次副本，不改上一成功版本。
-        if (paths.contains(VueArchitectureDiagram.DATA) && fileManager.vueArchitectureSlots(userId, appId, generationId).isEmpty()
+        if (paths.contains(VueArchitectureDiagram.DATA) && fileManager.vueArchitectureOrigins(userId, appId, generationId).isEmpty()
                 && VueArchitectureDiagram.containsLegacyRenderer(fileManager.readVueSources(userId, appId, generationId))) {
-            fileManager.markVueArchitecture(userId, appId, generationId, 1);
+            fileManager.markVueArchitecture(userId, appId, generationId, 1, GeneratedFileManager.DiagramRenderer.LOCAL);
         }
         var assets = new java.util.LinkedHashMap<String, VuePhotos.Credit>();
         for (var path : paths) if (GeneratedFileManager.isVuePhoto(path)) {

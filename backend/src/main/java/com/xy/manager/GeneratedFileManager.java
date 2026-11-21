@@ -155,19 +155,29 @@ public class GeneratedFileManager {
         return readFile(versionDirectory(userId, appId, generationId), name);
     }
 
-    public List<Integer> vueArchitectureSlots(long userId, long appId, long generationId) throws IOException {
-        try (var entries = Files.list(versionDirectory(userId, appId, generationId))) {
-            return entries.filter(path -> Files.isRegularFile(path, LinkOption.NOFOLLOW_LINKS))
-                    .map(path -> ARCHITECTURE_MARKER.matcher(path.getFileName().toString()))
-                    .filter(java.util.regex.Matcher::matches)
-                    .map(match -> match.group(1) == null ? 1 : Integer.parseInt(match.group(1))).sorted().toList();
+    public enum DiagramRenderer { LOCAL, IMAGE, LEGACY }
+
+    public Map<Integer, DiagramRenderer> vueArchitectureOrigins(long userId, long appId, long generationId) throws IOException {
+        Path directory = versionDirectory(userId, appId, generationId);
+        var origins = new java.util.TreeMap<Integer, DiagramRenderer>();
+        try (var entries = Files.newDirectoryStream(directory, VUE_ARCHITECTURE_MARKER + "*")) {
+            for (var path : entries) {
+                String name = path.getFileName().toString();
+                var match = ARCHITECTURE_MARKER.matcher(name);
+                if (!match.matches() || !Files.isRegularFile(path, LinkOption.NOFOLLOW_LINKS)) continue;
+                String kind = readFile(directory, name);
+                origins.put(match.group(1) == null ? 1 : Integer.parseInt(match.group(1)),
+                        kind.isEmpty() ? DiagramRenderer.LEGACY : DiagramRenderer.valueOf(kind));
+            }
         }
+        return origins;
     }
 
-    public void markVueArchitecture(long userId, long appId, long generationId, int slot) throws IOException {
+    public void markVueArchitecture(long userId, long appId, long generationId, int slot, DiagramRenderer kind) throws IOException {
         if (slot < 1) throw new IllegalArgumentException("无效的架构图序号");
         String marker = VUE_ARCHITECTURE_MARKER + (slot == 1 ? "" : "-" + slot);
-        Files.createFile(versionDirectory(userId, appId, generationId).resolve(marker));
+        Files.writeString(versionDirectory(userId, appId, generationId).resolve(marker),
+                kind == DiagramRenderer.LEGACY ? "" : kind.name(), StandardCharsets.UTF_8, StandardOpenOption.CREATE_NEW);
     }
 
     public List<String> copyVueSources(long userId, long appId, long previousId, long generationId) throws IOException {
@@ -178,8 +188,8 @@ public class GeneratedFileManager {
             else writeVueSource(userId, appId, generationId, file.getKey(), file.getValue());
             paths.add(file.getKey());
         }
-        for (int slot : vueArchitectureSlots(userId, appId, previousId))
-            markVueArchitecture(userId, appId, generationId, slot);
+        for (var origin : vueArchitectureOrigins(userId, appId, previousId).entrySet())
+            markVueArchitecture(userId, appId, generationId, origin.getKey(), origin.getValue());
         return paths;
     }
 

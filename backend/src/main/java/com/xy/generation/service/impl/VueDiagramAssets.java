@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.xy.generation.service.impl.VueArchitectureDiagram.Diagram;
 import com.xy.generation.service.impl.VueArchitectureDiagram.Slot;
 import com.xy.manager.GeneratedFileManager;
+import com.xy.manager.GeneratedFileManager.DiagramRenderer;
 import java.io.IOException;
 import java.util.HashMap;
 import java.util.LinkedHashSet;
@@ -27,6 +28,7 @@ final class VueDiagramAssets {
     private final Map<Diagram, Drawing> drawings = new HashMap<>();
     private final Map<Task, Retry> retries = new HashMap<>();
     private final Set<Slot> saved = new LinkedHashSet<>();
+    private final Set<Slot> platformImages = new LinkedHashSet<>();
     private final Map<Slot, Rendered> rendered = new HashMap<>();
     private int next = 1;
     private final ObjectMapper mapper;
@@ -80,12 +82,13 @@ final class VueDiagramAssets {
         if (first) {
             String image = drawing.image().join();
             if (image != null) {
+                platformImages.add(slot);
                 files.writeVueSource(user, app, version, slot.image(), imageJson(image));
                 rendered.put(slot, new Rendered(diagram, image));
             }
             files.writeVueSource(user, app, version, slot.data(), mapper.writeValueAsString(diagram));
             files.writeVueSource(user, app, version, slot.component(), slot.renderer(image != null));
-            files.markVueArchitecture(user, app, version, slot.number());
+            files.markVueArchitecture(user, app, version, slot.number(), image == null ? DiagramRenderer.LOCAL : DiagramRenderer.IMAGE);
         }
         manifest.add(slot.component(), "架构图", counts + "，组件读取 " + slot.data() + "；用途："
                 + (use.purpose().isBlank() ? "系统说明" : use.purpose()));
@@ -95,17 +98,26 @@ final class VueDiagramAssets {
     }
 
     void inherit() throws IOException {
-        for (int number : files.vueArchitectureSlots(user, app, version)) saved.add(new Slot(number));
-        if (saved.isEmpty()) return;
+        var origins = files.vueArchitectureOrigins(user, app, version);
+        if (origins.isEmpty()) return;
         var sources = files.readVueSources(user, app, version);
-        for (var slot : saved) {
+        for (var origin : origins.entrySet()) {
+            var slot = new Slot(origin.getKey());
+            saved.add(slot);
+            if (origin.getValue() == DiagramRenderer.LOCAL) continue;
+            if (origin.getValue() == DiagramRenderer.IMAGE) platformImages.add(slot);
             String image = sources.get(slot.image());
-            // 上版未使用的图像可能早于当前关系文件，重新启用时必须按最终关系绘制。
-            if (image == null || !VueComponentReferences.references(sources, slot.image())) continue;
+            if (image == null) continue;
             try {
-                var src = mapper.readTree(image).path("src");
-                if (src.isTextual() && !src.textValue().isBlank())
-                    rendered.put(slot, new Rendered(VueArchitectureDiagram.parse(mapper, sources.get(slot.data())), src.textValue()));
+                var data = mapper.readTree(image);
+                String src = data.path("src").textValue();
+                if (src == null || src.isBlank()) continue;
+                // 早期空标记不区分渲染方式；旧平台成图只有一个 src，内容是自包含的 PNG 或 SVG。
+                if (origin.getValue() == DiagramRenderer.LEGACY && data.size() == 1
+                        && (src.startsWith("data:image/png;base64,") || src.startsWith("data:image/svg+xml;base64,"))) platformImages.add(slot);
+                // 上版未使用的图像可能早于当前关系文件，重新启用时必须按最终关系绘制。
+                if (platformImages.contains(slot) && VueComponentReferences.references(sources, slot.image()))
+                    rendered.put(slot, new Rendered(VueArchitectureDiagram.parse(mapper, sources.get(slot.data())), src));
             } catch (IOException | IllegalArgumentException invalid) {
                 // 未配对的旧数据不能作为成图复用；交付时按最终关系重新校验和绘制。
             }
@@ -113,14 +125,14 @@ final class VueDiagramAssets {
     }
 
     String imageDescription(String path) {
-        for (var slot : saved) if (slot.image().equals(path)) return "图像由平台生成，节点和连线见 " + slot.data();
+        for (var slot : platformImages) if (slot.image().equals(path)) return "图像由平台生成，节点和连线见 " + slot.data();
         return null;
     }
 
-    String findError(Map<String, String> sources) { return VueArchitectureDiagram.findError(mapper, sources, saved); }
+    String findError(Map<String, String> sources) { return VueArchitectureDiagram.findError(mapper, sources, saved, platformImages); }
 
     boolean refreshImages(Map<String, String> sources, GenerationSession session) throws IOException {
-        for (var slot : saved) {
+        for (var slot : platformImages) {
             if (!session.isRunning()) return false;
             if (!VueComponentReferences.references(sources, slot.image())) continue;
             var diagram = VueArchitectureDiagram.parse(mapper, sources.get(slot.data()));

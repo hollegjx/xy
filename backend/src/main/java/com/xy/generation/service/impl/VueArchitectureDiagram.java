@@ -71,11 +71,12 @@ final class VueArchitectureDiagram {
                         .anyMatch(path -> path.hasAttr(":d") || path.hasAttr("v-bind:d"));
     }
 
-    static String findError(ObjectMapper mapper, Map<String, String> sources, Set<Slot> generated) {
+    static String findError(ObjectMapper mapper, Map<String, String> sources, Set<Slot> generated, Set<Slot> platformImages) {
         String missing = VueComponentReferences.missingDiagramComponent(sources);
         if (missing != null) return "页面仍引用不存在的 " + missing + "，请改用文字说明或补全组件后重试";
         for (var slot : generated) {
-            if (!VueComponentReferences.references(sources, slot.data()) && !VueComponentReferences.references(sources, slot.image())) continue;
+            if (!VueComponentReferences.references(sources, slot.data())
+                    && !(platformImages.contains(slot) && VueComponentReferences.references(sources, slot.image()))) continue;
             try {
                 parse(mapper, sources.get(slot.data()));
             } catch (IllegalArgumentException invalid) {

@@ -16,6 +16,8 @@ import java.util.Map;
 import java.util.concurrent.ScheduledExecutorService;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
@@ -110,20 +112,21 @@ class VueArtworkDeliveryTest {
         files.writeVueSource(1,2,3,"src/App.vue", """
                 <script setup>import labels from './components/xy-architecture.json'; import Flow from './components/XyArchitecture2.vue'</script>
                 <template><h1>{{labels.title}}</h1><Flow/></template>""");
-        assertThat(files.vueArchitectureSlots(1,2,3)).containsExactly(2);
+        assertThat(files.vueArchitectureOrigins(1,2,3)).containsOnlyKeys(2);
         assertThat(files.readVueSource(1,2,3,"src/components/XyArchitecture2.vue")).contains("./xy-architecture-2.json");
         assertThat(assets.findError(files.readVueSources(1,2,3))).isNull();
     }
 
-    @Test
-    void restoresARemovedRendererUsingTheCurrentRelations(@TempDir Path dir) throws Exception {
+    @ParameterizedTest
+    @EnumSource(value = GeneratedFileManager.DiagramRenderer.class, names = {"IMAGE", "LEGACY"})
+    void restoresARemovedRendererUsingTheCurrentRelations(GeneratedFileManager.DiagramRenderer origin, @TempDir Path dir) throws Exception {
         var files = new GeneratedFileManager(dir);
         var slot = new VueArchitectureDiagram.Slot(1);
         // 上一成功版只展示文字：关系已改为发货，停用的图片仍是付款。
         files.writeVueSource(1,2,3,"src/App.vue","<template>订单说明</template>");
         files.writeVueSource(1,2,3,slot.data(),"{\"nodes\":[\"下单\",\"发货\"],\"edges\":[{\"from\":\"下单\",\"to\":\"发货\"}]}");
-        files.writeVueSource(1,2,3,slot.image(),"{\"src\":\"image:付款\"}");
-        files.markVueArchitecture(1,2,3,1);
+        files.writeVueSource(1,2,3,slot.image(),"{\"src\":\"data:image/svg+xml;base64,PHN2Zy8+\"}");
+        files.markVueArchitecture(1,2,3,1,origin);
         var artwork = mock(ArtworkProviders.class);
         when(artwork.diagramImage(any())).thenAnswer(call -> "image:" + call.<VueArchitectureDiagram.Diagram>getArgument(0).nodes().getLast());
         var assets = new VueDiagramAssets(json, artwork, files, 1, 2, 3);
@@ -133,6 +136,36 @@ class VueArtworkDeliveryTest {
         var session = mock(GenerationSession.class);
         when(session.isRunning()).thenReturn(true);
         assertThat(assets.refreshImages(files.readVueSources(1,2,3), session)).isTrue();
-        assertThat(files.readVueSource(1,2,3,slot.image())).contains("image:发货").doesNotContain("付款");
+        assertThat(files.readVueSource(1,2,3,slot.image())).contains("image:发货").doesNotContain("PHN2Zy8+");
+    }
+
+    @Test
+    void localSvgDoesNotClaimAnOrdinaryJsonFileWithTheMermaidImageName(@TempDir Path dir) throws Exception {
+        var files = new GeneratedFileManager(dir);
+        var artwork = mock(ArtworkProviders.class);
+        when(artwork.diagramImage(any())).thenReturn("错误覆盖");
+        var slot = new VueArchitectureDiagram.Slot(1);
+        var original = new VueDiagramAssets(json, artwork, files, 1, 2, 3);
+        original.save(original.prepare("{\"nodes\":[\"甲\"],\"edges\":[{\"from\":\"甲\",\"to\":\"甲\"}]}",
+                Runnable::run), new VueAssetPrompt(), text -> {});
+        String banner = "{\"title\":\"作品介绍\",\"src\":\"banner.svg\"}";
+        files.writeVueSource(1,2,3,slot.image(),banner);
+        files.writeVueSource(1,2,3,"src/App.vue","""
+                <script setup>import banner from './components/xy-mermaid-image.json'; import Graph from './components/XyArchitecture.vue'</script>
+                <template><h1>{{banner.title}}</h1><Graph/></template>""");
+        var session = mock(GenerationSession.class);
+        when(session.isRunning()).thenReturn(true);
+        original.refreshImages(files.readVueSources(1,2,3), session);
+        assertThat(files.readVueSource(1,2,3,slot.image())).isEqualTo(banner);
+        try (var in = new ClassPathResource("templates/vue-project.json").getInputStream()) {
+            files.finishVueProject(1,2,3,json.readValue(in,new TypeReference<>() {}));
+        }
+        files.copyVueSources(1,2,3,4);
+        var next = new VueDiagramAssets(json, artwork, files, 1, 2, 4);
+        next.inherit();
+        assertThat(next.imageDescription(slot.image())).isNull();
+        next.refreshImages(files.readVueSources(1,2,4), session);
+        assertThat(files.readVueSource(1,2,4,slot.image())).isEqualTo(banner);
+        verify(artwork, never()).diagramImage(any());
     }
 }

@@ -4,6 +4,7 @@ import com.mybatisflex.core.paginate.Page;
 import com.mybatisflex.core.query.QueryWrapper;
 import com.xy.app.service.AppService;
 import com.xy.common.ErrorCode;
+import com.xy.common.RequireRole;
 import com.xy.common.UserConstant;
 import com.xy.exception.BusinessException;
 import com.xy.user.mapper.UserMapper;
@@ -40,8 +41,8 @@ public class UserServiceImpl implements UserService {
     }
 
     @Override
-    public long addUser(UserAddRequest request, HttpServletRequest servletRequest) {
-        checkAdmin(servletRequest, "仅管理员可新增用户");
+    @RequireRole(value = UserRoleEnum.ADMIN, message = "仅管理员可新增用户")
+    public long addUser(UserAddRequest request, User loginUser) {
         User user = new User();
         user.setUserAccount(request.userAccount());
         user.setUserPassword(passwordEncoder.encode(request.userPassword()));
@@ -60,16 +61,16 @@ public class UserServiceImpl implements UserService {
     }
 
     @Override
-    public UserPageVO listUsers(UserQueryRequest request, HttpServletRequest servletRequest) {
-        checkAdmin(servletRequest, "仅管理员可查询用户");
+    @RequireRole(value = UserRoleEnum.ADMIN, message = "仅管理员可查询用户")
+    public UserPageVO listUsers(UserQueryRequest request, User loginUser) {
         Page<User> page = userMapper.paginate(request.current(), request.pageSize(), getQueryWrapper(request));
         return new UserPageVO(page.getRecords().stream().map(this::getUserVO).toList(),
                 page.getTotalRow(), page.getPageNumber(), page.getPageSize());
     }
 
     @Override
-    public boolean updateUser(long id, UserUpdateRequest request, HttpServletRequest servletRequest) {
-        checkAdmin(servletRequest, "仅管理员可修改用户昵称");
+    @RequireRole(value = UserRoleEnum.ADMIN, message = "仅管理员可修改用户昵称")
+    public boolean updateUser(long id, UserUpdateRequest request, User loginUser) {
         User user = userMapper.selectOneById(id);
         if (user == null) {
             throw new BusinessException(ErrorCode.NOT_FOUND_ERROR, "用户不存在或已删除");
@@ -84,8 +85,8 @@ public class UserServiceImpl implements UserService {
     }
 
     @Override
-    public boolean deleteUser(long id, HttpServletRequest servletRequest) {
-        checkAdmin(servletRequest, "仅管理员可删除用户");
+    @RequireRole(value = UserRoleEnum.ADMIN, message = "仅管理员可删除用户")
+    public boolean deleteUser(long id, User loginUser) {
         User user = userMapper.selectOneById(id);
         if (user == null) {
             throw new BusinessException(ErrorCode.NOT_FOUND_ERROR, "用户不存在或已删除");
@@ -97,13 +98,6 @@ public class UserServiceImpl implements UserService {
         deletionPersistence.deleteUserAndApps(id);
         appService.invalidateFeaturedApps();
         return true;
-    }
-
-    private void checkAdmin(HttpServletRequest request, String message) {
-        User loginUser = getLoginUser(request);
-        if (!UserRoleEnum.ADMIN.getValue().equals(loginUser.getUserRole())) {
-            throw new BusinessException(ErrorCode.NO_AUTH_ERROR, message);
-        }
     }
 
     private QueryWrapper getQueryWrapper(UserQueryRequest request) {

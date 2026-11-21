@@ -43,7 +43,7 @@ public class UserController {
     @PostMapping
     public ApiResponse<String> addUser(@Valid @RequestBody UserAddRequest request,
             HttpServletRequest servletRequest) {
-        return ApiResponse.success(Long.toString(userService.addUser(request, servletRequest)));
+        return ApiResponse.success(Long.toString(userService.addUser(request, userService.getLoginUser(servletRequest))));
     }
 
     @Operation(summary = "管理员查询用户", description = "仅管理员可调用；支持账号模糊查询，默认第 1 页、每页 10 个。"
@@ -53,7 +53,7 @@ public class UserController {
     public ApiResponse<UserPageVO> listUsers(
             @Valid @ModelAttribute @ParameterObject UserQueryRequest request,
             HttpServletRequest servletRequest) {
-        return ApiResponse.success(userService.listUsers(request, servletRequest));
+        return ApiResponse.success(userService.listUsers(request, userService.getLoginUser(servletRequest)));
     }
 
     @Operation(summary = "管理员修改用户昵称", description = "仅管理员可调用，可修改普通用户、其他管理员或本人的昵称。"
@@ -64,7 +64,7 @@ public class UserController {
             @Parameter(description = "用户 ID，必须大于 0", example = "84")
             @Positive @PathVariable long id, @Valid @RequestBody UserUpdateRequest request,
             HttpServletRequest servletRequest) {
-        return ApiResponse.success(userService.updateUser(id, request, servletRequest));
+        return ApiResponse.success(userService.updateUser(id, request, userService.getLoginUser(servletRequest)));
     }
 
     @Operation(summary = "管理员删除用户", description = "仅管理员可调用，无需请求体；只允许删除普通用户，管理员账号返回 HTTP 409。"
@@ -75,7 +75,7 @@ public class UserController {
     public ApiResponse<Boolean> deleteUser(
             @Parameter(description = "待删除的普通用户 ID，必须大于 0", example = "84")
             @Positive @PathVariable long id, HttpServletRequest servletRequest) {
-        return ApiResponse.success(userService.deleteUser(id, servletRequest));
+        return ApiResponse.success(userService.deleteUser(id, userService.getLoginUser(servletRequest)));
     }
 
     @Operation(summary = "注册用户", description = "无需登录；两次密码须一致，账号重复时返回 HTTP 409 / 业务码 50001。仅创建普通用户，返回字符串形式的用户 ID。")

@@ -12,13 +12,13 @@ import jakarta.servlet.http.HttpServletRequest;
 
 public interface UserService {
 
-    long addUser(UserAddRequest request, HttpServletRequest servletRequest);
+    long addUser(UserAddRequest request, User loginUser);
 
-    UserPageVO listUsers(UserQueryRequest request, HttpServletRequest servletRequest);
+    UserPageVO listUsers(UserQueryRequest request, User loginUser);
 
-    boolean updateUser(long id, UserUpdateRequest request, HttpServletRequest servletRequest);
+    boolean updateUser(long id, UserUpdateRequest request, User loginUser);
 
-    boolean deleteUser(long id, HttpServletRequest servletRequest);
+    boolean deleteUser(long id, User loginUser);
 
     long register(UserRegisterRequest request);
 

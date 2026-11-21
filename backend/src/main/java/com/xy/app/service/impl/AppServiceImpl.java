@@ -22,6 +22,7 @@ import com.xy.chat.model.entity.ChatHistory;
 import com.xy.chat.model.enums.MessageRoleEnum;
 import com.xy.chat.model.enums.MessageStatusEnum;
 import com.xy.common.ErrorCode;
+import com.xy.common.RequireRole;
 import com.xy.config.DeploymentConfiguration;
 import com.xy.exception.BusinessException;
 import com.xy.manager.GeneratedFileManager;
@@ -96,10 +97,8 @@ public class AppServiceImpl implements AppService {
     }
 
     @Override
+    @RequireRole(value = UserRoleEnum.ADMIN, message = "仅管理员可查询全平台应用")
     public AppAdminPageVO listAppsForAdmin(AppAdminQueryRequest request, User loginUser) {
-        if (!UserRoleEnum.ADMIN.getValue().equals(loginUser.getUserRole())) {
-            throw new BusinessException(ErrorCode.NO_AUTH_ERROR, "仅管理员可查询全平台应用");
-        }
         QueryWrapper query = QueryWrapper.create()
                 .like(App::getAppName, request.appName(), !request.appName().isEmpty())
                 .eq(App::getUserId, request.userId(), request.userId() != null)
@@ -154,10 +153,8 @@ public class AppServiceImpl implements AppService {
     }
 
     @Override
+    @RequireRole(value = UserRoleEnum.ADMIN, message = "仅管理员可通过管理接口修改应用名称")
     public boolean updateAppForAdmin(long id, AppUpdateRequest request, User loginUser) {
-        if (!UserRoleEnum.ADMIN.getValue().equals(loginUser.getUserRole())) {
-            throw new BusinessException(ErrorCode.NO_AUTH_ERROR, "仅管理员可通过管理接口修改应用名称");
-        }
         App app = appMapper.selectOneById(id);
         if (app == null) {
             throw new BusinessException(ErrorCode.NOT_FOUND_ERROR, "应用不存在");
@@ -178,10 +175,8 @@ public class AppServiceImpl implements AppService {
     }
 
     @Override
+    @RequireRole(value = UserRoleEnum.ADMIN, message = "仅管理员可设置应用精选状态")
     public boolean updateFeaturedForAdmin(long id, AppFeaturedRequest request, User loginUser) {
-        if (!UserRoleEnum.ADMIN.getValue().equals(loginUser.getUserRole())) {
-            throw new BusinessException(ErrorCode.NO_AUTH_ERROR, "仅管理员可设置应用精选状态");
-        }
         App app = appMapper.selectOneById(id);
         if (app == null) {
             throw new BusinessException(ErrorCode.NOT_FOUND_ERROR, "应用不存在");
@@ -200,10 +195,8 @@ public class AppServiceImpl implements AppService {
     }
 
     @Override
+    @RequireRole(value = UserRoleEnum.ADMIN, message = "仅管理员可通过管理接口删除应用")
     public boolean deleteAppForAdmin(long id, User loginUser) {
-        if (!UserRoleEnum.ADMIN.getValue().equals(loginUser.getUserRole())) {
-            throw new BusinessException(ErrorCode.NO_AUTH_ERROR, "仅管理员可通过管理接口删除应用");
-        }
         App app = appMapper.selectOneById(id);
         if (app == null) {
             throw new BusinessException(ErrorCode.NOT_FOUND_ERROR, "应用不存在");

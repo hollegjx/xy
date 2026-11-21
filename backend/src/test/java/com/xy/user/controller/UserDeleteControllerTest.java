@@ -74,8 +74,11 @@ class UserDeleteControllerTest {
         featuredPages = spy(new FeaturedAppPages(apps, files));
         var appService = new AppServiceImpl(apps, messages, files, deployment,
                 mock(GenerationModeRouter.class), mock(AppCoverRenderer.class), featuredPages);
-        var userService = new UserServiceImpl(users, mock(PasswordEncoder.class), appService,
+        var service = new UserServiceImpl(users, mock(PasswordEncoder.class), appService,
                 new UserDeletionPersistence(users, apps));
+        var factory = new org.springframework.aop.aspectj.annotation.AspectJProxyFactory(service);
+        factory.addAspect(com.xy.user.service.impl.RoleAuthorizationAspect.class);
+        com.xy.user.service.UserService userService = factory.getProxy();
         // 只替换数据访问；使用真实业务类和临时文件，不连接数据库，也不测试事务框架本身。
         mockMvc = MockMvcBuilders.standaloneSetup(new UserController(userService),
                         new AppController(appService, userService))

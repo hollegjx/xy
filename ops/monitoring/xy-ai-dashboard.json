@@ -3,7 +3,7 @@
   "title": "XY · AI 调用监控",
   "tags": ["xy","ai"],
   "schemaVersion": 39,
-  "version": 1,
+  "version": 2,
   "editable": true,
   "timezone": "browser",
   "time": {"from":"now-1h","to":"now"},
@@ -70,55 +70,55 @@
       "id": 5,
       "type": "timeseries",
       "title": "模型调用趋势",
-      "description": "按选定的维度和滚动窗口计数。app_id=none 表示创建前的路由请求。",
+      "description": "按选定维度统计两端抓取之间的实际新增调用，包含首次出现的用户或应用。任一实例缺少可靠基线时，滚动趋势留空。app_id=none 表示创建前的路由。",
       "gridPos": {"x":0,"y":4,"w":12,"h":8},
       "datasource": {"type":"prometheus","uid":"$ds"},
       "fieldConfig": {"defaults":{"unit":"short"},"overrides":[]},
       "options": {"legend":{"displayMode":"list","placement":"bottom","showLegend":true},"tooltip":{"mode":"multi","sort":"desc"}},
       "targets": [
-        {"refId":"A","expr":"sum by (${group:raw}) (increase(xy_ai_calls_total{job=\"xy-backend\"}[${window:raw}]))","instant":false,"range":true}
+        {"refId":"A","expr":"(sum by (${group:raw}) ((xy_ai_calls_total{job=\"xy-backend\"} - xy_ai_calls_total{job=\"xy-backend\"} offset ${window:raw}) or xy_ai_calls_total{job=\"xy-backend\"})) unless on() ((present_over_time(up{job=\"xy-backend\"}[${window:raw}]) or up{job=\"xy-backend\"} offset ${window:raw}) unless on(job,instance) ((process_start_time_seconds{job=\"xy-backend\"} == process_start_time_seconds{job=\"xy-backend\"} offset ${window:raw}) and on(job,instance) (up{job=\"xy-backend\"} == 1) and on(job,instance) (up{job=\"xy-backend\"} offset ${window:raw} == 1)))","instant":false,"range":true}
       ]
     },
     {
       "id": 6,
       "type": "timeseries",
       "title": "输入、输出与总 Token",
-      "description": "三条线分别对应供应方报告的用量，total 已包含输入和输出。",
+      "description": "三条线分别对应两端抓取之间新增的已报告用量，total 已包含输入和输出。缺少可靠基线时留空。",
       "gridPos": {"x":12,"y":4,"w":12,"h":8},
       "datasource": {"type":"prometheus","uid":"$ds"},
       "fieldConfig": {"defaults":{"unit":"short"},"overrides":[]},
       "options": {"legend":{"displayMode":"list","placement":"bottom","showLegend":true},"tooltip":{"mode":"multi","sort":"desc"}},
       "targets": [
-        {"refId":"A","expr":"sum by (type) (increase(xy_ai_tokens_total{job=\"xy-backend\"}[${window:raw}]))","legendFormat":"{{type}}","instant":false,"range":true}
+        {"refId":"A","expr":"(sum by (type) ((xy_ai_tokens_total{job=\"xy-backend\"} - xy_ai_tokens_total{job=\"xy-backend\"} offset ${window:raw}) or xy_ai_tokens_total{job=\"xy-backend\"})) unless on() ((present_over_time(up{job=\"xy-backend\"}[${window:raw}]) or up{job=\"xy-backend\"} offset ${window:raw}) unless on(job,instance) ((process_start_time_seconds{job=\"xy-backend\"} == process_start_time_seconds{job=\"xy-backend\"} offset ${window:raw}) and on(job,instance) (up{job=\"xy-backend\"} == 1) and on(job,instance) (up{job=\"xy-backend\"} offset ${window:raw} == 1)))","legendFormat":"{{type}}","instant":false,"range":true}
       ]
     },
     {
       "id": 7,
       "type": "timeseries",
       "title": "模型平均响应时间",
-      "description": "按所选窗口内的耗时总和除以已结束的模型调用数；单位为秒。",
+      "description": "两端抓取之间新增的耗时之和除以新增的已结束调用数，单位为秒。缺少可靠基线时留空。",
       "gridPos": {"x":0,"y":12,"w":12,"h":8},
       "datasource": {"type":"prometheus","uid":"$ds"},
       "fieldConfig": {"defaults":{"unit":"s"},"overrides":[]},
       "options": {"legend":{"displayMode":"list","placement":"bottom","showLegend":true},"tooltip":{"mode":"multi","sort":"desc"}},
       "targets": [
-        {"refId":"A","expr":"sum by (model) (rate(xy_ai_call_duration_seconds_sum{job=\"xy-backend\"}[${window:raw}])) / (sum by (model) (rate(xy_ai_call_duration_seconds_count{job=\"xy-backend\"}[${window:raw}])) > 0)","legendFormat":"{{model}}","instant":false,"range":true}
+        {"refId":"A","expr":"(sum by (model) ((xy_ai_call_duration_seconds_sum{job=\"xy-backend\"} - xy_ai_call_duration_seconds_sum{job=\"xy-backend\"} offset ${window:raw}) or xy_ai_call_duration_seconds_sum{job=\"xy-backend\"}) / (sum by (model) ((xy_ai_call_duration_seconds_count{job=\"xy-backend\"} - xy_ai_call_duration_seconds_count{job=\"xy-backend\"} offset ${window:raw}) or xy_ai_call_duration_seconds_count{job=\"xy-backend\"}) > 0)) unless on() ((present_over_time(up{job=\"xy-backend\"}[${window:raw}]) or up{job=\"xy-backend\"} offset ${window:raw}) unless on(job,instance) ((process_start_time_seconds{job=\"xy-backend\"} == process_start_time_seconds{job=\"xy-backend\"} offset ${window:raw}) and on(job,instance) (up{job=\"xy-backend\"} == 1) and on(job,instance) (up{job=\"xy-backend\"} offset ${window:raw} == 1)))","legendFormat":"{{model}}","instant":false,"range":true}
       ]
     },
     {
       "id": 8,
       "type": "timeseries",
       "title": "模型响应时间分位数",
-      "description": "先合并同一模型各实例的桶计数，再估算 P50、P90、P95 和 P99。",
+      "description": "先合并同一模型各实例在两端抓取之间的新增桶计数，再估算 P50、P90、P95 和 P99。缺少可靠基线时留空。",
       "gridPos": {"x":12,"y":12,"w":12,"h":8},
       "datasource": {"type":"prometheus","uid":"$ds"},
       "fieldConfig": {"defaults":{"unit":"s"},"overrides":[]},
       "options": {"legend":{"displayMode":"list","placement":"bottom","showLegend":true},"tooltip":{"mode":"multi","sort":"desc"}},
       "targets": [
-        {"refId":"A","expr":"histogram_quantile(0.5, sum by (le, model) (rate(xy_ai_model_latency_seconds_bucket{job=\"xy-backend\"}[${window:raw}])))","legendFormat":"P50 · {{model}}","instant":false,"range":true},
-        {"refId":"B","expr":"histogram_quantile(0.9, sum by (le, model) (rate(xy_ai_model_latency_seconds_bucket{job=\"xy-backend\"}[${window:raw}])))","legendFormat":"P90 · {{model}}","instant":false,"range":true},
-        {"refId":"C","expr":"histogram_quantile(0.95, sum by (le, model) (rate(xy_ai_model_latency_seconds_bucket{job=\"xy-backend\"}[${window:raw}])))","legendFormat":"P95 · {{model}}","instant":false,"range":true},
-        {"refId":"D","expr":"histogram_quantile(0.99, sum by (le, model) (rate(xy_ai_model_latency_seconds_bucket{job=\"xy-backend\"}[${window:raw}])))","legendFormat":"P99 · {{model}}","instant":false,"range":true}
+        {"refId":"A","expr":"(histogram_quantile(0.5, sum by (le, model) ((xy_ai_model_latency_seconds_bucket{job=\"xy-backend\"} - xy_ai_model_latency_seconds_bucket{job=\"xy-backend\"} offset ${window:raw}) or xy_ai_model_latency_seconds_bucket{job=\"xy-backend\"}))) unless on() ((present_over_time(up{job=\"xy-backend\"}[${window:raw}]) or up{job=\"xy-backend\"} offset ${window:raw}) unless on(job,instance) ((process_start_time_seconds{job=\"xy-backend\"} == process_start_time_seconds{job=\"xy-backend\"} offset ${window:raw}) and on(job,instance) (up{job=\"xy-backend\"} == 1) and on(job,instance) (up{job=\"xy-backend\"} offset ${window:raw} == 1)))","legendFormat":"P50 · {{model}}","instant":false,"range":true},
+        {"refId":"B","expr":"(histogram_quantile(0.9, sum by (le, model) ((xy_ai_model_latency_seconds_bucket{job=\"xy-backend\"} - xy_ai_model_latency_seconds_bucket{job=\"xy-backend\"} offset ${window:raw}) or xy_ai_model_latency_seconds_bucket{job=\"xy-backend\"}))) unless on() ((present_over_time(up{job=\"xy-backend\"}[${window:raw}]) or up{job=\"xy-backend\"} offset ${window:raw}) unless on(job,instance) ((process_start_time_seconds{job=\"xy-backend\"} == process_start_time_seconds{job=\"xy-backend\"} offset ${window:raw}) and on(job,instance) (up{job=\"xy-backend\"} == 1) and on(job,instance) (up{job=\"xy-backend\"} offset ${window:raw} == 1)))","legendFormat":"P90 · {{model}}","instant":false,"range":true},
+        {"refId":"C","expr":"(histogram_quantile(0.95, sum by (le, model) ((xy_ai_model_latency_seconds_bucket{job=\"xy-backend\"} - xy_ai_model_latency_seconds_bucket{job=\"xy-backend\"} offset ${window:raw}) or xy_ai_model_latency_seconds_bucket{job=\"xy-backend\"}))) unless on() ((present_over_time(up{job=\"xy-backend\"}[${window:raw}]) or up{job=\"xy-backend\"} offset ${window:raw}) unless on(job,instance) ((process_start_time_seconds{job=\"xy-backend\"} == process_start_time_seconds{job=\"xy-backend\"} offset ${window:raw}) and on(job,instance) (up{job=\"xy-backend\"} == 1) and on(job,instance) (up{job=\"xy-backend\"} offset ${window:raw} == 1)))","legendFormat":"P95 · {{model}}","instant":false,"range":true},
+        {"refId":"D","expr":"(histogram_quantile(0.99, sum by (le, model) ((xy_ai_model_latency_seconds_bucket{job=\"xy-backend\"} - xy_ai_model_latency_seconds_bucket{job=\"xy-backend\"} offset ${window:raw}) or xy_ai_model_latency_seconds_bucket{job=\"xy-backend\"}))) unless on() ((present_over_time(up{job=\"xy-backend\"}[${window:raw}]) or up{job=\"xy-backend\"} offset ${window:raw}) unless on(job,instance) ((process_start_time_seconds{job=\"xy-backend\"} == process_start_time_seconds{job=\"xy-backend\"} offset ${window:raw}) and on(job,instance) (up{job=\"xy-backend\"} == 1) and on(job,instance) (up{job=\"xy-backend\"} offset ${window:raw} == 1)))","legendFormat":"P99 · {{model}}","instant":false,"range":true}
       ]
     },
     {
@@ -177,26 +177,26 @@
       "id": 13,
       "type": "timeseries",
       "title": "按错误类型统计失败",
-      "description": "按模型和异常类型拆分；不收集网关的原始错误文本。",
+      "description": "按模型和异常类型统计两端抓取之间的新增失败，首次出现的异常也计入。缺少可靠基线时留空。",
       "gridPos": {"x":0,"y":34,"w":12,"h":8},
       "datasource": {"type":"prometheus","uid":"$ds"},
       "fieldConfig": {"defaults":{"unit":"short"},"overrides":[]},
       "options": {"legend":{"displayMode":"list","placement":"bottom","showLegend":true},"tooltip":{"mode":"multi","sort":"desc"}},
       "targets": [
-        {"refId":"A","expr":"sum by (model, reason) (increase(xy_ai_outcomes_total{job=\"xy-backend\",status=\"error\"}[${window:raw}]))","legendFormat":"{{model}} · {{reason}}","instant":false,"range":true}
+        {"refId":"A","expr":"(sum by (model, reason) ((xy_ai_outcomes_total{job=\"xy-backend\",status=\"error\"} - xy_ai_outcomes_total{job=\"xy-backend\",status=\"error\"} offset ${window:raw}) or xy_ai_outcomes_total{job=\"xy-backend\",status=\"error\"})) unless on() ((present_over_time(up{job=\"xy-backend\"}[${window:raw}]) or up{job=\"xy-backend\"} offset ${window:raw}) unless on(job,instance) ((process_start_time_seconds{job=\"xy-backend\"} == process_start_time_seconds{job=\"xy-backend\"} offset ${window:raw}) and on(job,instance) (up{job=\"xy-backend\"} == 1) and on(job,instance) (up{job=\"xy-backend\"} offset ${window:raw} == 1)))","legendFormat":"{{model}} · {{reason}}","instant":false,"range":true}
       ]
     },
     {
       "id": 14,
       "type": "timeseries",
       "title": "各模型失败率",
-      "description": "分母为窗口内成功或失败的调用。已有成功且无失败显示 0%；没有已结束调用时无数据。",
+      "description": "两端抓取之间的新增失败除以新增的已结束调用。仅有成功显示 0%；无已结束调用、实例重启或缺少可靠基线时留空。",
       "gridPos": {"x":12,"y":34,"w":12,"h":8},
       "datasource": {"type":"prometheus","uid":"$ds"},
       "fieldConfig": {"defaults":{"unit":"percentunit"},"overrides":[]},
       "options": {"legend":{"displayMode":"list","placement":"bottom","showLegend":true},"tooltip":{"mode":"multi","sort":"desc"}},
       "targets": [
-        {"refId":"A","expr":"(sum by (model) (increase(xy_ai_outcomes_total{job=\"xy-backend\",status=\"error\"}[${window:raw}])) or on (model) (0 * sum by (model) (increase(xy_ai_outcomes_total{job=\"xy-backend\"}[${window:raw}])))) / (sum by (model) (increase(xy_ai_outcomes_total{job=\"xy-backend\"}[${window:raw}])) > 0)","legendFormat":"{{model}}","instant":false,"range":true}
+        {"refId":"A","expr":"((sum by (model) ((xy_ai_outcomes_total{job=\"xy-backend\",status=\"error\"} - xy_ai_outcomes_total{job=\"xy-backend\",status=\"error\"} offset ${window:raw}) or xy_ai_outcomes_total{job=\"xy-backend\",status=\"error\"}) or on(model) (0 * sum by (model) ((xy_ai_outcomes_total{job=\"xy-backend\"} - xy_ai_outcomes_total{job=\"xy-backend\"} offset ${window:raw}) or xy_ai_outcomes_total{job=\"xy-backend\"}))) / (sum by (model) ((xy_ai_outcomes_total{job=\"xy-backend\"} - xy_ai_outcomes_total{job=\"xy-backend\"} offset ${window:raw}) or xy_ai_outcomes_total{job=\"xy-backend\"}) > 0)) unless on() ((present_over_time(up{job=\"xy-backend\"}[${window:raw}]) or up{job=\"xy-backend\"} offset ${window:raw}) unless on(job,instance) ((process_start_time_seconds{job=\"xy-backend\"} == process_start_time_seconds{job=\"xy-backend\"} offset ${window:raw}) and on(job,instance) (up{job=\"xy-backend\"} == 1) and on(job,instance) (up{job=\"xy-backend\"} offset ${window:raw} == 1)))","legendFormat":"{{model}}","instant":false,"range":true}
       ]
     }
   ]

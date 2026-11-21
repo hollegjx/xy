@@ -26,6 +26,7 @@ final class VueComponentReferences {
             "?", "~", "&", "|", "^", "+", "-", "*", "%", "/", "<", ">", "return", "throw", "case", "yield",
             "await", "typeof", "void", "delete", "in", "instanceof");
     private static final Pattern INTERPOLATION = Pattern.compile("\\{\\{(.*?)}}", Pattern.DOTALL);
+    private static final Pattern DIAGRAM_COMPONENT = Pattern.compile("src/components/XyArchitecture(?:[2-9]|[1-9][0-9]+)?\\.vue");
     private static final Set<String> VOID_ELEMENTS = Set.of("area", "base", "br", "col", "embed", "hr",
             "img", "input", "link", "meta", "param", "source", "track", "wbr");
 
@@ -39,6 +40,11 @@ final class VueComponentReferences {
 
     static boolean references(Map<String, String> sources, String target) {
         return firstReference(sources, referencePaths(sources, target)::contains) != null;
+    }
+
+    static String missingDiagramComponent(Map<String, String> sources) {
+        var ref = firstReference(sources, path -> !sources.containsKey(path) && DIAGRAM_COMPONENT.matcher(path).matches());
+        return ref == null ? null : ref.target();
     }
 
     static String missingPhotoError(Map<String, String> sources, Set<String> saved) {

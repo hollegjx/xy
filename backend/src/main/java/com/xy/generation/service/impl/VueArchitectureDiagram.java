@@ -61,9 +61,8 @@ final class VueArchitectureDiagram {
     }
 
     static String findError(ObjectMapper mapper, Map<String, String> sources, boolean generatedDiagram) {
-        if (!sources.containsKey(COMPONENT) && VueComponentReferences.references(sources, COMPONENT)) {
-            return "页面仍引用不存在的 XyArchitecture.vue，请改用文字说明或补全组件后重试";
-        }
+        String missing = VueComponentReferences.missingDiagramComponent(sources);
+        if (missing != null) return "页面仍引用不存在的 " + missing + "，请改用文字说明或补全组件后重试";
         if (!generatedDiagram || !VueComponentReferences.references(sources, DATA)) return null;
         try {
             parse(mapper, sources.get(DATA));

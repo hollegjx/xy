@@ -1348,6 +1348,23 @@ class GenerationControllerTest {
         assertThat(fileManager.readVueSource(42, 55, generationId, component)).isEqualTo(original);
     }
 
+    @Test
+    void refusesMissingNumberedDiagramImportedByASourceOnlyProject() throws Exception {
+        when(appMapper.selectOneById(55L)).thenReturn(app(42L, "vue_project"));
+        doAnswer(call -> {
+            var request = call.<ChatRequest>getArgument(0);
+            var reply = request.messages().getLast() instanceof ToolExecutionResultMessage ? AiMessage.from("完成")
+                    : AiMessage.from(writeFile("src/App.vue",
+                        "<script setup>import Flow from '@/components/XyArchitecture2.vue'</script><template><Flow/></template>"));
+            call.<StreamingChatResponseHandler>getArgument(1).onCompleteResponse(ChatResponse.builder().aiMessage(reply)
+                    .finishReason(reply.hasToolExecutionRequests() ? FinishReason.TOOL_EXECUTION : FinishReason.STOP).build());
+            return null;
+        }).when(model).chat(nonDraftRequest(), any(StreamingChatResponseHandler.class));
+        String events = finish(mockMvc.perform(generate().session(session())).andReturn());
+        assertThat(events).contains("event:failed", "XyArchitecture2.vue").doesNotContain("event:completed");
+        verify(persistence, never()).complete(eq(55L), eq(42L), eq(generationId), any());
+    }
+
     @ParameterizedTest
     @CsvSource({"0,false", "1,false", "2,false", "2,true"})
     void architectureToolDeliversDirectedGraphOrContinuesWithoutDanglingImport(int invalidAttempts, boolean dangling) throws Exception {

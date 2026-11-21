@@ -36,6 +36,10 @@ IDEA 从 `backend/pom.xml` 导入 Maven 父工程。`backend/modules/` 下的 `c
 
 已有 Nacos 2.x 时，用户和截图进程可在各自的服务端配置中设置 `dubbo.registry.address: 'nacos://127.0.0.1:8848'`，分别以 `xy-user`、`xy-screenshot` 登记 Triple 实例。默认值 `N/A` 不连接注册中心。注册中心与服务同机时保留默认回环监听；跨机器部署需要指定调用方可达的内网 `dubbo.protocol.host`。不要把两个内部 RPC 端口开放给访客。
 
+平台在 IDEA 启用 `nacos` profile（或追加 `--spring.profiles.active=nacos`）即可按这两个服务名发现实例，不再填写 `xy.user.rpc-url`、`xy.cover.rpc-url`。默认注册中心是 `nacos://127.0.0.1:8848`；使用其他地址时，可以给三个进程传相同的 `--dubbo.registry.address=...`，也可在平台配置 `xy.nacos.address`。使用额外的私有配置时用 `spring.config.additional-location` 保留内置 profile。用户服务失联时私有请求返回 503，保留会话；没有开启 `xy.cover.enabled` 时平台不订阅截图。移除该 profile 即恢复本机或直连方式。
+
+有**专用测试** Nacos 时，可从 `backend/` 执行 `XY_TEST_NACOS_ADDRESS=nacos://127.0.0.1:8848 sh mvnw -pl platform -am -Dtest=NacosServicesTest -Dsurefire.failIfNoSpecifiedTests=false test`。用例先启动消费方，再加入和替换随机端口的提供方，结束后撤下测试实例。
+
 模块内沿用以下 Java 包：
 
 ```text

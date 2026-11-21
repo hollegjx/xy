@@ -4,7 +4,8 @@ import com.xy.chat.model.dto.ChatHistoryQueryRequest;
 import com.xy.chat.model.vo.ChatHistoryPageVO;
 import com.xy.chat.service.ChatHistoryService;
 import com.xy.common.ApiResponse;
-import com.xy.user.service.UserService;
+import com.xy.common.SessionUserResolver;
+import com.xy.user.model.dto.UserIdentity;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -24,11 +25,11 @@ import org.springframework.web.bind.annotation.RestController;
 public class ChatHistoryController {
 
     private final ChatHistoryService chatHistoryService;
-    private final UserService userService;
+    private final SessionUserResolver<UserIdentity> sessionUsers;
 
-    public ChatHistoryController(ChatHistoryService chatHistoryService, UserService userService) {
+    public ChatHistoryController(ChatHistoryService chatHistoryService, SessionUserResolver<UserIdentity> sessionUsers) {
         this.chatHistoryService = chatHistoryService;
-        this.userService = userService;
+        this.sessionUsers = sessionUsers;
     }
 
     @Operation(summary = "查询应用消息与生成状态", description = "仅创建者可查询，包括管理员在内的其他账号返回 403。"
@@ -40,6 +41,6 @@ public class ChatHistoryController {
             @Valid @ModelAttribute @ParameterObject ChatHistoryQueryRequest request,
             HttpServletRequest servletRequest) {
         return ApiResponse.success(chatHistoryService.listMessages(appId, request,
-                userService.getLoginUser(servletRequest)));
+                sessionUsers.require(servletRequest)));
     }
 }

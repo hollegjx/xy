@@ -2,22 +2,70 @@ package com.xy.generation.service.impl;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sun.net.httpserver.HttpServer;
+import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.guardrail.OutputGuardrailException;
+import dev.langchain4j.model.chat.StreamingChatModel;
+import dev.langchain4j.model.chat.request.ChatRequest;
+import dev.langchain4j.model.chat.response.ChatModelStreamingEvent;
+import dev.langchain4j.model.chat.response.ChatResponse;
+import dev.langchain4j.model.chat.response.CompleteResponse;
+import dev.langchain4j.model.chat.response.PartialResponse;
 import dev.langchain4j.model.openai.OpenAiStreamingChatModel;
+import dev.langchain4j.model.output.FinishReason;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Flow;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
+import reactor.adapter.JdkFlowAdapter;
+import reactor.core.publisher.Flux;
 
 import static org.assertj.core.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
 class NativeOutputGuardrailTest {
+    @Test
+    void stoppingDuringRepromptCancelsTheSecondModelSubscription() throws InterruptedException {
+        var retried = new CountDownLatch(1);
+        var cancelled = new CountDownLatch(1);
+        var calls = new AtomicInteger();
+        var model = new StreamingChatModel() {
+            @Override public Flow.Publisher<ChatModelStreamingEvent> doChat(ChatRequest request) {
+                Flux<ChatModelStreamingEvent> events = calls.incrementAndGet() == 1
+                        ? Flux.just(new CompleteResponse(ChatResponse.builder().aiMessage(AiMessage.from("好的"))
+                                .finishReason(FinishReason.STOP).build()))
+                        : Flux.create(sink -> {
+                            sink.onCancel(cancelled::countDown);
+                            sink.next(new PartialResponse("尚未写完"));
+                            retried.countDown();
+                        });
+                return JdkFlowAdapter.publisherToFlowPublisher(events);
+            }
+        };
+        var session = mock(GenerationSession.class);
+        when(session.isRunning()).thenReturn(true);
+        var visible = new CopyOnWriteArrayList<NativeCodeStream.Chunk>();
+        var stream = new NativeCodeStream(model, true)
+                .generate(List.of(UserMessage.from("展示作品")), session).subscribe(visible::add);
+        try {
+            assertThat(retried.await(3, TimeUnit.SECONDS)).isTrue();
+        } finally {
+            stream.dispose();
+        }
+        assertThat(cancelled.await(1, TimeUnit.SECONDS)).as("护轨纠正请求也必须取消上游").isTrue();
+        assertThat(visible).isEmpty();
+        assertThat(calls.get()).isEqualTo(2);
+    }
+
     @ParameterizedTest
     @ValueSource(booleans = {true, false})
     void retriesOnlyOnceAndNeverDisplaysTheRejectedDraft(boolean repaired) throws Exception {

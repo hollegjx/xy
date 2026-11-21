@@ -7,8 +7,10 @@ import dev.langchain4j.model.chat.listener.ChatModelResponseContext;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Tags;
 import io.micrometer.core.instrument.Timer;
+import java.time.Duration;
 import java.util.Map;
 import java.util.Objects;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Supplier;
 import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Component;
@@ -17,7 +19,7 @@ import org.springframework.stereotype.Component;
 @Profile("monitoring")
 public class AiModelMetrics {
     private record Owner(Long user, Long app) {}
-    private record Start(Tags tags, Timer.Sample clock) {}
+    private record Start(Tags tags, String model, Timer.Sample clock) {}
     private static final ThreadLocal<Owner> CLIENT_OWNER = new ThreadLocal<>();
     private final MeterRegistry registry;
 
@@ -42,8 +44,9 @@ public class AiModelMetrics {
             private final Object requestKey = new Object();
 
             @Override public void onRequest(ChatModelRequestContext ctx) {
-                var tags = base.and("model", Objects.requireNonNullElse(ctx.chatRequest().modelName(), configuredModel));
-                ctx.attributes().put(requestKey, new Start(tags, Timer.start(registry)));
+                String model = Objects.requireNonNullElse(ctx.chatRequest().modelName(), configuredModel);
+                var tags = base.and("model", model);
+                ctx.attributes().put(requestKey, new Start(tags, model, Timer.start(registry)));
                 registry.counter("xy.ai.calls", tags).increment();
             }
 
@@ -68,7 +71,11 @@ public class AiModelMetrics {
                 if (start != null) {
                     var tags = start.tags().and("status", status);
                     registry.counter("xy.ai.outcomes", tags.and("reason", reason)).increment();
-                    start.clock().stop(registry.timer("xy.ai.call.duration", tags));
+                    long nanos = start.clock().stop(registry.timer("xy.ai.call.duration", tags));
+                    // 分位数针对模型比较；不给每个用户和应用再分配整组直方图桶。
+                    Timer.builder("xy.ai.model.latency").tags("model", start.model(), "client", client, "status", status)
+                            .publishPercentileHistogram().maximumExpectedValue(Duration.ofMinutes(10))
+                            .register(registry).record(nanos, TimeUnit.NANOSECONDS);
                 }
                 return start;
             }

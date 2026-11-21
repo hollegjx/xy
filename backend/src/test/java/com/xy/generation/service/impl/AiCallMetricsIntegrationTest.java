@@ -78,11 +78,15 @@ class AiCallMetricsIntegrationTest {
                         assertThat(registry.get("xy.ai.outcomes").tags(secondApp).tag("status","error").counter().count()).isEqualTo(1);
                         assertThat(registry.get("xy.ai.call.duration").tags(secondApp).tag("status","error").timer().count()).isEqualTo(1);
                         assertThat(registry.get("xy.ai.call.duration").tags(firstApp).timer().totalTime(TimeUnit.NANOSECONDS)).isPositive();
+                        assertThat(registry.get("xy.ai.model.latency").tags("model","vue-model","status","success").timer().count()).isEqualTo(1);
+                        assertThat(registry.get("xy.ai.model.latency").tags("model","vue-model","status","error").timer().count()).isEqualTo(1);
                         for (var token : Map.of("input",9, "output",3, "total",12).entrySet())
                             assertThat(registry.get("xy.ai.tokens").tags(firstApp).tag("type",token.getKey()).counter().count()).isEqualTo(token.getValue().doubleValue());
                         assertThat(registry.find("xy.ai.tokens").tags(secondApp).meters()).isEmpty();
                         assertThat(registry.scrape()).contains("xy_ai_calls_total", "xy_ai_call_duration_seconds_count")
                                 .doesNotContain("PRIVATE_PROMPT", "PRIVATE_GATEWAY_ERROR", "test-only");
+                        assertThat(registry.scrape().lines().filter(line -> line.startsWith("xy_ai_model_latency_seconds_bucket{")))
+                                .isNotEmpty().allMatch(line -> !line.contains("user_id=") && !line.contains("app_id="));
                     });
         } finally {
             releaseNative.countDown();

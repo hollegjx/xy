@@ -7,7 +7,7 @@ import com.xy.common.UserConstant;
 import com.xy.user.mapper.UserMapper;
 import com.xy.user.model.entity.User;
 import dev.langchain4j.data.message.AiMessage;
-import dev.langchain4j.data.message.SystemMessage;
+import dev.langchain4j.model.chat.request.ChatRequest;
 import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.model.chat.ChatModel;
 import dev.langchain4j.model.chat.response.ChatResponse;
@@ -32,7 +32,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.aMapWithSize;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -64,7 +64,7 @@ class AppControllerTest {
     @MockitoBean
     private UserMapper userMapper;
 
-    @MockitoBean
+    @MockitoBean(answers = org.mockito.Answers.CALLS_REAL_METHODS)
     private ChatModel routingModel;
 
     @ParameterizedTest
@@ -73,8 +73,8 @@ class AppControllerTest {
             String expectedName, String expectedMode) throws Exception {
         existingUser();
         if ("auto".equals(mode)) {
-            when(routingModel.chat(any(SystemMessage.class), eq(UserMessage.from(prompt))))
-                    .thenReturn(ChatResponse.builder().aiMessage(AiMessage.from(expectedMode + "\n")).build());
+            org.mockito.Mockito.doReturn(ChatResponse.builder().aiMessage(AiMessage.from(expectedMode + "\n")).build()).when(routingModel)
+                    .doChat(argThat(r -> r != null && r.messages().getLast() instanceof UserMessage u && u.singleText().contains(prompt)));
         }
         when(appMapper.insert(any(App.class))).thenAnswer(invocation -> {
             App app = invocation.getArgument(0);
@@ -120,9 +120,9 @@ class AppControllerTest {
     @ValueSource(booleans = {true, false})
     void failedOrInvalidRoutingDoesNotCreateAnApp(boolean unavailable) throws Exception {
         existingUser();
-        var call = when(routingModel.chat(any(SystemMessage.class), any(UserMessage.class)));
-        if (unavailable) call.thenThrow(new IllegalStateException("model unavailable"));
-        else call.thenReturn(ChatResponse.builder().aiMessage(AiMessage.from("auto")).build());
+        var failure = unavailable ? org.mockito.Mockito.doThrow(new IllegalStateException("model unavailable"))
+                : org.mockito.Mockito.doReturn(ChatResponse.builder().aiMessage(AiMessage.from("auto")).build());
+        failure.when(routingModel).doChat(any(ChatRequest.class));
         mockMvc.perform(post("/api/apps").contextPath("/api").session(loggedInSession())
                         .contentType(MediaType.APPLICATION_JSON).content("{\"initPrompt\":\"看板\",\"codeGenType\":\"auto\"}"))
                 .andExpect(status().isServiceUnavailable()).andExpect(jsonPath("$.code").value(50300));

@@ -396,7 +396,7 @@ final class VueProjectGeneration implements GenerationSession.OutputHandler {
                     photoRequested = true;
                     String theme = photoTheme(call.arguments());
                     Optional<OpenversePhotoSearch.Photo> photo;
-                    try { photo = photoSearch.find(theme); }
+                    try { photo = photoSearch.findMany(theme, 1).stream().findFirst(); }
                     catch (RuntimeException unavailable) { photo = Optional.empty(); }
                     synchronized (session) {
                         yield session.isRunning() ? savePhoto(theme, photo, session, history, assets) : "任务已结束";

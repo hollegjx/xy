@@ -841,7 +841,7 @@ class GenerationControllerTest {
         var bytes = new java.io.ByteArrayOutputStream();
         javax.imageio.ImageIO.write(new java.awt.image.BufferedImage(3, 2, java.awt.image.BufferedImage.TYPE_INT_RGB), "jpeg", bytes);
         String image = java.util.Base64.getEncoder().encodeToString(bytes.toByteArray());
-        when(photoSearch.find("coffee")).thenReturn(java.util.Optional.of(new OpenversePhotoSearch.Photo(
+        when(photoSearch.findMany("coffee", 1)).thenReturn(List.of(new OpenversePhotoSearch.Photo(
                 "data:image/jpeg;base64," + image, "https://www.flickr.com/photos/xy/123", "CC0")));
         String page = """
                 <script setup>
@@ -914,7 +914,7 @@ class GenerationControllerTest {
         var release = new CountDownLatch(1);
         var returned = new CountDownLatch(1);
         var photo = new OpenversePhotoSearch.Photo("data:image/jpeg;base64,test", "https://www.flickr.com/photos/xy/123", "CC0");
-        when(photoSearch.find("coffee")).thenAnswer(call -> {
+        when(photoSearch.findMany("coffee", 1)).thenAnswer(call -> {
             started.countDown();
             try {
                 if (!release.await(10, TimeUnit.SECONDS)) throw new AssertionError("图库替身未收到释放信号");
@@ -923,7 +923,7 @@ class GenerationControllerTest {
             } finally {
                 returned.countDown();
             }
-            return outcome.equals("missing") ? java.util.Optional.empty() : java.util.Optional.of(photo);
+            return outcome.equals("missing") ? List.of() : List.of(photo);
         });
         String illustration = "src/components/XyIllustration.vue";
         String page = """
@@ -992,7 +992,7 @@ class GenerationControllerTest {
     void optionalPhotoReachesSourceZipBuildAndNextVersionOrFallsBack(boolean found) throws Exception {
         when(appMapper.selectOneById(55L)).thenReturn(app(42L, "vue_project"));
         var photo = new OpenversePhotoSearch.Photo("data:image/jpeg;base64,test", "https://www.flickr.com/photos/xy/123", "CC0");
-        when(photoSearch.find("coffee")).thenReturn(found ? java.util.Optional.of(photo) : java.util.Optional.empty());
+        when(photoSearch.findMany("coffee", 1)).thenReturn(found ? List.of(photo) : List.of());
         String source = found ? "<script setup>import photo from '../xy-photo.json'</script><template><img :src='photo.src'></template>"
                 : "<template>咖啡店</template>";
         doAnswer(invocation -> {

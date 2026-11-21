@@ -52,7 +52,7 @@ class ParallelVueAssetsTest {
             return Optional.of("<img alt='" + json.readTree(design).get("name").asText() + "'/>");
         });
         when(artwork.diagramImage(any())).thenAnswer(i -> { slowProvider.run(); return "image:客户端到服务"; });
-        when(photos.find("coffee")).thenAnswer(i -> { slowProvider.run(); return Optional.empty(); });
+        when(photos.findMany("coffee", 1)).thenAnswer(i -> { slowProvider.run(); return List.of(); });
         var calls = List.of(
                 tool("primary", "generateLogo", "{\"name\":\"星云\",\"purpose\":\"导航\"}"),
                 tool("partner", "generateLogo", "{\"purpose\":\"赞助方\",\"name\":\"乐团\"}"),

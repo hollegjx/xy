@@ -67,7 +67,8 @@ final class VueProjectGeneration implements GenerationSession.OutputHandler {
     private final boolean qualityCheck;
     private GenerationQualityWorkflow workflow;
     private GeneratedFileManager.VueBuildPaths buildPaths;
-    private boolean choosingAssets, photoRequested, illustrationRequested, logoRequested;
+    private boolean choosingAssets, photoRequested, logoRequested;
+    private final Map<String, String> illustrationFiles = new LinkedHashMap<>();
     private int remainingDiagramAttempts = 2;
     private int remainingToolRounds;
     private final SourceTools sourceTools = new SourceTools();
@@ -222,7 +223,7 @@ final class VueProjectGeneration implements GenerationSession.OutputHandler {
                 var tools = new ArrayList<>(SOURCE_TOOLS);
                 if (choosingAssets && !changedSource) {
                     if (!photoRequested) tools.add(FIND_PHOTO);
-                    if (!illustrationRequested) tools.add(ThemeIllustrations.TOOL);
+                    tools.add(ThemeIllustrations.TOOL);
                     if (remainingDiagramAttempts > 0) tools.add(VueArchitectureDiagram.TOOL);
                     if (!logoRequested) tools.add(VueBrandLogo.TOOL);
                 }
@@ -395,8 +396,7 @@ final class VueProjectGeneration implements GenerationSession.OutputHandler {
                     }
                 }
                 case "selectIllustration" -> {
-                    if (!permitted || illustrationRequested) yield "本轮不再选择插画，沿用已有素材或继续编写页面。";
-                    illustrationRequested = true;
+                    if (!permitted) yield "本轮不再选择插画，沿用已有素材或继续编写页面。";
                     synchronized (session) {
                         yield session.isRunning() ? selectIllustration(call.arguments(), session, history, assets) : "任务已结束";
                     }
@@ -478,12 +478,19 @@ final class VueProjectGeneration implements GenerationSession.OutputHandler {
         var selected = ThemeIllustrations.select(mapper, arguments);
         String progress, result;
         if (selected.isPresent()) {
-            var illustration = selected.get();
-            files.writeVueSource(userId, appId, generationId, ThemeIllustrations.VUE_COMPONENT, illustration.vueSource());
-            assets.add(ThemeIllustrations.VUE_COMPONENT, "主题插画", illustration.label() + "主题，在对应介绍区域使用该组件");
+            var selection = selected.get();
+            var illustration = selection.illustration();
+            String component = illustrationFiles.get(selection.theme());
+            if (component == null) {
+                component = illustrationFiles.isEmpty() ? ThemeIllustrations.VUE_COMPONENT
+                        : "src/components/XyIllustration" + (illustrationFiles.size() + 1) + ".vue";
+                files.writeVueSource(userId, appId, generationId, component, illustration.vueSource());
+                illustrationFiles.put(selection.theme(), component);
+            }
+            assets.add(component, "主题插画", illustration.label() + "主题；"
+                    + (selection.purpose().isBlank() ? "在对应介绍区域使用" : "用途：" + selection.purpose()));
             progress = "已准备插画：" + illustration.label();
-            result = progress + "。请在 src/App.vue 中 import XyIllustration from './components/XyIllustration.vue'，"
-                    + "在适当位置使用 <XyIllustration />。该组件已存在，无须重写。";
+            result = progress + "。从 src/App.vue 导入 './" + component.substring("src/".length()) + "' 并用于相应位置；组件已保存，无须重写。";
         } else {
             progress = "没有匹配的内置插画，继续生成。";
             result = progress + "不要引用未提供的插画组件。";

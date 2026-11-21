@@ -26,9 +26,10 @@ final class ThemeIllustrations {
     private static final Map<String, String> THEMES = Map.of(
             "reading", "学习阅读", "teamwork", "团队协作", "analytics", "数据分析");
     static final ToolSpecification TOOL = ToolSpecification.builder().name("selectIllustration")
-            .description("从 XY 的内置库选一幅插画。仅在新页面需要匹配主题的插画时、写文件前调用。")
+            .description("为新页面的一处用途选择匹配的内置插画。需要多幅时可同批或在写文件前分次调用；相同主题复用组件。")
             .parameters(JsonObjectSchema.builder().addEnumProperty("theme", THEMES.keySet().stream().sorted().toList(),
                     "reading 学习阅读、teamwork 团队协作、analytics 数据分析")
+                    .addStringProperty("purpose", "插画在页面中的用途或位置")
                     .required("theme").additionalProperties(false).build()).build();
 
     record Illustration(String label, String svg) {
@@ -37,15 +38,17 @@ final class ThemeIllustrations {
 
     record Embedded(String html, List<String> labels) {}
 
-    static Optional<Illustration> select(ObjectMapper mapper, String arguments) throws IOException {
-        String theme;
+    record Selection(String theme, String purpose, Illustration illustration) {}
+
+    static Optional<Selection> select(ObjectMapper mapper, String arguments) throws IOException {
         try {
             var args = mapper.readTree(arguments);
-            theme = args == null ? "" : args.path("theme").asText("");
+            if (args == null) return Optional.empty();
+            String theme = args.path("theme").asText("");
+            return load(theme).map(art -> new Selection(theme, args.path("purpose").asText("").strip(), art));
         } catch (JsonProcessingException | IllegalArgumentException invalid) {
             return Optional.empty();
         }
-        return load(theme);
     }
 
     static Optional<Illustration> load(String theme) throws IOException {

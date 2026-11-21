@@ -1100,7 +1100,7 @@ class GenerationControllerTest {
                                 .arguments(objectMapper.writeValueAsString(Map.of("theme", theme))).build())).build());
             } else if ("selectIllustration".equals(result.toolName())) {
                 assertThat(result.text()).contains(label == null ? "不要引用" : "./components/XyIllustration.vue");
-                assertThat(request.toolSpecifications()).extracting("name").doesNotContain("selectIllustration").contains("findPhoto");
+                assertThat(request.toolSpecifications()).extracting("name").contains("selectIllustration", "findPhoto");
                 handler.onCompleteResponse(ChatResponse.builder().finishReason(FinishReason.TOOL_EXECUTION)
                         .aiMessage(AiMessage.from(writeFile("src/App.vue", page))).build());
             } else {
@@ -1121,6 +1121,68 @@ class GenerationControllerTest {
             assertThat(fileManager.readVueSource(42, 55, nextId, component)).isEqualTo(zip.get(component));
         }
         verifyNoInteractions(photoSearch);
+    }
+
+    @Test
+    void vueIllustrationsKeepTheirOwnThemesAndShareAComponentAcrossUses() throws Exception {
+        when(appMapper.selectOneById(55L)).thenReturn(app(42L, "vue_project"));
+        String page = """
+                <script setup>
+                import Reading from './components/XyIllustration.vue'
+                import Stats from './components/XyIllustration2.vue'
+                import Team from './components/XyIllustration3.vue'
+                </script>
+                <template><main><Reading/><Team/><Stats/><footer><Reading/></footer></main></template>""";
+        var rounds = new AtomicInteger();
+        var manifests = new java.util.ArrayList<String>();
+        doAnswer(call -> {
+            ChatRequest request = call.getArgument(0);
+            var handler = call.<StreamingChatResponseHandler>getArgument(1);
+            if (request.toolSpecifications() == null || request.toolSpecifications().isEmpty()) {
+                String review = ((UserMessage) request.messages().getLast()).singleText();
+                assertThat(review).contains(manifests.getLast(), "本次候选源码：").doesNotContain("无此主题");
+                handler.onCompleteResponse(response("{\"isValid\":true,\"errors\":[],\"suggestions\":[]}", FinishReason.STOP));
+                return null;
+            }
+            String prompt = ((UserMessage) request.messages().get(1)).singleText();
+            var calls = switch (rounds.incrementAndGet()) {
+                case 1 -> List.of(illustration("bad", "unknown", "无此主题"), illustration("book", "reading", "开场阅读"),
+                        illustration("chart", "analytics", "经营统计"));
+                case 2 -> {
+                    assertThat(prompt).contains("开场阅读", "经营统计").doesNotContain("员工简介", "无此主题");
+                    yield List.of(illustration("footer", "reading", "页尾荐书"), illustration("staff", "teamwork", "员工简介"));
+                }
+                case 3 -> {
+                    String manifest = prompt.substring(prompt.indexOf("本轮可用素材"));
+                    manifests.add(manifest);
+                    assertThat(manifest.lines().filter(s -> s.startsWith("- "))).hasSize(3);
+                    assertThat(manifest).containsOnlyOnce("XyIllustration.vue").containsSubsequence("XyIllustration.vue", "开场阅读", "页尾荐书",
+                            "XyIllustration2.vue", "经营统计", "XyIllustration3.vue", "员工简介").doesNotContain("无此主题");
+                    yield List.of(writeFile("src/App.vue", page));
+                }
+                default -> List.<ToolExecutionRequest>of();
+            };
+            handler.onCompleteResponse(calls.isEmpty() ? response("完成", FinishReason.STOP)
+                    : ChatResponse.builder().finishReason(FinishReason.TOOL_EXECUTION).aiMessage(AiMessage.from(calls)).build());
+            return null;
+        }).when(model).chat(nonDraftRequest(), any(StreamingChatResponseHandler.class));
+        String events = finish(mockMvc.perform(generate().session(session())
+                .content("{\"prompt\":\"摄影作品集\",\"qualityCheck\":true}")).andReturn());
+        assertThat(events).contains("event:completed").doesNotContain("event:failed");
+        var zip = unzipSources(fileManager.readVueSourceZip(42, 55, generationId));
+        assertThat(zip).containsEntry("src/App.vue", page);
+        long next = IDS.incrementAndGet();
+        fileManager.copyVueSources(42, 55, generationId, next);
+        for (var entry : Map.of("XyIllustration.vue", "学习阅读", "XyIllustration2.vue", "数据分析", "XyIllustration3.vue", "团队协作").entrySet()) {
+            String path = "src/components/" + entry.getKey(), source = zip.get(path);
+            assertThat(org.jsoup.Jsoup.parse(source).expectFirst("svg").attr("aria-label")).startsWith(entry.getValue());
+            assertThat(fileManager.readVueSource(42, 55, next, path)).isEqualTo(source);
+        }
+    }
+
+    private ToolExecutionRequest illustration(String id, String theme, String purpose) throws IOException {
+        return ToolExecutionRequest.builder().id(id).name("selectIllustration")
+                .arguments(objectMapper.writeValueAsString(Map.of("theme", theme, "purpose", purpose))).build();
     }
 
     @ParameterizedTest

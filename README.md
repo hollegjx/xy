@@ -24,7 +24,7 @@ xy/
 └── .gitignore      本地文件与构建产物忽略规则
 ```
 
-IDEA 从 `backend/pom.xml` 导入 Maven 父工程。`backend/modules/` 下的 `common` 提供响应、异常和 Session 用户键，`model` 提供用户模型，`client` 提供内部服务接口。`ai` 是应用直接依赖的库，负责单 HTML 和多文件的流式模型调用与输出检查，无须另起 AI 服务。`screenshot-renderer` 从发布快照渲染 JPEG，不需要数据库或平台凭证。应用代码和本地配置仍在 `backend/src`。在 `backend/` 执行 `sh mvnw package` 会构建各模块并生成部署用的 `target/xy-backend-0.0.1-SNAPSHOT.jar`。
+IDEA 从 `backend/pom.xml` 导入 Maven 父工程。`backend/modules/` 下的 `common` 提供响应、异常和 Session 用户键，`model` 提供用户模型，`client` 提供内部服务接口。`ai` 是应用直接依赖的库，负责单 HTML 和多文件的流式模型调用与输出检查，以及三种模式共用的 AI 质检，无须另起 AI 服务。`screenshot-renderer` 从发布快照渲染 JPEG，不需要数据库或平台凭证。应用代码和本地配置仍在 `backend/src`。在 `backend/` 执行 `sh mvnw package` 会构建各模块并生成部署用的 `target/xy-backend-0.0.1-SNAPSHOT.jar`。
 
 截图可以与平台分开运行。在已具备封面镜像的机器上，从 `backend/` 执行 `java -jar services/screenshot/target/xy-screenshot-service-0.0.1-SNAPSHOT.jar`，默认只监听 IPv4 回环的 Triple 端口 50052。独立进程执行容器命令的路径用 `--xy.screenshot.docker-executable=...` 指定。平台设置 `xy.cover.enabled: true` 并把 `xy.cover.rpc-url` 填为 `'tri://127.0.0.1:50052'` 即可发送发布快照。地址留空时沿用原本机截图。图片仍由平台按发布版本保存，截图失败不影响作品网址。这一配置直接连接服务，不需要 Nacos。
 

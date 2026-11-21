@@ -156,8 +156,9 @@ final class GenerationQualityWorkflow {
         if (future.isDone()) return future;
         progress.accept("\n正在检查 " + modeLabel + "…\n");
         try {
-            GenerationQualityReviewer.check(model, session, future, mapper, mode.getValue(),
-                    reviewContext + (manifest.isEmpty() ? "" : manifest + "\n") + "本次候选源码：\n" + sources.call()).whenComplete((report, error) -> {
+            String context = reviewContext + (manifest.isEmpty() ? "" : manifest + "\n") + "本次候选源码：\n" + sources.call();
+            var transport = WorkflowNodeModel.adapt(model, session, future, model.supportedCapabilities(), session::onError);
+            GenerationQualityReviewer.check(transport, mapper, mode.getValue(), context).whenComplete((report, error) -> {
                 if (!session.isRunning()) return;
                 if (error != null) session.fail("AI 质检报告无效，请重试");
                 else future.complete(Map.of("valid", report.isValid(), "report",

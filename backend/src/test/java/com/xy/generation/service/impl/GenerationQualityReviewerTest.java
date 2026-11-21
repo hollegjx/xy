@@ -43,8 +43,8 @@ class GenerationQualityReviewerTest {
                     "http://127.0.0.1:" + gateway.getAddress().getPort() + "/v1", "test-only", "local-review", 5, 2000, schema);
             var session = new GenerationSession(1, 2, 3, new SseEmitter(), mock(GenerationPersistence.class),
                     mock(GenerationSession.OutputHandler.class), () -> {}, mock(ScheduledExecutorService.class));
-            var result = GenerationQualityReviewer.check(upstream, session, new CompletableFuture<>(), mapper,
-                    "html", "让按钮可以点击").get(8, TimeUnit.SECONDS);
+            var transport = WorkflowNodeModel.adapt(upstream, session, new CompletableFuture<>(), upstream.supportedCapabilities(), session::onError);
+            var result = GenerationQualityReviewer.check(transport, mapper, "html", "让按钮可以点击").get(8, TimeUnit.SECONDS);
             assertThat(result).isEqualTo(new GenerationQualityReviewer.Report(false, List.of("按钮未绑定"), List.of("补上点击事件")));
             var request = captured.get(1, TimeUnit.SECONDS);
             assertThat(request.path("model").asText()).isEqualTo("local-review");

@@ -136,7 +136,15 @@ onBeforeUnmount(() => {
         :loading="busy"
         :disabled="disabled || loginUserStore.status !== 'ready'"
       >
-        {{ busy ? (form.codeGenType === 'auto' ? '正在选择模式' : '创建中') : error ? '重试' : '创建应用' }}
+        {{
+          busy
+            ? form.codeGenType === 'auto'
+              ? '正在选择模式'
+              : '创建中'
+            : error
+              ? '重试'
+              : '创建应用'
+        }}
       </AButton>
       <p v-if="loginUserStore.status === 'ready' && !loginUserStore.user" class="login-hint">
         登录后即可创建，已填写的需求会在登录跳转时保留。

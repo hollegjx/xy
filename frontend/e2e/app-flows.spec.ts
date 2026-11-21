@@ -84,7 +84,9 @@ for (const [codeGenType, modeLabel] of [
           expect(request.method()).toBe('GET')
           reads += 1
           const actualMode = codeGenType === 'auto' ? 'vue_project' : codeGenType
-          await route.fulfill({ json: { code: 0, data: { ...app, codeGenType: actualMode }, message: 'ok' } })
+          await route.fulfill({
+            json: { code: 0, data: { ...app, codeGenType: actualMode }, message: 'ok' },
+          })
         } else if (path === `/api/apps/${app.id}/messages`) {
           expect(request.method()).toBe('GET')
           const cursor = new URL(request.url()).searchParams.get('beforeId')
@@ -196,7 +198,9 @@ for (const [codeGenType, modeLabel] of [
     await expect(page).toHaveURL(`/apps/${app.id}`)
     await expect(page.getByRole('heading', { name: app.appName, exact: true })).toBeVisible()
     await expect(page.getByText(app.initPrompt, { exact: true })).toBeVisible()
-    await expect(page.getByText(codeGenType === 'auto' ? 'Vue 工程' : modeLabel, { exact: true })).toBeVisible()
+    await expect(
+      page.getByText(codeGenType === 'auto' ? 'Vue 工程' : modeLabel, { exact: true }),
+    ).toBeVisible()
     const frame = page.frameLocator('iframe[title="应用网站预览"]')
     await expect(frame.getByRole('heading', { name: '摄影作品集' })).toBeVisible()
     if (codeGenType === 'vue_project') {
@@ -490,9 +494,7 @@ test('直接访问工作台先确认身份，登录后返回原地址并显示�
   await expect(page.getByText(app.initPrompt, { exact: true })).toHaveCount(0)
 })
 
-test('Vue 工作台可选质检与修复并展示生成阶段，停止或失败保留旧预览', async ({
-  page,
-}) => {
+test('Vue 工作台可选质检与修复并展示生成阶段，停止或失败保留旧预览', async ({ page }) => {
   let records: ChatHistoryVO[] = []
   let cancels = 0
   let previewError = false
@@ -615,9 +617,12 @@ test('Vue 工作台可选质检与修复并展示生成阶段，停止或失败�
     '发现问题，正在自动修复（最多一次）…',
   ]) {
     await page.evaluate(
-      (text) => window.dispatchEvent(new CustomEvent('xy-test-generation', {
-        detail: { type: 'delta', text: `\n${text}\n` },
-      })),
+      (text) =>
+        window.dispatchEvent(
+          new CustomEvent('xy-test-generation', {
+            detail: { type: 'delta', text: `\n${text}\n` },
+          }),
+        ),
       text,
     )
     await expect(live).toContainText(text)
@@ -640,7 +645,9 @@ test('Vue 工作台可选质检与修复并展示生成阶段，停止或失败�
     {
       id: '101',
       messageRole: 'assistant',
-      content: assetProgress + '\n已写入：src/App.vue\n源码已保存，正在构建 Vue 工程…\nVue 工程构建完成，可在线预览或下载源码。',
+      content:
+        assetProgress +
+        '\n已写入：src/App.vue\n源码已保存，正在构建 Vue 工程…\nVue 工程构建完成，可在线预览或下载源码。',
       status: 'completed',
       errorMessage: null,
       createTime: app.createTime,
@@ -708,8 +715,11 @@ async function checkFollowUp(page: Page, mode: 'html' | 'multi_file' | 'vue_proj
   const nextChange = '把按钮文字改成浏览作品，保留黑色背景。'
   const selected = 'button · #detail · 查看原图'
   const qualityFailure = '自动修复一次后仍未通过 AI 质检，请重试'
-  const detailPreview = previewHtml.replace('</body>', `<details><summary>打开详情</summary>
-    <button id="detail" onclick="this.parentElement.open=false">查看原图</button></details></body>`)
+  const detailPreview = previewHtml.replace(
+    '</body>',
+    `<details><summary>打开详情</summary>
+    <button id="detail" onclick="this.parentElement.open=false">查看原图</button></details></body>`,
+  )
   const expectedPrompts = [
     app.initPrompt,
     change,
@@ -743,7 +753,11 @@ async function checkFollowUp(page: Page, mode: 'html' | 'multi_file' | 'vue_proj
           rateLimitNext = false
           await route.fulfill({
             status: 429,
-            json: { code: 42900, data: null, message: '每个账号 60 秒内最多发起 5 次生成，请在 12 秒后重试' },
+            json: {
+              code: 42900,
+              data: null,
+              message: '每个账号 60 秒内最多发起 5 次生成，请在 12 秒后重试',
+            },
           })
           return
         }

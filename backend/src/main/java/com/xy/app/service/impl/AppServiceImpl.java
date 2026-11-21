@@ -27,6 +27,7 @@ import com.xy.config.DeploymentConfiguration;
 import com.xy.exception.BusinessException;
 import com.xy.manager.GeneratedFileManager;
 import com.xy.manager.AppCoverRenderer;
+import com.xy.manager.PromptInputGuard;
 import com.xy.user.model.entity.User;
 import com.xy.user.model.enums.UserRoleEnum;
 import java.io.IOException;
@@ -65,6 +66,7 @@ public class AppServiceImpl implements AppService {
     @Override
     public long createApp(AppAddRequest request, User loginUser) {
         String prompt = request.initPrompt();
+        if (!request.requestsAutomaticMode()) PromptInputGuard.check(prompt);
         int nameLength = Math.min(12, prompt.codePointCount(0, prompt.length()));
         CodeGenTypeEnum codeGenType = modeRouter.select(request);
 

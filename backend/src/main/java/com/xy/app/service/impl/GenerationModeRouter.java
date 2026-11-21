@@ -4,6 +4,8 @@ import com.xy.app.model.dto.AppAddRequest;
 import com.xy.app.model.enums.CodeGenTypeEnum;
 import com.xy.common.ErrorCode;
 import com.xy.exception.BusinessException;
+import com.xy.manager.PromptInputGuard;
+import dev.langchain4j.guardrail.InputGuardrailException;
 import dev.langchain4j.service.AiServices;
 import dev.langchain4j.service.SystemMessage;
 import dev.langchain4j.service.UserMessage;
@@ -36,11 +38,14 @@ public class GenerationModeRouter {
         if (!request.requestsAutomaticMode()) return CodeGenTypeEnum.fromValue(request.codeGenType());
         ChatModel model = models.getIfAvailable();
         if (model == null) {
+            PromptInputGuard.check(request.initPrompt());
             throw new BusinessException(ErrorCode.SERVICE_UNAVAILABLE, "尚未配置自动选择，请手动选择生成模式");
         }
         try {
-            return AiServices.builder(Classifier.class).chatModel(model)
+            return AiServices.builder(Classifier.class).chatModel(model).inputGuardrails(new PromptInputGuard())
                     .build().classify(request.initPrompt());
+        } catch (InputGuardrailException rejected) {
+            throw PromptInputGuard.rejection(rejected);
         } catch (RuntimeException error) {
             throw new BusinessException(ErrorCode.SERVICE_UNAVAILABLE, "自动选择生成模式失败，请重试或手动选择");
         }

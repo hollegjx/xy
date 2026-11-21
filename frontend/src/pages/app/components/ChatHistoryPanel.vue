@@ -195,7 +195,7 @@ async function generate(): Promise<void> {
   live.value = null
   output.value = ''
   submittedPrompt = form.prompt
-  let rateLimited = false
+  let refreshHistory = true
   try {
     await generateApp(
       props.appId,
@@ -213,14 +213,14 @@ async function generate(): Promise<void> {
       qualityCheck.value || undefined,
     )
   } catch (cause) {
-    rateLimited = cause instanceof ApiError && cause.code === 42900
+    refreshHistory = !(cause instanceof ApiError && (cause.code === 40000 || cause.code === 42900))
     if (active && !currentController.signal.aborted) showGenerationError(cause)
   } finally {
     if (active) {
       generating.value = false
       controller = null
-      // 限流发生在开流前，没有新增消息；保留用户已展开的历史页和输入。
-      if (!rateLimited) await load()
+      // 入参被拒或账号限流都发生在开流前，没有新增消息需要刷新。
+      if (refreshHistory) await load()
     }
   }
 }

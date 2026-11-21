@@ -11,6 +11,7 @@ import com.xy.exception.BusinessException;
 import com.xy.generation.model.dto.GenerationRequest;
 import com.xy.generation.service.GenerationService;
 import com.xy.manager.GeneratedFileManager;
+import com.xy.manager.PromptInputGuard;
 import com.xy.manager.VueProjectBuildManager;
 import com.xy.user.model.entity.User;
 import dev.langchain4j.data.message.AiMessage;
@@ -81,6 +82,7 @@ public class GenerationServiceImpl implements GenerationService {
     @Override
     public SseEmitter generate(long appId, GenerationRequest request, User loginUser) {
         AppVO app = appService.getAppById(appId, loginUser);
+        PromptInputGuard.check(request.prompt());
         String systemPrompt = systemPrompts.get(app.codeGenType());
         if (systemPrompt == null) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "当前生成仅支持 html、multi_file 或 vue_project 模式");

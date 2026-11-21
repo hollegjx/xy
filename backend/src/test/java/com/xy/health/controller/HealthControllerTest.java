@@ -9,6 +9,9 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
+import java.nio.file.Files;
+import java.nio.file.Path;
+
 import static org.hamcrest.Matchers.containsString;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -70,7 +73,8 @@ class HealthControllerTest {
         mockMvc.perform(get("/api/v3/api-docs").contextPath("/api"))
                 .andExpect(status().isOk()).andDo(result -> {
                     if (Boolean.getBoolean("xy.openapi.export")) {
-                        java.nio.file.Files.write(java.nio.file.Path.of("target/xy-openapi.json"), result.getResponse().getContentAsByteArray());
+                        Path directory = Files.createDirectories(Path.of("target"));
+                        Files.write(directory.resolve("xy-openapi.json"), result.getResponse().getContentAsByteArray());
                     }
                 })
                 .andExpect(jsonPath("$.components.schemas.AppVO.properties.deployment.anyOf[0]['$ref']").value("#/components/schemas/AppDeployVO"))

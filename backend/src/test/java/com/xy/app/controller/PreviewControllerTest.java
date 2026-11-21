@@ -237,7 +237,8 @@ class PreviewControllerTest {
         // 浏览器检查复用真实 Controller 的响应，避免测试里手抄一份安全策略。
         Map<String, String> headers = new LinkedHashMap<>();
         response.getHeaderNames().forEach(name -> headers.put(name, response.getHeader(name)));
-        Files.writeString(Path.of("target", filename), objectMapper.writeValueAsString(
+        Path directory = Files.createDirectories(Path.of("target"));
+        Files.writeString(directory.resolve(filename), objectMapper.writeValueAsString(
                 Map.of("headers", headers, "body", response.getContentAsString(StandardCharsets.UTF_8))));
     }
 

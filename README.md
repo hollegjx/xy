@@ -57,6 +57,8 @@ com.xy/
 
 如需按教程抓取运行指标，在 IDEA 的 Active profiles 中加入 `monitoring`。业务 API 仍用原端口，同机 Prometheus 读取 `127.0.0.1:8102/actuator/prometheus`；不要将这个端口映射到公网。已有 Prometheus 可采用[抓取配置](ops/monitoring/prometheus.yml)，看到 `up{job="xy-backend"} = 1` 即已连通。该配置假设 Prometheus 与后端共用主机网络；不启用 profile 时默认不开放 Prometheus 端点。
 
+模型调用量、Token、耗时分位数和失败率可从[Grafana 看板与接入说明](ops/monitoring/README.md)查看。
+
 ## 本地配置与启动
 
 1. 在 IDEA 打开 `backend/pom.xml`，选择已有且受支持的 JDK，等待 Maven 导入完成。

@@ -1186,6 +1186,57 @@ class GenerationControllerTest {
     }
 
     @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void vueBrandComponentsStayDistinctAndMissingDesignsCannotBeImported(boolean importMissing) throws Exception {
+        when(appMapper.selectOneById(55L)).thenReturn(app(42L, "vue_project"));
+        String page = """
+                <script setup>
+                import Store from './components/XyLogo.vue'
+                import Band from './components/XyLogo3.vue'
+                </script>
+                <template><main><Band/><Store/>活动文字<footer><Store/></footer></main></template>""";
+        String result = importMissing ? page.replace("import Band", "import Missing from './components/XyLogo2.vue'\nimport Band") : page;
+        var round = new AtomicInteger();
+        doAnswer(call -> {
+            ChatRequest request = call.getArgument(0);
+            var handler = call.<StreamingChatResponseHandler>getArgument(1);
+            var calls = switch (round.incrementAndGet()) {
+                case 1 -> List.of(brandTool("store", "书屋", "页头", "#b44c55", 19),
+                        brandTool("invalid", "坏图", "活动边栏", "#224466", 0));
+                case 2 -> List.of(brandTool("band", "乐团", "合作品牌", "#267260", 27),
+                        brandTool("footer", "书屋", "页尾", "#b44c55", 19));
+                case 3 -> {
+                    String manifest = ((UserMessage) request.messages().get(1)).singleText();
+                    assertThat(manifest).containsSubsequence("XyLogo.vue", "书屋", "页头", "页尾", "XyLogo3.vue", "乐团", "合作品牌")
+                            .containsOnlyOnce("XyLogo.vue").doesNotContain("XyLogo2.vue", "活动边栏");
+                    yield List.of(writeFile("src/App.vue", result));
+                }
+                default -> List.<ToolExecutionRequest>of();
+            };
+            handler.onCompleteResponse(calls.isEmpty() ? response("完成", FinishReason.STOP)
+                    : ChatResponse.builder().finishReason(FinishReason.TOOL_EXECUTION).aiMessage(AiMessage.from(calls)).build());
+            return null;
+        }).when(model).chat(nonDraftRequest(), any(StreamingChatResponseHandler.class));
+        String events = finish(mockMvc.perform(generate().session(session())).andReturn());
+        if (importMissing) {
+            assertThat(events).contains("event:failed", "仍引用不存在的 XyLogo2.vue").doesNotContain("event:completed");
+            verify(persistence, never()).complete(any(Long.class), any(Long.class), any(Long.class), any());
+        } else {
+            assertThat(events).contains("event:completed", "已复用品牌 Logo").doesNotContain("event:failed");
+            var zip = unzipSources(fileManager.readVueSourceZip(42, 55, generationId));
+            assertThat(zip).containsEntry("src/App.vue", page).doesNotContainKey("src/components/XyLogo2.vue");
+            assertThat(zip.get("src/components/XyLogo.vue")).contains("书屋", "#b44c55").doesNotContain("乐团");
+            assertThat(zip.get("src/components/XyLogo3.vue")).contains("乐团", "#267260").doesNotContain("书屋");
+        }
+    }
+
+    private ToolExecutionRequest brandTool(String id, String brand, String purpose, String color, int radius) throws IOException {
+        var design = Map.of("name", brand, "purpose", purpose, "layers",
+                List.of(Map.of("shape", "circle", "coordinates", List.of(50, 50, radius), "color", color)));
+        return ToolExecutionRequest.builder().id(id).name("generateLogo").arguments(objectMapper.writeValueAsString(design)).build();
+    }
+
+    @ParameterizedTest
     @ValueSource(strings = {"designed", "hourglass", "invalid", "skip", "dangling"})
     void brandLogoIsAnOptionalLocalComponentThatCanBeEditedNextTurn(String outcome) throws Exception {
         App app = app(42L, "vue_project");

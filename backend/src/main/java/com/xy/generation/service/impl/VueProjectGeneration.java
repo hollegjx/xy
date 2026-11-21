@@ -67,8 +67,9 @@ final class VueProjectGeneration implements GenerationSession.OutputHandler {
     private final boolean qualityCheck;
     private GenerationQualityWorkflow workflow;
     private GeneratedFileManager.VueBuildPaths buildPaths;
-    private boolean choosingAssets, photoRequested, logoRequested;
+    private boolean choosingAssets, photoRequested;
     private final Map<String, String> illustrationFiles = new LinkedHashMap<>();
+    private final VueLogoComponents logos = new VueLogoComponents();
     private int remainingDiagramAttempts = 2;
     private int remainingToolRounds;
     private final SourceTools sourceTools = new SourceTools();
@@ -225,7 +226,7 @@ final class VueProjectGeneration implements GenerationSession.OutputHandler {
                     if (!photoRequested) tools.add(FIND_PHOTO);
                     tools.add(ThemeIllustrations.TOOL);
                     if (remainingDiagramAttempts > 0) tools.add(VueArchitectureDiagram.TOOL);
-                    if (!logoRequested) tools.add(VueBrandLogo.TOOL);
+                    tools.add(VueBrandLogo.TOOL);
                 }
                 offered = tools;
                 return ChatRequest.builder().messages(assetPrompt.forGeneration(request.messages())).toolSpecifications(tools).build();
@@ -338,7 +339,7 @@ final class VueProjectGeneration implements GenerationSession.OutputHandler {
 
     private AssetBatch prepareAssets(List<ToolExecutionRequest> calls, List<ToolSpecification> tools,
             GenerationSession session, StringBuilder history) {
-        // 同类任务保持模型给出的顺序（包括重复调用、改正无效连线），不同种类可以同时准备。
+        // 在模型提出的顺序中分配各用途的路径；不同品牌和不同种类不必互相等待。
         var groups = new LinkedHashMap<String, List<ToolExecutionRequest>>();
         for (var call : calls) if (ASSET_TOOLS.contains(call.name()))
             groups.computeIfAbsent(call.name(), ignored -> new ArrayList<>()).add(call);
@@ -354,9 +355,15 @@ final class VueProjectGeneration implements GenerationSession.OutputHandler {
             if (!progress.isEmpty()) { history.append(progress); session.onPartialResponse(progress); }
         }
         try {
-            var jobs = groups.values().stream().map(group -> CompletableFuture.supplyAsync(
-                    () -> group.stream().map(call -> prepareAsset(call, permitted.contains(call.name()), session, history)).toList(),
-                    tasks)).toList();
+            var jobs = new ArrayList<CompletableFuture<List<AssetResult>>>();
+            for (var group : groups.entrySet()) {
+                if (group.getKey().equals("generateLogo") && permitted.contains(group.getKey())) {
+                    jobs.add(prepareLogos(group.getValue(), tasks, session, history));
+                } else {
+                    jobs.add(CompletableFuture.supplyAsync(() -> group.getValue().stream()
+                            .map(call -> prepareAsset(call, permitted.contains(call.name()), session, history)).toList(), tasks));
+                }
+            }
             tasks.await(jobs);
             synchronized (session) {
                 if (!session.isRunning()) return AssetBatch.EMPTY;
@@ -403,14 +410,7 @@ final class VueProjectGeneration implements GenerationSession.OutputHandler {
                 }
                 case "drawArchitecture" -> permitted && remainingDiagramAttempts > 0
                         ? drawArchitecture(call.arguments(), session, history, assets) : "本轮不再绘制架构图，沿用已有图或用文字说明关系。";
-                case "generateLogo" -> {
-                    if (!permitted || logoRequested) yield "本轮不再绘制 Logo，请沿用已有标志或品牌文字。";
-                    logoRequested = true;
-                    var raster = artwork.rendersLogo() ? artwork.logoImage(mapper, call.arguments()) : Optional.<String>empty();
-                    synchronized (session) {
-                        yield session.isRunning() ? generateLogo(call.arguments(), raster, session, history, assets) : "任务已结束";
-                    }
-                }
+                case "generateLogo" -> "本轮不再绘制 Logo，请沿用已有标志或品牌文字。";
                 default -> throw new IllegalArgumentException("未知素材类型");
             };
             return new AssetResult(call, receipt, assets);
@@ -457,21 +457,40 @@ final class VueProjectGeneration implements GenerationSession.OutputHandler {
                 + "在页面相应位置使用 <XyArchitecture />。组件及关系数据已保存，无须重写。";
     }
 
-    private String generateLogo(String arguments, Optional<String> raster, GenerationSession session, StringBuilder history, VueAssetPrompt assets) throws IOException {
-        var source = raster.map(img -> "<template>" + img + "</template>").or(() -> VueBrandLogo.render(mapper, arguments));
-        String progress, result;
-        if (source.isPresent()) {
-            files.writeVueSource(userId, appId, generationId, VueBrandLogo.COMPONENT, source.get());
-            assets.add(VueBrandLogo.COMPONENT, "品牌 Logo", "在导航或品牌区使用该组件");
-            progress = "已生成品牌 Logo。";
-            result = "在 src/App.vue 中 import XyLogo from './components/XyLogo.vue'，并在品牌区使用 <XyLogo />。";
-        } else {
-            progress = "Logo 图形无效，改用品牌文字。";
-            result = "未生成 Logo 组件，请显示品牌名称，不要引用 XyLogo.vue。";
-        }
-        history.append('\n').append(progress).append('\n');
-        session.onPartialResponse("\n" + progress + "\n");
-        return result;
+    private CompletableFuture<List<AssetResult>> prepareLogos(List<ToolExecutionRequest> calls, WorkflowAssetTasks tasks,
+            GenerationSession session, StringBuilder history) {
+        var uses = calls.stream().map(call -> logos.prepare(call.arguments(), mapper, artwork, tasks)).toList();
+        var ready = uses.stream().map(use -> use.drawing().source()).toArray(CompletableFuture<?>[]::new);
+        return CompletableFuture.allOf(ready).thenApply(unused -> {
+            var results = new ArrayList<AssetResult>();
+            synchronized (session) {
+                if (!session.isRunning()) return List.of();
+                for (int i = 0; i < uses.size(); i++) {
+                    var use = uses.get(i);
+                    var drawing = use.drawing();
+                    var source = drawing.source().join();
+                    var assets = new VueAssetPrompt();
+                    String progress, receipt;
+                    if (source.isPresent()) {
+                        if (logos.firstWrite(drawing.path())) {
+                            try { files.writeVueSource(userId, appId, generationId, drawing.path(), source.get()); }
+                            catch (IOException error) { throw new UncheckedIOException(error); }
+                            progress = "已生成品牌 Logo：" + drawing.brand() + "。";
+                        } else progress = "已复用品牌 Logo：" + drawing.brand() + "。";
+                        assets.add(drawing.path(), "品牌 Logo", drawing.brand() + "；用途："
+                                + (use.purpose().isBlank() ? "品牌区" : use.purpose()));
+                        receipt = progress + "从 src/App.vue 导入 './" + drawing.path().substring("src/".length()) + "'。";
+                    } else {
+                        progress = "Logo 图形无效，改用品牌文字。";
+                        receipt = progress + "这个位置没有可引用的 Logo 组件。";
+                    }
+                    history.append('\n').append(progress).append('\n');
+                    session.onPartialResponse("\n" + progress + "\n");
+                    results.add(new AssetResult(calls.get(i), receipt, assets));
+                }
+            }
+            return results;
+        });
     }
 
     private String selectIllustration(String arguments, GenerationSession session, StringBuilder history, VueAssetPrompt assets) throws IOException {
@@ -544,10 +563,8 @@ final class VueProjectGeneration implements GenerationSession.OutputHandler {
             var sources = files.readVueSources(userId, appId, generationId);
             String graphError = VueArchitectureDiagram.findError(mapper, sources, files.hasVueArchitecture(userId, appId, generationId));
             if (graphError != null) return graphError;
-            if (logoRequested && !sources.containsKey(VueBrandLogo.COMPONENT)
-                    && VueComponentReferences.references(sources, VueBrandLogo.COMPONENT)) {
-                return "页面仍引用不存在的 XyLogo.vue，请改用品牌文字或补全组件后重试";
-            }
+            String logoError = logos.missingReference(sources);
+            if (logoError != null) return logoError;
             return deletedComponents.isEmpty() ? null : VueComponentReferences.findError(sources, deletedComponents);
         } catch (NoSuchFileException missing) {
             return invalidOutputMessage();

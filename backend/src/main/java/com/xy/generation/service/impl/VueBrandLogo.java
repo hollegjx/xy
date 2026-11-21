@@ -18,8 +18,9 @@ import org.springframework.web.util.HtmlUtils;
 final class VueBrandLogo {
     static final String COMPONENT = "src/components/XyLogo.vue";
     static final ToolSpecification TOOL = ToolSpecification.builder().name("generateLogo")
-            .description("按用户的品牌名称、意象和配色定制矢量 Logo，需要品牌标志时在写源码前调用一次。")
+            .description("写源码前为一处品牌标志提供名称、意象和配色。多个品牌可同批分别调用，相同设计在不同位置复用。")
             .parameters(JsonObjectSchema.builder().addStringProperty("name", "品牌名称，用作图片的无障碍名称")
+                    .addStringProperty("purpose", "标志在页面中的用途或位置，仅用于页面编排")
                     .addStringProperty("brief", "可选的图形意象或风格，不含用户原始需求或其他个人信息")
                     .addProperty("layers", JsonArraySchema.builder().description("100×100 透明画布，从底到顶依次绘制")
                             .items(JsonObjectSchema.builder()

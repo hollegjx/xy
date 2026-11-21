@@ -1385,7 +1385,7 @@ class GenerationControllerTest {
             ChatRequest request = invocation.getArgument(0);
             StreamingChatResponseHandler handler = invocation.getArgument(1);
             var tools = request.toolSpecifications().stream().map(t -> t.name()).toList();
-            if (tools.contains("drawArchitecture")) {
+            if (tools.contains("drawArchitecture") && calls.get() < Math.min(invalidAttempts + 1, 2)) {
                 int n = calls.incrementAndGet();
                 assertThat(n).isLessThanOrEqualTo(2);
                 if (n == 2) assertThat(((ToolExecutionResultMessage) request.messages().getLast()).text()).contains("可修正一次");

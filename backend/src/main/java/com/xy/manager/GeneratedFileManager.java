@@ -41,6 +41,7 @@ public class GeneratedFileManager {
     private static final Pattern NUMBERED_PHOTO = Pattern.compile("xy-photo-(?:[2-9]|[1-9][0-9]+)\\.json");
     // 版本私有标记，不属于模型可写的 src 或打包、构建的文件清单。
     private static final String VUE_ARCHITECTURE_MARKER = ".xy-architecture";
+    private static final Pattern ARCHITECTURE_MARKER = Pattern.compile("\\.xy-architecture(?:-([2-9]|[1-9][0-9]+))?");
     private final Path root;
 
     private final Optional<CosCoverStorage> coverStorage;
@@ -154,13 +155,19 @@ public class GeneratedFileManager {
         return readFile(versionDirectory(userId, appId, generationId), name);
     }
 
-    public boolean hasVueArchitecture(long userId, long appId, long generationId) throws IOException {
-        return Files.isRegularFile(versionDirectory(userId, appId, generationId).resolve(VUE_ARCHITECTURE_MARKER),
-                LinkOption.NOFOLLOW_LINKS);
+    public List<Integer> vueArchitectureSlots(long userId, long appId, long generationId) throws IOException {
+        try (var entries = Files.list(versionDirectory(userId, appId, generationId))) {
+            return entries.filter(path -> Files.isRegularFile(path, LinkOption.NOFOLLOW_LINKS))
+                    .map(path -> ARCHITECTURE_MARKER.matcher(path.getFileName().toString()))
+                    .filter(java.util.regex.Matcher::matches)
+                    .map(match -> match.group(1) == null ? 1 : Integer.parseInt(match.group(1))).sorted().toList();
+        }
     }
 
-    public void markVueArchitecture(long userId, long appId, long generationId) throws IOException {
-        Files.createFile(versionDirectory(userId, appId, generationId).resolve(VUE_ARCHITECTURE_MARKER));
+    public void markVueArchitecture(long userId, long appId, long generationId, int slot) throws IOException {
+        if (slot < 1) throw new IllegalArgumentException("无效的架构图序号");
+        String marker = VUE_ARCHITECTURE_MARKER + (slot == 1 ? "" : "-" + slot);
+        Files.createFile(versionDirectory(userId, appId, generationId).resolve(marker));
     }
 
     public List<String> copyVueSources(long userId, long appId, long previousId, long generationId) throws IOException {
@@ -171,7 +178,8 @@ public class GeneratedFileManager {
             else writeVueSource(userId, appId, generationId, file.getKey(), file.getValue());
             paths.add(file.getKey());
         }
-        if (hasVueArchitecture(userId, appId, previousId)) markVueArchitecture(userId, appId, generationId);
+        for (int slot : vueArchitectureSlots(userId, appId, previousId))
+            markVueArchitecture(userId, appId, generationId, slot);
         return paths;
     }
 

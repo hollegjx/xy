@@ -19,11 +19,22 @@ import org.jsoup.nodes.Element;
 import org.springframework.core.io.ClassPathResource;
 
 final class VueArchitectureDiagram {
-    static final String COMPONENT = "src/components/XyArchitecture.vue";
-    static final String DATA = "src/components/xy-architecture.json";
+    record Slot(int number) {
+        private String suffix() { return number == 1 ? "" : "-" + number; }
+        String component() { return "src/components/XyArchitecture" + (number == 1 ? "" : number) + ".vue"; }
+        String data() { return "src/components/xy-architecture" + suffix() + ".json"; }
+        String image() { return "src/components/xy-mermaid-image" + suffix() + ".json"; }
+        String renderer(boolean mermaid) throws IOException {
+            String source = mermaid ? ArtworkProviders.MERMAID_COMPONENT : bundledRenderer();
+            return source.replace("./xy-architecture.json", data().replace("src/components/", "./"))
+                    .replace("./xy-mermaid-image.json", image().replace("src/components/", "./"));
+        }
+    }
+    static final String DATA = new Slot(1).data();
     static final ToolSpecification TOOL = ToolSpecification.builder().name("drawArchitecture")
-            .description("按用户描述绘制本地系统架构图，只在需要说明模块关系、还未写页面时使用。")
+            .description("写页面前为每处系统架构或流程图提供节点和有向关系，可同批或分次请求多张图。")
             .parameters(JsonObjectSchema.builder()
+                    .addStringProperty("purpose", "本图在页面中的用途或位置；修正无效关系时沿用原用途")
                     .addProperty("nodes", JsonArraySchema.builder().description("按阅读顺序列出不重复的模块名")
                             .items(JsonStringSchema.builder().build()).build())
                     .addProperty("edges", JsonArraySchema.builder().description("有向关系，from 和 to 均使用 nodes 中的名称")
@@ -60,16 +71,18 @@ final class VueArchitectureDiagram {
                         .anyMatch(path -> path.hasAttr(":d") || path.hasAttr("v-bind:d"));
     }
 
-    static String findError(ObjectMapper mapper, Map<String, String> sources, boolean generatedDiagram) {
+    static String findError(ObjectMapper mapper, Map<String, String> sources, Set<Slot> generated) {
         String missing = VueComponentReferences.missingDiagramComponent(sources);
         if (missing != null) return "页面仍引用不存在的 " + missing + "，请改用文字说明或补全组件后重试";
-        if (!generatedDiagram || !VueComponentReferences.references(sources, DATA)) return null;
-        try {
-            parse(mapper, sources.get(DATA));
-            return null;
-        } catch (IllegalArgumentException invalid) {
-            return "架构图 xy-architecture.json 无效：" + invalid.getMessage() + "。请同步修改节点和连线后重试";
+        for (var slot : generated) {
+            if (!VueComponentReferences.references(sources, slot.data()) && !VueComponentReferences.references(sources, slot.image())) continue;
+            try {
+                parse(mapper, sources.get(slot.data()));
+            } catch (IllegalArgumentException invalid) {
+                return "架构图 " + slot.data() + " 无效：" + invalid.getMessage() + "。请同步修改节点和连线后重试";
+            }
         }
+        return null;
     }
 
     static Diagram parse(ObjectMapper mapper, String arguments) {
@@ -79,6 +92,10 @@ final class VueArchitectureDiagram {
         } catch (JsonProcessingException | IllegalArgumentException invalid) {
             throw new IllegalArgumentException("需要包含 nodes 和 edges 的 JSON 对象");
         }
+        return parse(input);
+    }
+
+    static Diagram parse(JsonNode input) {
         if (input == null || !input.path("nodes").isArray() || !input.path("edges").isArray()
                 || input.path("edges").isEmpty()) throw new IllegalArgumentException("需要节点和至少一条有向连线");
         // 与组件的 Map 查找一致：节点和连线端点以文件里的原文精确匹配。

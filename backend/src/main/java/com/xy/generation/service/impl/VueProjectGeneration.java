@@ -57,8 +57,7 @@ final class VueProjectGeneration implements GenerationSession.OutputHandler {
     private final Executor executor;
     private final ArtworkProviders artwork;
     private WorkflowAssetTasks pendingAssets;
-    private VueArchitectureDiagram.Diagram renderedDiagram;
-    private String renderedImage;
+    private final VueDiagramAssets diagrams;
     private final long userId, appId, generationId;
     private final GeneratedFileManager files;
     private final ObjectMapper mapper;
@@ -71,7 +70,6 @@ final class VueProjectGeneration implements GenerationSession.OutputHandler {
     private final VuePhotos photos = new VuePhotos();
     private final Map<String, String> illustrationFiles = new LinkedHashMap<>();
     private final VueLogoComponents logos = new VueLogoComponents();
-    private int remainingDiagramAttempts = 2;
     private int remainingToolRounds;
     private final SourceTools sourceTools = new SourceTools();
     private boolean changedSource;
@@ -83,6 +81,7 @@ final class VueProjectGeneration implements GenerationSession.OutputHandler {
             OpenversePhotoSearch photoSearch, Executor executor, int maxToolRounds, ArtworkProviders artwork) {
         this.remainingToolRounds = maxToolRounds;
         this.artwork = artwork;
+        this.diagrams = new VueDiagramAssets(mapper, artwork, files, userId, appId, generationId);
         this.userId = userId;
         this.appId = appId;
         this.generationId = generationId;
@@ -101,8 +100,7 @@ final class VueProjectGeneration implements GenerationSession.OutputHandler {
         choosingAssets = messages.stream().noneMatch(AiMessage.class::isInstance);
         if (!choosingAssets) {
             try {
-                if (files.hasVueArchitecture(userId, appId, generationId))
-                    inheritRenderedDiagram(files.readVueSources(userId, appId, generationId));
+                diagrams.inherit();
             } catch (IOException error) {
                 session.onContextError(error);
                 return;
@@ -136,21 +134,6 @@ final class VueProjectGeneration implements GenerationSession.OutputHandler {
                     session.onPartialResponse(text);
                 });
         workflow.runWithToolAssets(assetPrompt::manifest);
-    }
-
-    // 以模型动笔前的成功版为基准；只改文案或 JSON 排版时保留原图。
-    private void inheritRenderedDiagram(Map<String, String> sources) {
-        String image = sources.get(ArtworkProviders.MERMAID_IMAGE);
-        if (image == null) return;
-        try {
-            var src = mapper.readTree(image).path("src");
-            if (src.isTextual() && !src.textValue().isBlank()) {
-                renderedDiagram = VueArchitectureDiagram.parse(mapper, sources.get(VueArchitectureDiagram.DATA));
-                renderedImage = src.textValue();
-            }
-        } catch (IOException | IllegalArgumentException invalid) {
-            // 未配对的旧数据不能作为成图复用；交付时按最终关系重新校验和绘制。
-        }
     }
 
     @Override
@@ -247,7 +230,7 @@ final class VueProjectGeneration implements GenerationSession.OutputHandler {
                 if (choosingAssets && !changedSource) {
                     tools.add(FIND_PHOTO);
                     tools.add(ThemeIllustrations.TOOL);
-                    if (remainingDiagramAttempts > 0) tools.add(VueArchitectureDiagram.TOOL);
+                    tools.add(VueArchitectureDiagram.TOOL);
                     tools.add(VueBrandLogo.TOOL);
                 }
                 offered = tools;
@@ -320,7 +303,8 @@ final class VueProjectGeneration implements GenerationSession.OutputHandler {
         @Tool("读取 src 源文件，或按工程清单中的照片路径读取只读署名")
         public String readFile(@P("相对路径") String relativePath) throws IOException {
             progress = "已读取：" + relativePath;
-            if (ArtworkProviders.MERMAID_IMAGE.equals(relativePath)) return "图像由平台生成，节点和连线见 xy-architecture.json";
+            String image = diagrams.imageDescription(relativePath);
+            if (image != null) return image;
             return GeneratedFileManager.isVuePhoto(relativePath) ? readPhotoAttribution(relativePath)
                     : files.readVueSource(userId, appId, generationId, relativePath);
         }
@@ -382,6 +366,8 @@ final class VueProjectGeneration implements GenerationSession.OutputHandler {
                 if (group.getKey().equals("findPhoto") && permitted.contains(group.getKey())) {
                     jobs.add(photos.collect(group.getValue(), mapper, photoSearch, tasks, session::isRunning)
                             .thenApply(choices -> savePhotos(choices, session, history)));
+                } else if (group.getKey().equals("drawArchitecture") && permitted.contains(group.getKey())) {
+                    jobs.add(prepareDiagrams(group.getValue(), tasks, session, history));
                 } else if (group.getKey().equals("generateLogo") && permitted.contains(group.getKey())) {
                     jobs.add(prepareLogos(group.getValue(), tasks, session, history));
                 } else {
@@ -423,8 +409,7 @@ final class VueProjectGeneration implements GenerationSession.OutputHandler {
                         yield session.isRunning() ? selectIllustration(call.arguments(), session, history, assets) : "任务已结束";
                     }
                 }
-                case "drawArchitecture" -> permitted && remainingDiagramAttempts > 0
-                        ? drawArchitecture(call.arguments(), session, history, assets) : "本轮不再绘制架构图，沿用已有图或用文字说明关系。";
+                case "drawArchitecture" -> "本轮不再绘制架构图，沿用已有图或用文字说明关系。";
                 case "generateLogo" -> "本轮不再绘制 Logo，请沿用已有标志或品牌文字。";
                 default -> throw new IllegalArgumentException("未知素材类型");
             };
@@ -434,42 +419,28 @@ final class VueProjectGeneration implements GenerationSession.OutputHandler {
         }
     }
 
-    private String drawArchitecture(String arguments, GenerationSession session, StringBuilder history, VueAssetPrompt assets) throws IOException {
-        remainingDiagramAttempts--;
-        VueArchitectureDiagram.Diagram diagram;
-        try {
-            diagram = VueArchitectureDiagram.parse(mapper, arguments);
-        } catch (IllegalArgumentException invalid) {
-            String progress = remainingDiagramAttempts > 0 ? "架构图关系无效，可修正一次。" : "架构图关系仍无效，改用文字说明。";
-            synchronized (session) {
-                if (!session.isRunning()) return "任务已结束";
-                history.append('\n').append(progress).append('\n');
-                session.onPartialResponse("\n" + progress + "\n");
-            }
-            return progress + invalid.getMessage() + "；未生成文件，不要引用不存在的组件。";
-        }
-        boolean mermaid = artwork.rendersMermaid();
-        var component = mermaid ? ArtworkProviders.MERMAID_COMPONENT : VueArchitectureDiagram.bundledRenderer();
-        var image = mermaid ? artwork.diagramImage(diagram) : null;
-        String progress = "已绘制架构图：" + diagram.nodes().size() + " 个节点、" + diagram.edges().size() + " 条连线。";
-        synchronized (session) {
-            if (!session.isRunning()) return "任务已结束";
-            if (mermaid) {
-                renderedDiagram = diagram;
-                renderedImage = image;
-                files.writeVueSource(userId, appId, generationId, ArtworkProviders.MERMAID_IMAGE, mapper.writeValueAsString(Map.of("src", image)));
-            }
-            files.writeVueSource(userId, appId, generationId, VueArchitectureDiagram.DATA, mapper.writeValueAsString(diagram));
-            files.writeVueSource(userId, appId, generationId, VueArchitectureDiagram.COMPONENT, component);
-            files.markVueArchitecture(userId, appId, generationId);
-            assets.add(VueArchitectureDiagram.COMPONENT, "架构图", diagram.nodes().size() + " 个节点、"
-                    + diagram.edges().size() + " 条连线，组件读取 " + VueArchitectureDiagram.DATA + "，用于系统说明");
-            remainingDiagramAttempts = 0;
-            history.append('\n').append(progress).append('\n');
-            session.onPartialResponse("\n" + progress + "\n");
-        }
-        return progress + "请在 src/App.vue 中 import XyArchitecture from './components/XyArchitecture.vue'，"
-                + "在页面相应位置使用 <XyArchitecture />。组件及关系数据已保存，无须重写。";
+    private CompletableFuture<List<AssetResult>> prepareDiagrams(List<ToolExecutionRequest> calls, WorkflowAssetTasks tasks,
+            GenerationSession session, StringBuilder history) {
+        var uses = calls.stream().map(call -> diagrams.prepare(call.arguments(), tasks)).toList();
+        return CompletableFuture.allOf(uses.stream().map(VueDiagramAssets.Use::ready).toArray(CompletableFuture<?>[]::new))
+                .thenApply(done -> {
+                    synchronized (session) {
+                        if (!session.isRunning()) return List.of();
+                        var results = new ArrayList<AssetResult>();
+                        for (int i = 0; i < uses.size(); i++) {
+                            if (!session.isRunning()) return List.of();
+                            var assets = new VueAssetPrompt();
+                            try {
+                                String receipt = diagrams.save(uses.get(i), assets, notice -> {
+                                    history.append('\n').append(notice).append('\n');
+                                    session.onPartialResponse("\n" + notice + "\n");
+                                });
+                                results.add(new AssetResult(calls.get(i), receipt, assets));
+                            } catch (IOException error) { throw new UncheckedIOException(error); }
+                        }
+                        return results;
+                    }
+                });
     }
 
     private CompletableFuture<List<AssetResult>> prepareLogos(List<ToolExecutionRequest> calls, WorkflowAssetTasks tasks,
@@ -567,7 +538,7 @@ final class VueProjectGeneration implements GenerationSession.OutputHandler {
 
     private Map<String, String> sourcesForModel() throws IOException {
         var sources = files.readVueSources(userId, appId, generationId);
-        sources.computeIfPresent(ArtworkProviders.MERMAID_IMAGE, (k,v) -> "平台按最终节点和连线渲染的图像");
+        sources.replaceAll((path, source) -> java.util.Objects.requireNonNullElse(diagrams.imageDescription(path), source));
         sources.replaceAll((k,v) -> v.contains("data-xy-artwork=") ? v.replaceAll("data:image/png;base64,[A-Za-z0-9+/=]+", "[本地图像]") : v);
         for (var name : files.listVuePhotos(userId, appId, generationId)) sources.put(name, readPhotoAttribution(name));
         return sources;
@@ -578,43 +549,27 @@ final class VueProjectGeneration implements GenerationSession.OutputHandler {
         return mapper.writeValueAsString(attribution);
     }
 
-    private String candidateError() {
-        try {
-            var sources = files.readVueSources(userId, appId, generationId);
-            String photoError = VueComponentReferences.missingPhotoError(sources, Set.copyOf(files.listVuePhotos(userId, appId, generationId)));
-            if (photoError != null) return photoError;
-            String graphError = VueArchitectureDiagram.findError(mapper, sources, files.hasVueArchitecture(userId, appId, generationId));
-            if (graphError != null) return graphError;
-            String logoError = logos.missingReference(sources);
-            if (logoError != null) return logoError;
-            return deletedComponents.isEmpty() ? null : VueComponentReferences.findError(sources, deletedComponents);
-        } catch (NoSuchFileException missing) {
-            return invalidOutputMessage();
-        } catch (IOException error) {
-            return "无法读取本次工程源码，请重试";
-        }
-    }
-
     private boolean prepareDelivery(GenerationSession session) throws IOException {
-        String error = changedSource ? candidateError() : "本次未写入 Vue 源码，请重试";
+        if (!changedSource) {
+            session.fail("本次未写入 Vue 源码，请重试");
+            return false;
+        }
+        Map<String, String> sources;
+        try {
+            sources = files.readVueSources(userId, appId, generationId);
+        } catch (NoSuchFileException missing) {
+            session.fail(invalidOutputMessage());
+            return false;
+        }
+        String error = VueComponentReferences.missingPhotoError(sources, Set.copyOf(files.listVuePhotos(userId, appId, generationId)));
+        if (error == null) error = diagrams.findError(sources);
+        if (error == null) error = logos.missingReference(sources);
+        if (error == null && !deletedComponents.isEmpty()) error = VueComponentReferences.findError(sources, deletedComponents);
         if (error != null) {
             session.fail(error);
             return false;
         }
-        if (files.hasVueArchitecture(userId, appId, generationId)) {
-            var sources = files.readVueSources(userId, appId, generationId);
-            if (VueComponentReferences.references(sources, ArtworkProviders.MERMAID_IMAGE)) {
-                var diagram = VueArchitectureDiagram.parse(mapper, sources.get(VueArchitectureDiagram.DATA));
-                // 代码模型或质检可在同一轮继续改图；关系未变时复用本批结果。
-                String src = diagram.equals(renderedDiagram) ? renderedImage : artwork.diagramImage(diagram);
-                synchronized (session) {
-                    if (!session.isRunning()) return false;
-                    files.writeVueSource(userId, appId, generationId, ArtworkProviders.MERMAID_IMAGE,
-                            mapper.writeValueAsString(Map.of("src", src)));
-                }
-            }
-        }
-        return session.isRunning();
+        return diagrams.refreshImages(sources, session);
     }
 
     private void build(GenerationSession session, StringBuilder history) {

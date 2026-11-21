@@ -36,12 +36,18 @@ class VueArtworkDeliveryTest {
         try (var in = new ClassPathResource("templates/vue-project.json").getInputStream()) {
             template = json.readValue(in, new TypeReference<>() {});
         }
-        String page = "<script setup>import Graph from './components/XyArchitecture.vue'</script><template><Graph/></template>";
-        for (long id : List.of(101L, 102L, 103L)) {
+        String page = """
+                <script setup>
+                import System from './components/XyArchitecture.vue'
+                import Order from './components/XyArchitecture2.vue'
+                </script><template><System/><Order/></template>""";
+        String orderData = "src/components/xy-architecture-2.json", orderImage = "src/components/xy-mermaid-image-2.json";
+        for (long id : List.of(101L, 102L, 103L, 104L)) {
             boolean first = id == 101;
             if (!first) files.copyVueSources(1, 2, id - 1, id);
-            String end = first ? "接口" : "网关";
-            var design = Map.of("nodes", List.of("客户端", end), "edges", List.of(Map.of("from", "客户端", "to", end)));
+            String end = first ? "付款" : "发货";
+            var system = Map.of("purpose", "系统概览", "nodes", List.of("客户端", "接口"), "edges", List.of(Map.of("from", "客户端", "to", "接口")));
+            var order = Map.of("purpose", "下单流程", "nodes", List.of("下单", end), "edges", List.of(Map.of("from", "下单", "to", id == 104 ? "旧节点" : end)));
             var model = mock(StreamingChatModel.class);
             var round = new java.util.concurrent.atomic.AtomicInteger();
             doAnswer(call -> {
@@ -49,12 +55,17 @@ class VueArtworkDeliveryTest {
                 var handler = call.<StreamingChatResponseHandler>getArgument(1);
                 String tool = null;
                 Object args = null;
-                if (first && step == 0) { tool = "drawArchitecture"; args = design; }
-                else if (step == (first ? 1 : 0)) {
+                if (first && step < 2) { tool = "drawArchitecture"; args = step == 0 ? system : order; }
+                else if (step == (first ? 2 : 0)) {
                     tool = "writeFile";
                     args = first || id == 103 ? Map.of("relativePath", "src/App.vue", "content",
-                            first ? page : page.replace("<Graph/>", "<h1>系统关系</h1><Graph/>"))
-                            : Map.of("relativePath", VueArchitectureDiagram.DATA, "content", json.writeValueAsString(design));
+                            first ? page : page.replace("<System/>", "<h1>系统关系</h1><System/>"))
+                            : Map.of("relativePath", orderData, "content", json.writeValueAsString(order));
+                } else if (first && step == 3) {
+                    tool = "readFile"; args = Map.of("relativePath", orderImage);
+                } else if (first && step == 4) {
+                    var result = (ToolExecutionResultMessage) call.<ChatRequest>getArgument(0).messages().getLast();
+                    assertThat(result.text()).contains(orderData).doesNotContain("image:付款");
                 }
                 var reply = tool == null ? AiMessage.from("完成") : AiMessage.from(ToolExecutionRequest.builder()
                         .id("t" + step).name(tool).arguments(json.writeValueAsString(args)).build());
@@ -65,14 +76,42 @@ class VueArtworkDeliveryTest {
             var output = new VueProjectGeneration(1, 2, id, files, json, template, mock(VueProjectBuildManager.class),
                     false, mock(OpenversePhotoSearch.class), Runnable::run, 10, artwork);
             var session = new GenerationSession(2, 1, id, new SseEmitter(), db, output, () -> {}, mock(ScheduledExecutorService.class));
-            var system = SystemMessage.from("制作应用");
-            List<ChatMessage> context = first ? List.of(system, UserMessage.from("画关系图"))
-                    : List.of(system, AiMessage.from("已有工程"), UserMessage.from("修改节点和连线"));
+            var instruction = SystemMessage.from("制作应用");
+            List<ChatMessage> context = first ? List.of(instruction, UserMessage.from("画关系图"))
+                    : List.of(instruction, AiMessage.from("已有工程"), UserMessage.from("修改节点和连线"));
             session.generate(model, context);
+            if (id == 104) {
+                verify(db).fail(eq(id), anyString(), contains("xy-architecture-2.json"));
+                verify(db, never()).complete(eq(2L), eq(1L), eq(id), anyString());
+                continue;
+            }
             verify(db).complete(eq(2L), eq(1L), eq(id), anyString());
-            assertThat(json.readTree(files.readVueProject(1,2,id).get(ArtworkProviders.MERMAID_IMAGE)).get("src").asText()).isEqualTo("image:" + end);
+            var delivered = files.readVueProject(1,2,id);
+            assertThat(json.readTree(delivered.get(ArtworkProviders.MERMAID_IMAGE)).get("src").asText()).isEqualTo("image:接口");
+            assertThat(json.readTree(delivered.get(orderImage)).get("src").asText()).isEqualTo("image:" + end);
+            assertThat(delivered.get("src/components/XyArchitecture2.vue")).contains("./xy-mermaid-image-2.json", "./xy-architecture-2.json");
         }
-        assertThat(files.readVueProject(1,2,101).get(ArtworkProviders.MERMAID_IMAGE)).contains("接口").doesNotContain("网关");
-        verify(artwork, times(2)).diagramImage(any());
+        assertThat(files.readVueProject(1,2,103).get(orderData)).contains("发货").doesNotContain("旧节点");
+        verify(artwork, times(3)).diagramImage(any());
+    }
+
+    @Test
+    void exhaustedDiagramKeepsItsOwnSlotAndDoesNotClaimOrdinaryJson(@TempDir Path dir) throws Exception {
+        var files = new GeneratedFileManager(dir);
+        var assets = new VueDiagramAssets(json, mock(ArtworkProviders.class), files, 1, 2, 3);
+        var prompt = new VueAssetPrompt();
+        String bad = "{\"nodes\":[\"入口\"],\"edges\":[{\"from\":\"入口\",\"to\":\"未知\"}]}";
+        String good = "{\"nodes\":[\"下单\",\"付款\"],\"edges\":[{\"from\":\"下单\",\"to\":\"付款\"}]}";
+        assertThat(assets.save(assets.prepare(bad, Runnable::run), prompt, n -> {})).contains("可修正一次");
+        assertThat(assets.save(assets.prepare(bad, Runnable::run), prompt, n -> {})).contains("改用文字说明");
+        assertThat(assets.save(assets.prepare(good, Runnable::run), prompt, n -> {})).contains("./components/XyArchitecture2.vue");
+        String ordinary = "src/components/xy-architecture.json";
+        files.writeVueSource(1,2,3, ordinary, "{\"title\":\"订单说明\"}");
+        files.writeVueSource(1,2,3,"src/App.vue", """
+                <script setup>import labels from './components/xy-architecture.json'; import Flow from './components/XyArchitecture2.vue'</script>
+                <template><h1>{{labels.title}}</h1><Flow/></template>""");
+        assertThat(files.vueArchitectureSlots(1,2,3)).containsExactly(2);
+        assertThat(files.readVueSource(1,2,3,"src/components/XyArchitecture2.vue")).contains("./xy-architecture-2.json");
+        assertThat(assets.findError(files.readVueSources(1,2,3))).isNull();
     }
 }

@@ -32,9 +32,9 @@ class ParallelVueAssetsTest {
         var json = new ObjectMapper();
         var artwork = mock(ArtworkProviders.class);
         var photos = mock(OpenversePhotoSearch.class);
-        var started = new CountDownLatch(4);
+        var started = new CountDownLatch(5);
         var release = new CountDownLatch(1);
-        var interrupted = new CountDownLatch(4);
+        var interrupted = new CountDownLatch(5);
         Runnable slowProvider = () -> {
             started.countDown();
             try {
@@ -51,13 +51,18 @@ class ParallelVueAssetsTest {
             slowProvider.run();
             return Optional.of("<img alt='" + json.readTree(design).get("name").asText() + "'/>");
         });
-        when(artwork.diagramImage(any())).thenAnswer(i -> { slowProvider.run(); return "image:客户端到服务"; });
+        when(artwork.diagramImage(any())).thenAnswer(i -> {
+            slowProvider.run();
+            return "image:" + String.join("到", i.<VueArchitectureDiagram.Diagram>getArgument(0).nodes());
+        });
         when(photos.findMany(eq("coffee"), eq(1), anySet())).thenAnswer(i -> { slowProvider.run(); return List.of(); });
         var calls = List.of(
                 tool("primary", "generateLogo", "{\"name\":\"星云\",\"purpose\":\"导航\"}"),
                 tool("partner", "generateLogo", "{\"purpose\":\"赞助方\",\"name\":\"乐团\"}"),
                 tool("footer", "generateLogo", "{\"purpose\":\"页尾\",\"name\":\"星云\"}"),
-                tool("drawArchitecture", "{\"nodes\":[\"客户端\",\"服务\"],\"edges\":[{\"from\":\"客户端\",\"to\":\"服务\"}]}"),
+                tool("system", "drawArchitecture", "{\"purpose\":\"系统图\",\"nodes\":[\"客户端\",\"服务\"],\"edges\":[{\"from\":\"客户端\",\"to\":\"服务\"}]}"),
+                tool("order", "drawArchitecture", "{\"purpose\":\"下单图\",\"nodes\":[\"选书\",\"下单\"],\"edges\":[{\"from\":\"选书\",\"to\":\"下单\"}]}"),
+                tool("repeat", "drawArchitecture", "{\"purpose\":\"附录\",\"nodes\":[\"客户端\",\"服务\"],\"edges\":[{\"from\":\"客户端\",\"to\":\"服务\"}]}"),
                 tool("findPhoto", "{\"theme\":\"coffee\"}"),
                 tool("selectIllustration", "{\"theme\":\"reading\"}"));
         var model = mock(StreamingChatModel.class);
@@ -81,7 +86,7 @@ class ParallelVueAssetsTest {
             var session = new GenerationSession(2, 1, 3, new SseEmitter(), db, output, () -> {}, mock(ScheduledExecutorService.class));
             var run = workers.submit(() -> session.generate(model, List.of(SystemMessage.from("制作网站"), UserMessage.from("做书店"))));
             try {
-                assertThat(started.await(4, SECONDS)).as("图库、两份不同的 Logo、架构图都已开始").isTrue();
+                assertThat(started.await(4, SECONDS)).as("图库、两份不同的 Logo、两份不同的架构图都已开始").isTrue();
                 await().atMost(4, SECONDS).until(() -> files.listVueSources(1, 2, 3).contains(ThemeIllustrations.VUE_COMPONENT));
                 assertThat(requests).hasSize(1);
                 if (cancel) {
@@ -101,16 +106,19 @@ class ParallelVueAssetsTest {
             assertThat(requests).hasSize(3);
             assertThat(requests.get(1).messages().stream().filter(ToolExecutionResultMessage.class::isInstance)
                     .map(ToolExecutionResultMessage.class::cast).map(ToolExecutionResultMessage::toolName))
-                    .containsExactly("generateLogo", "generateLogo", "generateLogo", "drawArchitecture", "findPhoto", "selectIllustration");
+                    .containsExactly("generateLogo", "generateLogo", "generateLogo", "drawArchitecture", "drawArchitecture",
+                            "drawArchitecture", "findPhoto", "selectIllustration");
             assertThat(files.readVueSource(1, 2, 3, ArtworkProviders.MERMAID_IMAGE)).contains("客户端到服务");
+            assertThat(files.readVueSource(1, 2, 3, "src/components/xy-mermaid-image-2.json")).contains("选书到下单");
             assertThat(files.readVueSource(1, 2, 3, VueBrandLogo.COMPONENT)).contains("星云").doesNotContain("乐团");
             assertThat(files.readVueSource(1, 2, 3, "src/components/XyLogo2.vue")).contains("乐团").doesNotContain("星云");
             assertThat(((UserMessage) requests.get(1).messages().get(1)).singleText())
-                    .containsOnlyOnce("XyLogo.vue").containsSubsequence("XyLogo.vue", "导航", "页尾", "XyLogo2.vue", "赞助方");
-            verify(artwork, times(1)).diagramImage(any());
+                    .containsOnlyOnce("XyLogo.vue").containsSubsequence("XyLogo.vue", "导航", "页尾", "XyLogo2.vue", "赞助方")
+                    .containsOnlyOnce("XyArchitecture.vue").containsSubsequence("XyArchitecture.vue", "系统图", "附录", "XyArchitecture2.vue", "下单图");
             verify(db).complete(eq(2L), eq(1L), eq(3L), anyString());
         }
         verify(artwork, times(2)).logoImage(any(), anyString());
+        verify(artwork, times(2)).diagramImage(any());
     }
 
     private static ToolExecutionRequest tool(String name, String args) {

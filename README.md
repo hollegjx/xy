@@ -24,7 +24,9 @@ xy/
 └── .gitignore      本地文件与构建产物忽略规则
 ```
 
-后端 Java 包位于 `backend/src/main/java/com/xy`：
+IDEA 从 `backend/pom.xml` 导入 Maven 父工程。`backend/modules/common` 独立打包统一响应、业务异常、错误码和 Session 用户键；平台通过 Maven 依赖这份 JAR。可执行平台模块是 `backend/platform`，现有源码和本地配置仍在 `backend/src`。在 `backend/` 执行 `sh mvnw package` 会构建依赖并生成部署用的 `target/xy-backend-0.0.1-SNAPSHOT.jar`。
+
+模块内沿用以下 Java 包：
 
 ```text
 com.xy/

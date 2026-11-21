@@ -40,6 +40,8 @@ springdoc:
 
 xy:
   user:
+    # 保持单体可直接运行；账号 HTTP 分流到独立用户服务后，在平台设为 false。
+    http-enabled: true
     # 用户身份查询；独立服务同机运行时填 'tri://127.0.0.1:50051'，留空沿用单体查询。
     rpc-url: ''
   ai:

@@ -19,6 +19,7 @@
     <module>modules/web</module>
     <module>modules/client</module>
     <module>modules/user-data</module>
+    <module>modules/user-web</module>
     <module>modules/screenshot-renderer</module>
     <module>services/screenshot</module>
     <module>services/user</module>
@@ -28,6 +29,7 @@
     <java.version>21</java.version>
     <maven.compiler.parameters>true</maven.compiler.parameters>
     <swagger-annotations.version>2.2.47</swagger-annotations.version>
+    <springdoc.version>2.8.17</springdoc.version>
     <mybatis-flex.version>1.11.8</mybatis-flex.version>
     <dubbo.version>3.3.7</dubbo.version>
   </properties>
@@ -62,6 +64,11 @@
       <dependency>
         <groupId>com.xy</groupId>
         <artifactId>xy-user-data</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>com.xy</groupId>
+        <artifactId>xy-user-web</artifactId>
         <version>${project.version}</version>
       </dependency>
       <dependency>

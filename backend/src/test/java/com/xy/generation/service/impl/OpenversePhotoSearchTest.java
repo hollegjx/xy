@@ -16,6 +16,40 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 class OpenversePhotoSearchTest {
     @Test
+    void collectsDistinctPhotosPerThemeWithoutLosingSiblingsWhenOneOriginalIsUnavailable() throws Exception {
+        String gallery = "https://www.flickr.com/photos/demo/";
+        var jpeg = new ByteArrayOutputStream();
+        ImageIO.write(new BufferedImage(2, 2, BufferedImage.TYPE_INT_RGB), "jpeg", jpeg);
+        var urls = new ArrayList<String>();
+        var mapper = new ObjectMapper();
+        var search = new OpenversePhotoSearch(mapper) {
+            @Override byte[] get(String url, int limit) throws IOException {
+                urls.add(url);
+                if (url.startsWith("https://api.openverse.org/")) {
+                    assertThat(url).contains("q=latte&license=cc0&source=flickr&page_size=20&page=");
+                    var ids = url.endsWith("page=1") ? List.of("1", "1", "2") : List.of("3");
+                    return mapper.writeValueAsBytes(java.util.Map.of("page_count", 2, "results", ids.stream()
+                            .map(id -> java.util.Map.of("source", "flickr", "license", "cc0", "foreign_landing_url", gallery + id)).toList()));
+                }
+                if (url.startsWith(gallery)) {
+                    String id = url.substring(gallery.length());
+                    if (id.equals("2")) throw new IOException("该原页不可用");
+                    return ("<meta property='og:image' content='https://live.staticflickr.com/12/" + id + "_aabb.jpg'>"
+                            + "<div class='photo-license-info'><a rel='license' href='https://creativecommons.org/publicdomain/zero/1.0/'></a></div>")
+                            .getBytes(StandardCharsets.UTF_8);
+                }
+                assertThat(url).matches("https://live\\.staticflickr\\.com/12/[13]_aabb_z\\.jpg");
+                return jpeg.toByteArray();
+            }
+        };
+        assertThat(search.findMany("姓名或自由词", 21)).isEmpty();
+        assertThat(urls).isEmpty();
+        assertThat(search.findMany("coffee", 21)).extracting(OpenversePhotoSearch.Photo::source)
+                .containsExactly(gallery + "1", gallery + "3");
+        assertThat(urls).filteredOn((String url) -> url.equals(gallery + "1")).hasSize(1);
+    }
+
+    @Test
     void onlyPresetThemesCanReachOpenverseIncludingTheFlickrFallback() {
         List<String> requests = new ArrayList<>();
         var search = new OpenversePhotoSearch(new ObjectMapper()) {

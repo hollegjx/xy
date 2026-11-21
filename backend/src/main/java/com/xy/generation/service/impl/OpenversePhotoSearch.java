@@ -8,7 +8,9 @@ import java.io.IOException;
 import java.net.URI;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.Base64;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -50,31 +52,62 @@ public class OpenversePhotoSearch {
             if (!hit.isMissingNode() && !"flickr".equals(hit.path("source").asText())) {
                 hit = firstResult(search + "&source=flickr");
             }
-            if (!"cc0".equals(hit.path("license").asText()) || !"flickr".equals(hit.path("source").asText())) {
-                return Optional.empty();
-            }
-            String page = hit.path("foreign_landing_url").asText();
-            var landing = LANDING.matcher(page);
-            if (!landing.matches()) return Optional.empty();
-            // 索引只用于发现照片，许可及实际图片均以这张照片的原始页面为准。
-            var doc = Jsoup.parse(new String(get(page, 2_000_000), StandardCharsets.UTF_8));
-            boolean cc0 = doc.select(".photo-license-info a[rel~=license][href]").stream()
-                    .anyMatch(a -> a.attr("href").matches("https?://creativecommons\\.org/publicdomain/zero/1\\.0/(?:deed\\.[a-zA-Z_-]+)?"));
-            var meta = doc.selectFirst("meta[property=og:image][content]");
-            if (!cc0 || meta == null) return Optional.empty();
-            var image = IMAGE.matcher(meta.attr("content"));
-            if (!image.matches() || !image.group(2).equals(landing.group(1))) return Optional.empty();
-            // 固定图床和 640px JPEG，不接受模型给出的 URL，也不追随重定向。
-            String thumb = "https://live.staticflickr.com/" + image.group(1) + "/" + image.group(2)
-                    + "_" + image.group(3) + "_z.jpg";
-            byte[] bytes = get(thumb, 512_000);
-            if (bytes.length < 4 || bytes[0] != (byte) 0xff || bytes[1] != (byte) 0xd8
-                    || bytes[bytes.length - 2] != (byte) 0xff || bytes[bytes.length - 1] != (byte) 0xd9
-                    || !decodableThumbnail(bytes)) return Optional.empty();
-            return Optional.of(new Photo("data:image/jpeg;base64," + Base64.getEncoder().encodeToString(bytes), page, "CC0"));
+            return verifyPhoto(hit);
         } catch (IOException error) {
             return Optional.empty();
         }
+    }
+
+    // 同一主题的多张照片从一次分页搜索取候选，各自核对原页许可，重复作品不会占用另一个位置。
+    public List<Photo> findMany(String theme, int count) {
+        String query = theme == null ? null : QUERIES.get(theme);
+        if (query == null || count < 1) return List.of();
+        int pageSize = Math.min(count, 20);
+        var photos = new ArrayList<Photo>();
+        var seen = new HashSet<String>();
+        String base = "https://api.openverse.org/v1/images/?q=" + URLEncoder.encode(query, StandardCharsets.UTF_8)
+                + "&license=cc0&source=flickr&page_size=" + pageSize;
+        int pages = Math.ceilDiv(count, pageSize);
+        for (int page = 1; page <= pages && !Thread.currentThread().isInterrupted(); page++) {
+            try {
+                var result = mapper.reader().readTree(get(base + "&page=" + page, 512_000));
+                pages = Math.min(pages, result.path("page_count").asInt(1));
+                for (var hit : result.path("results")) {
+                    if (Thread.currentThread().isInterrupted()) return List.copyOf(photos);
+                    var landing = LANDING.matcher(hit.path("foreign_landing_url").asText());
+                    if (!landing.matches() || seen.contains(landing.group(1))) continue;
+                    try { verifyPhoto(hit).ifPresent(p -> { seen.add(landing.group(1)); photos.add(p); }); }
+                    catch (IOException unavailable) { /* 单张损坏不影响同批其他照片。 */ }
+                    if (photos.size() == count) return List.copyOf(photos);
+                }
+            } catch (IOException unavailable) { break; }
+        }
+        return List.copyOf(photos);
+    }
+
+    private Optional<Photo> verifyPhoto(JsonNode hit) throws IOException {
+        if (!"cc0".equals(hit.path("license").asText()) || !"flickr".equals(hit.path("source").asText())) {
+            return Optional.empty();
+        }
+        String page = hit.path("foreign_landing_url").asText();
+        var landing = LANDING.matcher(page);
+        if (!landing.matches()) return Optional.empty();
+        // 索引只用于发现照片，许可及实际图片均以这张照片的原始页面为准。
+        var doc = Jsoup.parse(new String(get(page, 2_000_000), StandardCharsets.UTF_8));
+        boolean cc0 = doc.select(".photo-license-info a[rel~=license][href]").stream()
+                .anyMatch(a -> a.attr("href").matches("https?://creativecommons\\.org/publicdomain/zero/1\\.0/(?:deed\\.[a-zA-Z_-]+)?"));
+        var meta = doc.selectFirst("meta[property=og:image][content]");
+        if (!cc0 || meta == null) return Optional.empty();
+        var image = IMAGE.matcher(meta.attr("content"));
+        if (!image.matches() || !image.group(2).equals(landing.group(1))) return Optional.empty();
+        // 固定图床和 640px JPEG，不接受模型给出的 URL，也不追随重定向。
+        String thumb = "https://live.staticflickr.com/" + image.group(1) + "/" + image.group(2)
+                + "_" + image.group(3) + "_z.jpg";
+        byte[] bytes = get(thumb, 512_000);
+        if (bytes.length < 4 || bytes[0] != (byte) 0xff || bytes[1] != (byte) 0xd8
+                || bytes[bytes.length - 2] != (byte) 0xff || bytes[bytes.length - 1] != (byte) 0xd9
+                || !decodableThumbnail(bytes)) return Optional.empty();
+        return Optional.of(new Photo("data:image/jpeg;base64," + Base64.getEncoder().encodeToString(bytes), page, "CC0"));
     }
 
     private JsonNode firstResult(String url) throws IOException {

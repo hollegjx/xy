@@ -257,7 +257,7 @@ class GenerationControllerTest {
         boolean repair = quality && useArt;
         if (repair) expected.compute("index.html", (key, text) -> text.replace("摄影作品集", "数据看板"));
         String output = multi ? objectMapper.writeValueAsString(expected) : expected.get("index.html");
-        if (quality && useArt) planReturns(objectMapper.writeValueAsString(Map.of("illustrationTheme", theme)));
+        if (quality && useArt) planReturns(objectMapper.writeValueAsString(Map.of("illustrations", List.of(Map.of("theme", theme)))));
         var writes = new AtomicInteger();
         var checks = new AtomicInteger();
         doAnswer(call -> {
@@ -410,7 +410,7 @@ class GenerationControllerTest {
         var handle = mock(StreamingHandle.class);
         doAnswer(call -> {
             var handler = call.<StreamingChatResponseHandler>getArgument(1);
-            handler.onPartialResponse(new PartialResponse("{\"photoTheme\":"), new PartialResponseContext(handle));
+            handler.onPartialResponse(new PartialResponse("{\"photos\":"), new PartialResponseContext(handle));
             underway.complete(handler);
             return null;
         }).when(model).chat(planRequest(), any(StreamingChatResponseHandler.class));
@@ -419,9 +419,9 @@ class GenerationControllerTest {
         var handler = underway.get(3, TimeUnit.SECONDS);
         mockMvc.perform(cancel(generationId).session(session())).andExpect(status().isOk());
         verify(handle).cancel();
-        handler.onCompleteResponse(response("{\"photoTheme\":\"coffee\"}", FinishReason.STOP));
+        handler.onCompleteResponse(response("{\"photos\":[{\"theme\":\"coffee\"}]}", FinishReason.STOP));
         assertThat(finish(result)).contains("正在规划页面素材", "event:cancelled")
-                .doesNotContain("photoTheme", "开始生成页面", "event:completed");
+                .doesNotContain("photos", "开始生成页面", "event:completed");
         verifyNoInteractions(photoSearch);
         verify(model, never()).chat(draftRequest(), any());
         assertThat(htmlPath()).doesNotExist();
@@ -434,7 +434,7 @@ class GenerationControllerTest {
             var handler = call.<StreamingChatResponseHandler>getArgument(1);
             if (outcome.equals("offline")) handler.onError(new IOException("规划服务暂不可用"));
             else handler.onCompleteResponse(response(outcome.equals("private")
-                    ? "{\"photoTheme\":\"private name\",\"illustrationTheme\":\"unknown\"}" : "不是 JSON", FinishReason.STOP));
+                    ? "{\"photos\":[{\"theme\":\"private name\"}],\"illustrations\":[{\"theme\":\"unknown\"}]}" : "不是 JSON", FinishReason.STOP));
             return null;
         }).when(model).chat(planRequest(), any(StreamingChatResponseHandler.class));
         doAnswer(call -> {
@@ -460,7 +460,7 @@ class GenerationControllerTest {
         var searching = new CountDownLatch(1);
         var release = new CountDownLatch(1);
         var callbackFinished = new CountDownLatch(1);
-        planReturns("{\"photoTheme\":\"coffee\"}");
+        planReturns("{\"photos\":[{\"theme\":\"coffee\"}]}");
         when(photoSearch.find("coffee")).thenAnswer(call -> {
             searching.countDown();
             try { if (!release.await(5, TimeUnit.SECONDS)) throw new AssertionError("图库一直未释放"); }
@@ -505,7 +505,7 @@ class GenerationControllerTest {
             return null;
         }).when(model).chat(draftRequest(), any(StreamingChatResponseHandler.class));
         boolean quality = theme.equals("coffee");
-        if (quality) planReturns("{\"photoTheme\":\"coffee\"}");
+        if (quality) planReturns("{\"photos\":[{\"theme\":\"coffee\"}]}");
         doAnswer(call -> {
             var messages = call.<ChatRequest>getArgument(0).messages();
             assertThat(((SystemMessage) messages.getFirst()).text()).contains("允许保留替代文字");
@@ -540,7 +540,7 @@ class GenerationControllerTest {
         javax.imageio.ImageIO.write(new java.awt.image.BufferedImage(3, 2, java.awt.image.BufferedImage.TYPE_INT_RGB), "jpeg", bytes);
         String src = "data:image/jpeg;base64," + java.util.Base64.getEncoder().encodeToString(bytes.toByteArray());
         String credit = "https://www.flickr.com/photos/xy/123";
-        if (multi) planReturns("{\"photoTheme\":\"coffee\"}");
+        if (multi) planReturns("{\"photos\":[{\"theme\":\"coffee\"}]}");
         when(photoSearch.find("coffee")).thenReturn(java.util.Optional.of(new OpenversePhotoSearch.Photo(src, credit, "CC0")));
         var files = new LinkedHashMap<>(multi ? multiFiles() : Map.of("index.html", HTML));
         String slot = multi ? "<img DATA-XY-PHOTO='coffee' alt='咖啡豆'>" : "<img data-xy-photo='coffee' alt='咖啡豆'>";
@@ -622,6 +622,88 @@ class GenerationControllerTest {
         verify(model, times(multi ? 1 : 0)).chat(planRequest(), any());
         assertThat(writes).hasValue(multi ? 3 : 2);
         assertThat(checks).hasValue(multi ? 3 : 1);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"html", "multi_file"})
+    void photoSlotsKeepTheirOwnCreditsAndBytesOnRepairDownloadAndFollowup(String mode) throws Exception {
+        var app = app(42L, mode);
+        when(appMapper.selectOneById(55L)).thenReturn(app);
+        planReturns("""
+                {"photos":[{"theme":"coffee","purpose":"首页头图"},{"theme":"food","purpose":"餐点"},
+                  {"theme":"coffee","purpose":"菜单特写"}],
+                 "illustrations":[{"theme":"reading","purpose":"读书区"},{"theme":"analytics","purpose":"统计区"}]}""");
+        String first = "https://www.flickr.com/photos/demo/1", second = "https://www.flickr.com/photos/demo/2";
+        String firstBytes = jpegWithColor(0xcc0000), secondBytes = jpegWithColor(0x0000cc);
+        assertThat(firstBytes).isNotEqualTo(secondBytes);
+        when(photoSearch.findMany("coffee", 2)).thenReturn(List.of(new OpenversePhotoSearch.Photo(firstBytes, first, "CC0"),
+                new OpenversePhotoSearch.Photo(secondBytes, second, "CC0")));
+        String followup = "给菜单另起一个标题";
+        long next = IDS.incrementAndGet();
+        when(persistence.start(55L, 42L, followup)).thenReturn(next);
+        var record = new ChatHistory();
+        record.setAppId(55L); record.setUserId(42L); record.setMessageRole("assistant"); record.setStatus("completed");
+        when(chatHistoryMapper.selectOneById(generationId)).thenReturn(record);
+        when(chatHistoryMapper.selectOneById(next)).thenReturn(record);
+        doAnswer(call -> { app.setGeneratedVersion(call.getArgument(2)); return null; })
+                .when(persistence).complete(eq(55L), eq(42L), any(Long.class), any());
+        boolean multi = mode.equals("multi_file");
+        var files = new LinkedHashMap<>(multi ? multiFiles() : Map.of("index.html", HTML));
+        files.compute("index.html", (k, html) -> html.replace("你好", """
+                <img id="menu" data-xy-photo="coffee-2" alt="菜单特写"><img id="banner" data-xy-photo="coffee" alt="首页头图">
+                <img id="food" data-xy-photo="food" alt="餐点"><!--xy:illustration:reading--><!--xy:illustration:analytics-->"""));
+        String draft = multi ? objectMapper.writeValueAsString(files) : files.get("index.html");
+        var writes = new AtomicInteger();
+        doAnswer(call -> {
+            var messages = call.<ChatRequest>getArgument(0).messages();
+            String result;
+            if (writes.incrementAndGet() == 1) {
+                String manifest = ((UserMessage) messages.getLast()).singleText();
+                assertThat(manifest).containsSubsequence("data-xy-photo=\"coffee\"", first, "首页头图", "data-xy-photo=\"coffee-2\"", second, "菜单特写")
+                        .contains("xy:illustration:reading", "读书区", "xy:illustration:analytics", "统计区").doesNotContain("餐点", "base64,");
+                result = draft;
+            } else {
+                result = ((AiMessage) messages.get(messages.size() - 2)).text();
+                assertThat(result).contains(first, second, "学习阅读", "数据分析").doesNotContain("base64,");
+                result = result.replace("</title>", " · 更新</title>");
+            }
+            call.<StreamingChatResponseHandler>getArgument(1).onCompleteResponse(response(result, FinishReason.STOP));
+            return null;
+        }).when(model).chat(draftRequest(), any(StreamingChatResponseHandler.class));
+        var checks = new AtomicInteger();
+        doAnswer(call -> {
+            String prompt = ((UserMessage) call.<ChatRequest>getArgument(0).messages().getLast()).singleText();
+            assertThat(prompt).contains(first, second, "CC0", "学习阅读", "数据分析").doesNotContain("base64,");
+            String report = checks.incrementAndGet() == 1 ? "{\"isValid\":false,\"errors\":[\"标题\"],\"suggestions\":[]}"
+                    : "{\"isValid\":true,\"errors\":[],\"suggestions\":[]}";
+            call.<StreamingChatResponseHandler>getArgument(1).onCompleteResponse(response(report, FinishReason.STOP));
+            return null;
+        }).when(model).chat(nonDraftRequest(), any(StreamingChatResponseHandler.class));
+        for (var request : List.of("摄影作品集", followup)) {
+            assertThat(finish(mockMvc.perform(generate().session(session()).content(objectMapper.writeValueAsString(
+                    Map.of("prompt", request, "qualityCheck", true)))).andReturn())).contains("event:completed");
+            var zip = mockMvc.perform(get("/api/apps/55/source").contextPath("/api").session(session()))
+                    .andExpect(status().isOk()).andReturn().getResponse().getContentAsByteArray();
+            var doc = org.jsoup.Jsoup.parse(unzipSources(zip).get("index.html"));
+            assertThat(doc.expectFirst("#menu").attr("src")).isEqualTo(secondBytes);
+            assertThat(doc.expectFirst("#menu").attr("data-xy-source")).isEqualTo(second);
+            assertThat(doc.expectFirst("#banner").attr("src")).isEqualTo(firstBytes);
+            assertThat(doc.expectFirst("#banner").attr("data-xy-source")).isEqualTo(first);
+            assertThat(doc.expectFirst("span#food").text()).isEqualTo("餐点");
+            assertThat(doc.select("svg").eachAttr("aria-label")).extracting(s -> s.split("：", 2)[0]).containsExactly("学习阅读", "数据分析");
+        }
+        verify(model).chat(planRequest(), any());
+        verify(photoSearch).findMany("coffee", 2);
+        verify(photoSearch).find("food");
+        assertThat(writes).hasValue(3);
+    }
+
+    private static String jpegWithColor(int rgb) throws IOException {
+        var img = new java.awt.image.BufferedImage(2, 2, java.awt.image.BufferedImage.TYPE_INT_RGB);
+        img.setRGB(0, 0, 2, 2, new int[]{rgb,rgb,rgb,rgb}, 0, 2);
+        var bytes = new java.io.ByteArrayOutputStream();
+        javax.imageio.ImageIO.write(img, "jpeg", bytes);
+        return "data:image/jpeg;base64," + java.util.Base64.getEncoder().encodeToString(bytes.toByteArray());
     }
 
     @Test

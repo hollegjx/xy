@@ -30,7 +30,7 @@ import static org.mockito.Mockito.*;
 
 class NativeWorkflowAssetsTest {
     private static final String PLAN = """
-            {"photoTheme":"coffee","illustrationTheme":"reading","logo":{"name":"书屋","brief":"书页","layers":[]},
+            {"photos":[{"theme":"coffee"}],"illustrations":[{"theme":"reading"}],"logo":{"name":"书屋","brief":"书页","layers":[]},
              "architecture":{"nodes":["入口","书库"],"edges":[{"from":"入口","to":"书库"}]}}""";
     private static final String PAGE = """
             <!DOCTYPE html><html><head><title>书屋</title></head><body><img data-xy-photo="coffee" alt="咖啡">

@@ -1,6 +1,8 @@
 package com.xy.generation.service.impl;
 
 import java.util.Comparator;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.TreeMap;
 import java.util.function.Function;
@@ -9,7 +11,7 @@ import org.jsoup.nodes.Element;
 import org.jsoup.nodes.Range;
 import org.jsoup.parser.Parser;
 
-// 每次原生生成只持有一张照片。模型编辑带主题和来源的 img，交付的 HTML 才包含 JPEG。
+// 照片按本轮标记独立保存；模型编辑含署名的 img，交付的 HTML 才包含 JPEG。
 final class NativeContentPhoto {
     private static final String THEME = "data-xy-photo";
     private static final String SOURCE = "data-xy-source";
@@ -26,60 +28,66 @@ final class NativeContentPhoto {
     static final String EDIT_HINT = "已有 data-xy-photo 图片的来源和许可随标签提供，系统在交付时填入 src；保留、移动或删除标签即可。";
 
     private final OpenversePhotoSearch search;
-    private String theme;
-    private OpenversePhotoSearch.Photo photo;
+    private final HashMap<String, OpenversePhotoSearch.Photo> photos = new HashMap<>();
+    private final HashSet<String> attempted = new HashSet<>();
 
     NativeContentPhoto(OpenversePhotoSearch search) { this.search = search; }
 
-    boolean available() { return photo != null; }
+    boolean available() { return !photos.isEmpty(); }
 
     String inherit(String html) {
         return rewriteImages(html, image -> {
             String src = image.attr("src");
             if (!src.startsWith("data:image/jpeg;base64,") || !image.hasAttr(SOURCE)
                     || !"CC0".equals(image.attr(LICENSE))) return null;
-            theme = image.attr(THEME);
-            photo = new OpenversePhotoSearch.Photo(src, image.attr(SOURCE), image.attr(LICENSE));
+            remember(image.attr(THEME), new OpenversePhotoSearch.Photo(src, image.attr(SOURCE), image.attr(LICENSE)));
             return image.removeAttr("src").outerHtml();
         });
     }
 
-    OpenversePhotoSearch.Attribution collect(String requested, GenerationSession session) {
-        if (requested != null && theme == null && OpenversePhotoSearch.themes().contains(requested) && session.isRunning()) {
-            theme = requested;
-            session.onPartialResponse("\n正在查找内容配图…\n");
-            if (!session.isRunning()) return null;
-            OpenversePhotoSearch.Photo found;
-            try { found = search.find(theme).orElse(null); }
-            catch (RuntimeException unavailable) { found = null; }
-            synchronized (session) {
-                if (!session.isRunning()) return null;
-                photo = found;
-                session.onPartialResponse(available() ? "\n已准备本地内容配图（CC0）。\n" : "\n未取得可用配图，使用替代文字。\n");
-            }
+    List<OpenversePhotoSearch.Photo> collect(String theme, int count, GenerationSession session) {
+        if (!session.isRunning() || !OpenversePhotoSearch.themes().contains(theme)) return List.of();
+        session.onPartialResponse("\n正在查找内容配图…\n");
+        if (!session.isRunning()) return List.of();
+        List<OpenversePhotoSearch.Photo> found;
+        try { found = count == 1 ? search.find(theme).stream().toList() : search.findMany(theme, count); }
+        catch (RuntimeException unavailable) { found = List.of(); }
+        synchronized (session) {
+            if (!session.isRunning()) return List.of();
+            session.onPartialResponse(found.isEmpty() ? "\n未取得可用配图，使用替代文字。\n" : "\n已准备本地内容配图（CC0）。\n");
         }
-        return available() ? photo.attribution() : null;
+        return found;
+    }
+
+    void remember(String marker, OpenversePhotoSearch.Photo result) {
+        attempted.add(marker);
+        if (result != null) photos.put(marker, result);
     }
 
     String prepare(String html, boolean maySearch, GenerationSession session) {
         return rewriteImages(html, image -> {
             String requested = image.attr(THEME);
-            if (maySearch) collect(requested, session);
-            if (available() && theme.equals(requested)) {
+            if (maySearch && attempted.isEmpty() && OpenversePhotoSearch.themes().contains(requested))
+                remember(requested, collect(requested, 1, session).stream().findFirst().orElse(null));
+            var photo = photos.get(requested);
+            if (photo != null) {
                 return image.removeAttr("src").removeAttr("srcset").attr(SOURCE, photo.source())
                         .attr(LICENSE, photo.license()).outerHtml();
             }
             String alt = image.attr("alt");
             var fallback = image.clone().tagName("span").text(alt.isBlank() ? "暂无配图" : alt);
             IMAGE_ATTRIBUTES.forEach(fallback::removeAttr); // 保留按钮所指的 id、hidden、class、aria-* 等通用属性。
-            if (requested.equals(theme) && !available()) fallback.attr(UNAVAILABLE, theme);
+            if (attempted.contains(requested)) fallback.attr(UNAVAILABLE, requested);
             return fallback.outerHtml();
         });
     }
 
     String embed(String html) {
         if (!available()) return html;
-        return rewriteImages(html, image -> theme.equals(image.attr(THEME)) ? image.attr("src", photo.src()).outerHtml() : null);
+        return rewriteImages(html, image -> {
+            var photo = photos.get(image.attr(THEME));
+            return photo == null ? null : image.attr("src", photo.src()).outerHtml();
+        });
     }
 
     private static String rewriteImages(String html, Function<Element, String> edit) {

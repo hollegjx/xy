@@ -28,8 +28,6 @@ import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.when;
 
 class AiCallMetricsIntegrationTest {
     private final ObjectMapper json = new ObjectMapper();
@@ -53,9 +51,7 @@ class AiCallMetricsIntegrationTest {
                         var models = beans.getBean(GenerationModels.class);
                         var nativeClient = models.forApp(11,101, CodeGenTypeEnum.HTML);
                         var vue = models.forApp(22,202, CodeGenTypeEnum.VUE_PROJECT).model();
-                        var session = mock(GenerationSession.class);
-                        when(session.isRunning()).thenReturn(true);
-                        var first = nativeClient.writer().generate(List.of(UserMessage.from("PRIVATE_PROMPT")), session)
+                        var first = nativeClient.writer().generate(List.of(UserMessage.from("PRIVATE_PROMPT")), () -> true)
                                 .collectList().subscribeOn(reactor.core.scheduler.Schedulers.boundedElastic()).toFuture();
                         try {
                             assertThat(nativeStarted.await(5, TimeUnit.SECONDS)).isTrue();

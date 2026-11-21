@@ -30,7 +30,6 @@ import reactor.adapter.JdkFlowAdapter;
 import reactor.core.publisher.Flux;
 
 import static org.assertj.core.api.Assertions.*;
-import static org.mockito.Mockito.*;
 
 class NativeOutputGuardrailTest {
     @Test
@@ -51,11 +50,9 @@ class NativeOutputGuardrailTest {
                 return JdkFlowAdapter.publisherToFlowPublisher(events);
             }
         };
-        var session = mock(GenerationSession.class);
-        when(session.isRunning()).thenReturn(true);
         var visible = new CopyOnWriteArrayList<NativeCodeStream.Chunk>();
         var stream = new NativeCodeStream(model, true)
-                .generate(List.of(UserMessage.from("展示作品")), session).subscribe(visible::add);
+                .generate(List.of(UserMessage.from("展示作品")), () -> true).subscribe(visible::add);
         try {
             assertThat(retried.await(3, TimeUnit.SECONDS)).isTrue();
         } finally {
@@ -87,11 +84,9 @@ class NativeOutputGuardrailTest {
         try {
             var model = OpenAiStreamingChatModel.builder().baseUrl("http://127.0.0.1:" + gateway.getAddress().getPort() + "/v1")
                     .apiKey("test").modelName("test").build();
-            var session = mock(GenerationSession.class);
-            when(session.isRunning()).thenReturn(true);
             var visible = new CopyOnWriteArrayList<String>();
             var result = new NativeCodeStream(model, true)
-                    .generate(List.of(SystemMessage.from("生成网站"), UserMessage.from("展示作品")), session)
+                    .generate(List.of(SystemMessage.from("生成网站"), UserMessage.from("展示作品")), () -> true)
                     .doOnNext(chunk -> { if (chunk.delta() != null) visible.add(chunk.delta()); });
             if (repaired) {
                 assertThat(result.blockLast(Duration.ofSeconds(5)).finalResponse().aiMessage().text()).isEqualTo(valid);

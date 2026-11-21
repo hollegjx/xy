@@ -14,12 +14,12 @@
   <description>星云 AI 零代码应用生成平台后端</description>
 
   <properties>
-    <langchain4j.version>1.22.0</langchain4j.version>
     <redisson.version>3.50.0</redisson.version>
     <jsoup.version>1.24.1</jsoup.version>
   </properties>
 
   <dependencies>
+    <dependency><groupId>com.xy</groupId><artifactId>xy-ai</artifactId></dependency>
     <dependency><groupId>com.xy</groupId><artifactId>xy-user-web</artifactId></dependency>
     <dependency><groupId>com.xy</groupId><artifactId>xy-web</artifactId></dependency>
     <dependency><groupId>com.xy</groupId><artifactId>xy-user-data</artifactId></dependency>
@@ -76,11 +76,6 @@
       <groupId>com.qcloud</groupId>
       <artifactId>cos_api</artifactId>
       <version>5.6.283</version>
-    </dependency>
-    <dependency>
-      <groupId>dev.langchain4j</groupId>
-      <artifactId>langchain4j-reactor</artifactId>
-      <version>1.22.0-beta32</version>
     </dependency>
     <dependency>
       <groupId>com.github.ben-manes.caffeine</groupId>

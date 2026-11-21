@@ -19,12 +19,13 @@ import java.util.List;
 import java.util.Set;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.Flow;
+import java.util.function.BooleanSupplier;
 import reactor.adapter.JdkFlowAdapter;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Sinks;
 
-/** 对外保留 XY 的 SSE 事件；模型先送分片，最后单独送结束原因和完整候选稿。 */
-final class NativeCodeStream {
+/** 单 HTML 与多文件共用的 AI Service。模型先送分片，最后送结束原因和完整候选稿。 */
+public final class NativeCodeStream {
     interface Writer extends ChatMemoryAccess {
         @dev.langchain4j.service.UserMessage("{{request}}")
         Flux<AiServiceStreamingEvent> write(@MemoryId Object turn, @V("request") String request);
@@ -36,12 +37,12 @@ final class NativeCodeStream {
         Turn(List<ChatMessage> previous) { this.previous = List.copyOf(previous); }
     }
 
-    record Chunk(String delta, ChatResponse finalResponse) {}
+    public record Chunk(String delta, ChatResponse finalResponse) {}
     private final StreamingChatModel model;
     private final Writer plainWriter;
     private final boolean guarded;
 
-    NativeCodeStream(StreamingChatModel model, boolean guarded) {
+    public NativeCodeStream(StreamingChatModel model, boolean guarded) {
         this.model = model;
         this.guarded = guarded;
         this.plainWriter = guarded ? null : writer(model, false);
@@ -60,12 +61,12 @@ final class NativeCodeStream {
         return builder.build();
     }
 
-    Flux<Chunk> generate(List<ChatMessage> messages, GenerationSession session) {
+    public Flux<Chunk> generate(List<ChatMessage> messages, BooleanSupplier running) {
         String prompt = ((UserMessage) messages.getLast()).singleText();
         return Flux.defer(() -> {
-                    if (!session.isRunning()) return Flux.<AiServiceStreamingEvent>empty();
+                    if (!running.getAsBoolean()) return Flux.<AiServiceStreamingEvent>empty();
                     var turn = new Turn(messages.subList(0, messages.size() - 1));
-                    var scope = guarded ? new GuardedTurnModel(model, session) : null;
+                    var scope = guarded ? new GuardedTurnModel(model, running) : null;
                     Writer service = guarded ? writer(scope, true) : plainWriter;
                     return Flux.defer(() -> service.write(turn, prompt)).doFinally(signal -> {
                         if (scope != null) scope.stop();
@@ -88,17 +89,17 @@ final class NativeCodeStream {
     // SDK 的护轨会独立订阅纠正请求；外层 Flux 取消时，同一轮的每个模型订阅都必须停止。
     private static final class GuardedTurnModel implements StreamingChatModel {
         private final StreamingChatModel delegate;
-        private final GenerationSession session;
+        private final BooleanSupplier running;
         private final Sinks.Empty<Void> stopSignal = Sinks.empty();
         private volatile boolean stopped;
 
-        GuardedTurnModel(StreamingChatModel delegate, GenerationSession session) {
+        GuardedTurnModel(StreamingChatModel delegate, BooleanSupplier running) {
             this.delegate = delegate;
-            this.session = session;
+            this.running = running;
         }
 
         @Override public Flow.Publisher<ChatModelStreamingEvent> chat(ChatRequest request) {
-            var events = Flux.defer(() -> stopped || !session.isRunning()
+            var events = Flux.defer(() -> stopped || !running.getAsBoolean()
                     ? Flux.<ChatModelStreamingEvent>error(new CancellationException())
                     : JdkFlowAdapter.flowPublisherToFlux(delegate.chat(request)));
             return JdkFlowAdapter.publisherToFlowPublisher(events.takeUntilOther(stopSignal.asMono()));

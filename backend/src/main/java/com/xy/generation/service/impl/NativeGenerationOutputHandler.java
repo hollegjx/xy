@@ -121,7 +121,7 @@ final class NativeGenerationOutputHandler implements GenerationSession.OutputHan
                 else target.onError(error);
             }
         };
-        if (stream.update(subscriber)) writer.generate(messages, session).subscribe(subscriber);
+        if (stream.update(subscriber)) writer.generate(messages, session::isRunning).subscribe(subscriber);
     }
 
     private StreamingChatResponseHandler receiveCandidate(GenerationSession session, boolean first, Consumer<ChatResponse> next) {

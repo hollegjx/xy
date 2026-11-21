@@ -257,7 +257,8 @@ class GenerationControllerTest {
         doAnswer(call -> {
             ChatRequest review = call.getArgument(0);
             boolean initial = checks.incrementAndGet() == 1;
-            assertThat(((UserMessage) review.messages().getLast()).singleText()).endsWith(initial ? firstOutput : output);
+            assertThat(((UserMessage) review.messages().getLast()).singleText())
+                    .contains("本次候选源码：\n" + (initial ? firstOutput : output));
             call.<StreamingChatResponseHandler>getArgument(1).onCompleteResponse(response(
                     repair && initial ? "{\"isValid\":false,\"errors\":[\"修改标题\"],\"suggestions\":[]}"
                             : "{\"isValid\":true,\"errors\":[],\"suggestions\":[]}", FinishReason.STOP));
@@ -1431,7 +1432,7 @@ class GenerationControllerTest {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"passed", "repaired", "failed", "invalid_report"})
+    @ValueSource(strings = {"passed", "repaired", "failed", "invalid_report", "coerced_report", "trailing_report", "truncated_report"})
     void qualityWorkflowChecksCurrentSourcesAndRepairsAtMostOnceBeforeBuilding(String outcome) throws Exception {
         App app = app(42L, "vue_project");
         long previous = preparePreviousVueProject(app);
@@ -1470,11 +1471,16 @@ class GenerationControllerTest {
                         "本次用户需求：\n摄影作品集", "上一成功版源码", "<template>旧作品</template>", "本次候选源码", "候选" + writes.get());
                 assertThat(input).contains("src/App.vue", "src/Card.vue");
                 boolean valid = outcome.equals("passed") || outcome.equals("repaired") && check == 2;
-                String report = outcome.equals("invalid_report") ? "检查好了"
-                        : objectMapper.writeValueAsString(Map.of("isValid", valid,
-                                "errors", valid ? List.of() : List.of("按钮未响应"), "suggestions", suggestions));
+                String report = switch (outcome) {
+                    case "invalid_report" -> "检查好了";
+                    case "coerced_report" -> "{\"isValid\":\"true\",\"errors\":[],\"suggestions\":[]}";
+                    case "trailing_report" -> "{\"isValid\":true,\"errors\":[],\"suggestions\":[]} 结束";
+                    case "truncated_report" -> "{\"isValid\":true,\"errors\":[],\"suggestions\":[]}";
+                    default -> objectMapper.writeValueAsString(Map.of("isValid", valid,
+                            "errors", valid ? List.of() : List.of("按钮未响应"), "suggestions", suggestions));
+                };
                 handler.onPartialResponse(report);
-                handler.onCompleteResponse(response(report, FinishReason.STOP));
+                handler.onCompleteResponse(response(report, outcome.equals("truncated_report") ? FinishReason.LENGTH : FinishReason.STOP));
             } else if (request.messages().getLast() instanceof ToolExecutionResultMessage) {
                 handler.onCompleteResponse(response("源码完成", FinishReason.STOP));
             } else {
@@ -1500,6 +1506,7 @@ class GenerationControllerTest {
             verify(persistence).complete(eq(55L), eq(42L), eq(generationId), any());
         } else {
             assertThat(events).contains("event:failed").doesNotContain("event:completed", "正在构建 Vue 工程");
+            if (outcome.endsWith("_report")) assertThat(events).contains("AI 质检报告无效");
             verify(builder, never()).build(any(), any());
             verify(persistence, never()).complete(eq(55L), eq(42L), eq(generationId), any());
             assertThat(app.getGeneratedVersion()).isEqualTo(previous);
@@ -1585,9 +1592,9 @@ class GenerationControllerTest {
         }
         for (int i = 0; i < checks.size(); i++) {
             var input = checks.get(i).messages();
-            assertThat(((SystemMessage) input.getFirst()).text()).endsWith("本次生成类型：" + mode);
+            assertThat(((SystemMessage) input.getFirst()).text().stripTrailing()).endsWith("本次生成类型：" + mode);
             assertThat(((UserMessage) input.getLast()).singleText()).contains("摄影作品集")
-                    .endsWith(i == 0 ? draft : repaired).doesNotContain("联系按钮未响应");
+                    .contains("本次候选源码：\n" + (i == 0 ? draft : repaired)).doesNotContain("联系按钮未响应");
         }
         assertThat(events).contains("正在检查 " + (multi ? "多文件网站" : "单 HTML 页面"))
                 .doesNotContain("isValid", "suggestions", "正在构建");
@@ -1651,9 +1658,9 @@ class GenerationControllerTest {
         assertThat(reviews).hasSize(originalSize == 12 ? 1 : 2).allSatisfy(text -> assertThat(text)
                 .contains(prompt, "上一成功版源码", "font-size:" + originalSize + "px")
                 .doesNotContain("下一条 AI 消息", "字号尚未翻倍"));
-        assertThat(reviews.getFirst()).endsWith(draft);
+        assertThat(reviews.getFirst()).contains("本次候选源码：\n" + draft);
         assertThat(events).contains("event:completed").doesNotContain("event:failed");
-        if (originalSize == 18) assertThat(reviews.getLast()).endsWith(fixed);
+        if (originalSize == 18) assertThat(reviews.getLast()).contains("本次候选源码：\n" + fixed);
         verify(persistence).complete(55L, 42L, generationId, originalSize == 12 ? draft : fixed);
     }
 

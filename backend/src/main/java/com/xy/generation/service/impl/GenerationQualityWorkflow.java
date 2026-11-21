@@ -1,17 +1,11 @@
 package com.xy.generation.service.impl;
 
-import com.fasterxml.jackson.databind.DeserializationFeature;
-import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.xy.app.model.enums.CodeGenTypeEnum;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
-import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.model.chat.StreamingChatModel;
-import dev.langchain4j.model.chat.request.ChatRequest;
-import dev.langchain4j.model.output.FinishReason;
-import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Callable;
@@ -19,7 +13,6 @@ import java.util.concurrent.CompletableFuture;
 import java.util.function.Consumer;
 import org.bsc.langgraph4j.StateGraph;
 import org.bsc.langgraph4j.state.AgentState;
-import org.springframework.core.io.ClassPathResource;
 
 import static org.bsc.langgraph4j.StateGraph.START;
 import static org.bsc.langgraph4j.StateGraph.END;
@@ -130,36 +123,17 @@ final class GenerationQualityWorkflow {
         if (future.isDone()) return future;
         progress.accept("\n正在检查 " + modeLabel + "…\n");
         try {
-            String prompt = new ClassPathResource("prompts/generation-quality.txt").getContentAsString(StandardCharsets.UTF_8);
-            var request = ChatRequest.builder().messages(SystemMessage.from(prompt + "\n本次生成类型：" + mode.getValue()),
-                    UserMessage.from(reviewContext + "本次候选源码：\n" + sources.call())).build();
-            if (!session.isRunning()) return future;
-            model.chat(request, session.modelStep(false, response -> {
-                try {
-                    JsonNode report = mapper.reader().with(DeserializationFeature.FAIL_ON_TRAILING_TOKENS)
-                            .readTree(response.aiMessage().text());
-                    if (response.finishReason() != FinishReason.STOP || report == null
-                            || !report.path("isValid").isBoolean()
-                            || !stringArray(report.path("errors")) || !stringArray(report.path("suggestions"))
-                            || report.get("isValid").booleanValue() != report.get("errors").isEmpty()) {
-                        throw new IllegalArgumentException();
-                    }
-                    future.complete(Map.of("valid", report.get("isValid").booleanValue(),
-                            "report", report.get("errors") + "\n建议：" + report.get("suggestions")));
-                } catch (Exception error) {
-                    session.fail("AI 质检报告无效，请重试");
-                }
-            }));
+            GenerationQualityReviewer.check(model, session, future, mapper, mode.getValue(),
+                    reviewContext + "本次候选源码：\n" + sources.call()).whenComplete((report, error) -> {
+                if (!session.isRunning()) return;
+                if (error != null) session.fail("AI 质检报告无效，请重试");
+                else future.complete(Map.of("valid", report.isValid(), "report",
+                        String.join("\n", report.errors()) + "\n建议：" + String.join("\n", report.suggestions())));
+            });
         } catch (Exception error) {
             session.fail("AI 质检未完成，无法读取源码或调用模型，请重试");
         }
         return future;
-    }
-
-    private boolean stringArray(JsonNode node) {
-        if (!node.isArray()) return false;
-        for (JsonNode item : node) if (!item.isTextual()) return false;
-        return true;
     }
 
     private CompletableFuture<Map<String, Object>> beginNode() {

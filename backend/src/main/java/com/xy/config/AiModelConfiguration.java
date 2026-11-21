@@ -1,10 +1,12 @@
 package com.xy.config;
 
+import dev.langchain4j.model.chat.Capability;
 import dev.langchain4j.model.chat.ChatModel;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.model.openai.OpenAiChatModel;
 import dev.langchain4j.model.openai.OpenAiStreamingChatModel;
 import java.time.Duration;
+import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -41,8 +43,9 @@ public class AiModelConfiguration {
             @Value("${xy.ai.api-key}") String apiKey,
             @Value("${xy.ai.model-name}") String modelName,
             @Value("${xy.ai.timeout-seconds:180}") long timeoutSeconds,
-            @Value("${xy.ai.max-completion-tokens:16384}") int maxCompletionTokens) {
-        return streamingModel(baseUrl, apiKey, modelName, timeoutSeconds, maxCompletionTokens);
+            @Value("${xy.ai.max-completion-tokens:16384}") int maxCompletionTokens,
+            @Value("${xy.ai.quality-json-schema:false}") boolean jsonSchema) {
+        return streamingModel(baseUrl, apiKey, modelName, timeoutSeconds, maxCompletionTokens, jsonSchema);
     }
 
     @Bean
@@ -51,16 +54,22 @@ public class AiModelConfiguration {
     public StreamingChatModel vueStreamingChatModel(@Value("${xy.ai.base-url}") String baseUrl,
             @Value("${xy.ai.api-key}") String apiKey, @Value("${xy.ai.model-name}") String defaultName,
             @Value("${xy.ai.vue-model-name:}") String vueName, @Value("${xy.ai.timeout-seconds:180}") long timeoutSeconds,
-            @Value("${xy.ai.vue-max-completion-tokens:${xy.ai.max-completion-tokens:16384}}") int maxCompletionTokens) {
-        return streamingModel(baseUrl, apiKey, vueName.isBlank() ? defaultName : vueName.strip(), timeoutSeconds, maxCompletionTokens);
+            @Value("${xy.ai.vue-max-completion-tokens:${xy.ai.max-completion-tokens:16384}}") int maxCompletionTokens,
+            @Value("${xy.ai.quality-json-schema:false}") boolean jsonSchema) {
+        return streamingModel(baseUrl, apiKey, vueName.isBlank() ? defaultName : vueName.strip(), timeoutSeconds, maxCompletionTokens, jsonSchema);
     }
 
     private StreamingChatModel streamingModel(String baseUrl, String apiKey, String modelName,
-            long timeoutSeconds, int maxCompletionTokens) {
-        return OpenAiStreamingChatModel.builder()
+            long timeoutSeconds, int maxCompletionTokens, boolean jsonSchema) {
+        var builder = OpenAiStreamingChatModel.builder()
                 .baseUrl(baseUrl).apiKey(apiKey).modelName(modelName)
                 .timeout(Duration.ofSeconds(timeoutSeconds)).maxCompletionTokens(maxCompletionTokens)
-                .logRequests(false).logResponses(false).build();
+                .logRequests(false).logResponses(false);
+        if (!jsonSchema) return builder.build();
+        // 仅向 SDK 声明网关支持该能力；普通源码或文件工具请求不会被强制设为 JSON。
+        return new OpenAiStreamingChatModel(builder.strictJsonSchema(true)) {
+            @Override public Set<Capability> supportedCapabilities() { return Set.of(Capability.RESPONSE_FORMAT_JSON_SCHEMA); }
+        };
     }
 
     @Bean(destroyMethod = "close")

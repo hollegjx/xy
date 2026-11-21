@@ -50,6 +50,8 @@ xy:
     max-tool-rounds: 40
     # 原生网站生成可选：回复为空或过短时要求模型重写一次；打开后正文在检查通过后显示。
     native-output-guardrail: false
+    # 仅当普通和 Vue 模型的网关均支持严格 JSON Schema 时打开；只对结构化质检报告发送 schema。
+    quality-json-schema: false
     max-completion-tokens: 16384
   generation:
     output-directory: ./generated

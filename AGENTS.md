@@ -53,7 +53,7 @@
 | 响应与状态码 | 统一 HTTP 200 | `{code, data, message}`，同时返回对应 HTTP 状态码；ID 序列化为字符串 |
 | 错误码 | `ErrorCode` + `ThrowUtils` | 同样使用 `ErrorCode` 枚举，一个业务码只对应一个 HTTP 状态，见下文“错误码” |
 | 接口文档 | Swagger 2 注解 | springdoc + Knife4j UI，使用 OpenAPI 3 注解（`@Tag`、`@Operation`、`@Schema`） |
-| 权限 | `@AuthCheck` 切面 | 暂由 Service 通过 `getLoginUser` 与归属检查完成；管理员功能开始时再定 |
+| 权限 | `@AuthCheck` 切面 | 管理员接口用 `@RequireRole` 切面；私有资源由 Service 检查当前账号与应用归属 |
 | 密码散列 | BCrypt | 沿用已实现的 `config/UserPasswordConfiguration`，不再调整 |
 | 本地配置 | `application.yml` 直接提交 | `application.yml` 不进 Git，提交 `application.example.yml` 占位示例 |
 | 主键 | `ASSIGN_ID` | MySQL 自增 |
@@ -132,6 +132,7 @@ generation/                  controller、model、service/impl
 4. AI 测试使用可控替身，不调用真实付费模型。
 5. 服务由用户在 IDEA、前端开发工具中启动并完成真实联调；代理只运行构建、lint、测试等一次性命令。
 6. 数据库变更写入 `backend/sql/`，说明执行顺序与影响，由用户执行。安装软件、改全局配置、创建云资源或对外部署须先获用户授权。
+7. 涉及 gc 服务器时，先读本机仓库的 `$(git rev-parse --git-common-dir)/xy-deploy.md`，核对连接信息、授权范围和操作限制；该文件不随仓库分发。
 
 文档：
 

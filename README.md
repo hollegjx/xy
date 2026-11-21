@@ -51,7 +51,7 @@ com.xy/
 
 - 项目源码目标为 Java 21。推荐 JDK 21；当前已安装的 JDK 24 也在 Spring Boot 3.5.16 的兼容范围内，可用于本步验证，Maven 编译目标仍为 21。
 - MySQL 8.0 或以上，使用现有实例和账号；本机检测到 MySQL 8.4。
-- 精选列表使用 Spring Cache，生成限流使用 Redisson；两者共用 `spring.data.redis.host / port / database` 指向的 Redis，本地默认 `127.0.0.1:6379`、库 0。同一环境的后端连接同一个 Redis 库，不同环境分开；容器内的 host 填可达的 Redis 主机名。启用认证时仅在本地或服务器配置中填写凭据。
+- 精选缓存、生成限流、登录 Session 和成功轮次记忆共用 `spring.data.redis.host / port / database` 指定的 Redis。示例为 `127.0.0.1:6379`、库 0。同一环境的后端使用同一逻辑库，不同环境分开；凭证只填在服务端配置中。单机升级见 [Redis 部署和就绪检查](docs/redis-deployment.md)。
 - Maven Wrapper 固定 Maven 3.9.11，无需全局安装 Maven；首次构建需要下载发行包与项目依赖。
 - 后端依赖版本、来源和选择原因见 [docs/NOTES.md](docs/NOTES.md)。
 
@@ -68,7 +68,9 @@ com.xy/
 
 首页的「自动选择」只负责判断应用适合哪种生成模式。可将 `xy.ai.routing-model-name` 设为同一网关提供的轻量模型；不填或留空就沿用 `model-name`。选择哪种分类模型不影响实际写代码和质检使用的模型。
 
-Vue 工程可单独配置同一网关下支持流式工具调用的 `xy.ai.vue-model-name`，以及可选的 `xy.ai.vue-max-completion-tokens`。未配置时，Vue 和原生模式继续用原生成模型及其输出上限。可选质检使用该工程的生成模型。
+Vue 工程可单独配置同一网关下支持流式工具调用的 `xy.ai.vue-model-name`，以及可选的 `xy.ai.vue-max-completion-tokens`。未配置时，Vue 和原生模式继续用原生成模型及其输出上限。可选质检使用该工程的生成模型。检查发现问题时最多自动修复一次；检查通过后，工作流只为已启用构建的 Vue 工程运行独立构建节点。成功后才交付新版本，源码模式直接交付。
+
+原生 HTML / 多文件生成默认边写边显示。若启用 `xy.ai.native-output-guardrail: true`，SDK 对空或过短回复最多追加一次请求，只在校验通过后显示正文；工作台的 AI 质检开关与它独立。
 
 首页「精选作品」每页默认 6 张。前 10 页缓存 5 分钟，键形如 `xy:featured:pages::<公开站点地址>:<版本>:1:6`。更换公开地址并重启后端后，首页使用新地址；清空地址则直接返回空列表，无需清理 Redis。已配置站点但 Redis 暂不可用时直接查询 MySQL。可在 `backend/` 执行 `sh mvnw -Dtest=FeaturedRedisCacheTest test` 验证共享缓存与站点切换；测试自带临时 Redis，不使用开发库。
 
@@ -91,6 +93,16 @@ Vue 工程可单独配置同一网关下支持流式工具调用的 `xy.ai.vue-m
 ### 独立静态站点配置
 
 Vue 工程的构建配置见下节。发布时直接使用最近成功版本已构建的页面，不重新构建；仅有源码的版本可下载，无法发布。
+
+**登录与对话记忆**：启动后端前配置可访问的 Redis（`spring.data.redis`）；多个实例使用相同逻辑库和 `spring.session.redis.namespace`（示例：`xy:session`）。MySQL 仍保存聊天历史；Redis 的成功版本记忆保留一小时。后端仍按数据库当前账号校验角色。
+
+**前端接口客户端**：通常直接使用仓库中的生成结果。修改 JSON 接口契约后在 `frontend/` 执行 `npm run api:generate`，由 MockMvc 导出本地 OpenAPI 并重新生成请求代码。无需启动后端或连接业务数据库。
+
+**工作流图片（可选）**：`xy.artwork.kroki-url` 填自有 Kroki 根地址，使用 Mermaid 生成架构 PNG；如需百炼图像模型，将 `xy.artwork.logo-provider` 设为 `dashscope` 并在服务端填写可用模型名与密钥。默认不调用外部绘图，下载仍能离线使用。配置项见 `backend/src/main/resources/application.example.yml`。
+
+**封面持久化**：要在不同后端之间共享封面，将 `xy.cover.storage` 设为 `cos`，填写已有私有桶的 region、bucket 和服务端凭证，并启用下方截图。不开通新桶也能沿用本地存储；切换后仍可读取旧本地封面。
+
+发布记录保存后即返回作品链接，封面使用本次发布的快照在虚拟线程生成；完成前精选卡片可先显示文字。
 
 **精选作品封面（可选）**：在运行后端所连接的 Docker Engine 上准备截图镜像；从仓库根目录运行：
 

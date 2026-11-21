@@ -9,7 +9,7 @@ import org.hibernate.validator.constraints.CodePointLength;
 public record AppAddRequest(
         @NotBlank(message = "初始需求不能为空")
         @CodePointLength(max = 16383, message = "初始需求不能超过 16383 个字符")
-        @Schema(description = "初始需求，最多 16383 个字符；名称取前 12 个字符", maxLength = 16383,
+        @Schema(description = "初始网站需求，最多 16383 个字符；名称取前 12 个字符。内容检查未通过时返回 400，不创建应用", maxLength = 16383,
                 example = "生成一个简洁的个人作品展示网站", requiredMode = Schema.RequiredMode.REQUIRED)
         String initPrompt,
         @Pattern(regexp = "auto|html|multi_file|vue_project", message = "生成模式无效")

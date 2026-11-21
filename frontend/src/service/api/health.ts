@@ -1,4 +1,4 @@
-import request from '@/request'
+import { health } from '@/service/generated/health'
 import type { HealthStatus } from '@/types/api'
 
-export const getHealth = (): Promise<HealthStatus> => request<HealthStatus>('/api/health')
+export const getHealth = (): Promise<HealthStatus> => health()

@@ -68,7 +68,13 @@ class HealthControllerTest {
     @Test
     void exposesTheAvailableEndpointsInOpenApi() throws Exception {
         mockMvc.perform(get("/api/v3/api-docs").contextPath("/api"))
-                .andExpect(status().isOk())
+                .andExpect(status().isOk()).andDo(result -> {
+                    if (Boolean.getBoolean("xy.openapi.export")) {
+                        java.nio.file.Files.write(java.nio.file.Path.of("target/xy-openapi.json"), result.getResponse().getContentAsByteArray());
+                    }
+                })
+                .andExpect(jsonPath("$.components.schemas.AppVO.properties.deployment.anyOf[0]['$ref']").value("#/components/schemas/AppDeployVO"))
+                .andExpect(jsonPath("$.components.schemas.AppVO.properties.deployment.anyOf[1].type").value("null"))
                 .andExpect(jsonPath("$.paths['/health'].get.summary").value("检查后端与数据库连接"))
                 .andExpect(jsonPath("$.paths['/apps'].post.summary").value("创建应用"))
                 .andExpect(jsonPath("$.paths['/apps/{id}'].get.summary").value("获取应用详情"))

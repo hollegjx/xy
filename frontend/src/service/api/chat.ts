@@ -1,8 +1,7 @@
-import request from '@/request'
+import { listMessages } from '@/service/generated/app'
 import type { ChatHistoryPageVO, ChatHistoryQueryRequest } from '@/types/api'
 
 export const getAppMessages = (
   appId: string,
   params: ChatHistoryQueryRequest = {},
-): Promise<ChatHistoryPageVO> =>
-  request<ChatHistoryPageVO>(`/api/apps/${encodeURIComponent(appId)}/messages`, { params })
+): Promise<ChatHistoryPageVO> => listMessages({ appId: encodeURIComponent(appId), ...params })

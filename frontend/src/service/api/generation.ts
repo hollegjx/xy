@@ -1,4 +1,5 @@
-import request, { ApiError, requestStream } from '@/request'
+import { cancel } from '@/service/generated/app'
+import { ApiError, requestStream } from '@/request'
 import type { GenerationEventVO, GenerationRequest } from '@/types/api'
 import { readSse } from '@/utils/sse'
 
@@ -44,7 +45,4 @@ export async function generateApp(
 }
 
 export const cancelGeneration = (appId: string, generationId: string): Promise<boolean> =>
-  request<boolean>(
-    `/api/apps/${encodeURIComponent(appId)}/generations/${encodeURIComponent(generationId)}/cancel`,
-    { method: 'POST' },
-  )
+  cancel({ appId: encodeURIComponent(appId), generationId: encodeURIComponent(generationId) })

@@ -30,6 +30,8 @@ coverage/
 test-results/
 playwright-report/
 generated/
+# 后端生成的作品不入库；前端根据 OpenAPI 生成的请求客户端随源码提交。
+!frontend/src/service/generated/
 published/
 /frontend/e2e/_shots.spec.ts
 

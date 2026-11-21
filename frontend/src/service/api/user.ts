@@ -1,4 +1,4 @@
-import request from '@/request'
+import * as api from '@/service/generated/user'
 import type {
   UserAddRequest,
   UserLoginRequest,
@@ -9,25 +9,13 @@ import type {
   UserVO,
 } from '@/types/api'
 
-export const addUser = (data: UserAddRequest): Promise<string> =>
-  request<string>('/api/users', { method: 'POST', data })
-
-export const listUsers = (params: UserQueryRequest): Promise<UserPageVO> =>
-  request<UserPageVO>('/api/users', { params })
-
+export const addUser = (data: UserAddRequest): Promise<string> => api.addUser(data)
+export const listUsers = (params: UserQueryRequest): Promise<UserPageVO> => api.listUsers(params)
 export const updateUser = (id: string, data: UserUpdateRequest): Promise<boolean> =>
-  request<boolean>(`/api/users/${id}`, { method: 'PATCH', data })
-
+  api.updateUser({ id: encodeURIComponent(id) }, data)
 export const deleteUser = (id: string): Promise<boolean> =>
-  request<boolean>(`/api/users/${id}`, { method: 'DELETE' })
-
-export const registerUser = (data: UserRegisterRequest): Promise<string> =>
-  request<string>('/api/users/register', { method: 'POST', data })
-
-export const loginUser = (data: UserLoginRequest): Promise<UserVO> =>
-  request<UserVO>('/api/users/login', { method: 'POST', data })
-
-export const getCurrentUser = (): Promise<UserVO> => request<UserVO>('/api/users/me')
-
-export const logoutUser = (): Promise<boolean> =>
-  request<boolean>('/api/users/logout', { method: 'POST' })
+  api.deleteUser({ id: encodeURIComponent(id) })
+export const registerUser = (data: UserRegisterRequest): Promise<string> => api.register(data)
+export const loginUser = (data: UserLoginRequest): Promise<UserVO> => api.login(data)
+export const getCurrentUser = (): Promise<UserVO> => api.getCurrentUser()
+export const logoutUser = (): Promise<boolean> => api.logout()

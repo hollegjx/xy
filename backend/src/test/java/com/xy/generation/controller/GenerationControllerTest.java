@@ -1032,18 +1032,23 @@ class GenerationControllerTest {
     }
 
     @Test
-    void creditsAnInheritedPhotoWithoutSendingTheEmbeddedImageToTheModel() throws Exception {
+    void creditsTheSecondInheritedPhotoWithoutSendingEitherImageToTheModel() throws Exception {
         String source = "https://www.flickr.com/photos/demo/123";
         var jpeg = new java.io.ByteArrayOutputStream();
         javax.imageio.ImageIO.write(new java.awt.image.BufferedImage(2, 2, java.awt.image.BufferedImage.TYPE_INT_RGB), "JPEG", jpeg);
         String image = java.util.Base64.getEncoder().encodeToString(jpeg.toByteArray());
         String photo = objectMapper.writeValueAsString(new OpenversePhotoSearch.Photo(
                 "data:image/jpeg;base64," + image, source, "CC0"));
-        String page = "<script setup>import photo from '../xy-photo.json'</script><template><img :src='photo.src'>";
+        String secondSource = "https://www.flickr.com/photos/demo/456";
+        String secondPhoto = objectMapper.writeValueAsString(new OpenversePhotoSearch.Photo(
+                "data:image/jpeg;base64,SECOND_IMAGE_BYTES", secondSource, "CC0"));
+        String page = "<script setup>import hero from '../xy-photo.json'; import photo from '../xy-photo-2.json'</script>"
+                + "<template><img :src='hero.src'><img :src='photo.src'>";
         String original = page + "</template>";
         String credited = page + "<a :href='photo.source'>来源 · {{ photo.license }}</a></template>";
         long previous = preparePreviousVueProject(app(42L, "vue_project"), original);
-        fileManager.saveVuePhoto(42, 55, previous, photo);
+        fileManager.saveVuePhoto(42, 55, previous, "xy-photo.json", photo);
+        fileManager.saveVuePhoto(42, 55, previous, "xy-photo-2.json", secondPhoto);
         var manifest = new AtomicReference<String>();
         var readResult = new AtomicReference<String>();
         var review = new AtomicReference<String>();
@@ -1057,7 +1062,7 @@ class GenerationControllerTest {
                 manifest.set(((AiMessage) request.messages().get(request.messages().size() - 2)).text());
                 handler.onCompleteResponse(ChatResponse.builder().finishReason(FinishReason.TOOL_EXECUTION)
                         .aiMessage(AiMessage.from(ToolExecutionRequest.builder().name("readFile").id("credit")
-                                .arguments("{\"relativePath\":\"xy-photo.json\"}").build())).build());
+                                .arguments("{\"relativePath\":\"xy-photo-2.json\"}").build())).build());
             } else if ("readFile".equals(result.toolName())) {
                 readResult.set(result.text());
                 handler.onCompleteResponse(ChatResponse.builder().finishReason(FinishReason.TOOL_EXECUTION)
@@ -1071,13 +1076,19 @@ class GenerationControllerTest {
                 .content(objectMapper.writeValueAsString(Map.of("prompt", prompt, "qualityCheck", true)))).andReturn());
         assertThat(events).contains("event:completed").doesNotContain("event:failed", "素材加入生成提示", image);
         for (String message : List.of(manifest.get(), readResult.get(), review.get())) {
-            assertThat(message).contains(source, "CC0").doesNotContain(image);
+            assertThat(message).contains(secondSource, "CC0").doesNotContain(image, "SECOND_IMAGE_BYTES");
         }
+        assertThat(readResult.get()).doesNotContain(source);
+        assertThat(review.get()).contains(source);
         var inherited = objectMapper.readTree(manifest.get());
-        assertThat(inherited.path("readOnlyAssets").path("xy-photo.json")).isEqualTo(objectMapper.readTree(readResult.get()));
-        assertThat(inherited.path("sourceFiles").toString()).contains("src/App.vue").doesNotContain("xy-photo.json");
+        assertThat(inherited.path("readOnlyAssets").path("xy-photo.json").path("source").asText()).isEqualTo(source);
+        assertThat(inherited.path("readOnlyAssets").path("xy-photo-2.json")).isEqualTo(objectMapper.readTree(readResult.get()));
+        assertThat(inherited.path("sourceFiles").toString()).contains("src/App.vue").doesNotContain("xy-photo");
         assertThat(unzipSources(fileManager.readVueSourceZip(42, 55, generationId)))
-                .containsEntry("src/App.vue", credited).containsEntry("xy-photo.json", photo);
+                .containsEntry("src/App.vue", credited).containsEntry("xy-photo.json", photo).containsEntry("xy-photo-2.json", secondPhoto);
+        var build = fileManager.prepareVueBuild(42, 55, generationId).source();
+        assertThat(Files.readString(build.resolve("xy-photo.json"))).isEqualTo(photo);
+        assertThat(Files.readString(build.resolve("xy-photo-2.json"))).isEqualTo(secondPhoto);
         assertThat(fileManager.readVueProject(42, 55, previous)).containsEntry("src/App.vue", original);
         verifyNoInteractions(photoSearch);
     }

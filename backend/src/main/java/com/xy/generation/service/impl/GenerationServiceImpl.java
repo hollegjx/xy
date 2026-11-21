@@ -192,10 +192,12 @@ public class GenerationServiceImpl implements GenerationService {
                 && VueArchitectureDiagram.containsLegacyRenderer(fileManager.readVueSources(userId, appId, generationId))) {
             fileManager.markVueArchitecture(userId, appId, generationId);
         }
-        var photo = GeneratedFileManager.VUE_PHOTO;
-        var assets = paths.contains(photo) ? Map.of(photo, objectMapper.readValue(
-                fileManager.readVuePhoto(userId, appId, generationId), OpenversePhotoSearch.Attribution.class)) : Map.of();
-        return objectMapper.writeValueAsString(Map.of("sourceFiles", paths.stream().filter(p -> !photo.equals(p)).toList(),
+        var assets = new java.util.LinkedHashMap<String, OpenversePhotoSearch.Attribution>();
+        for (var path : paths) if (GeneratedFileManager.isVuePhoto(path)) {
+            assets.put(path, objectMapper.readValue(fileManager.readVuePhoto(userId, appId, generationId, path),
+                    OpenversePhotoSearch.Attribution.class));
+        }
+        return objectMapper.writeValueAsString(Map.of("sourceFiles", paths.stream().filter(p -> !assets.containsKey(p)).toList(),
                 "readOnlyAssets", assets));
     }
 

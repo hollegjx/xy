@@ -119,9 +119,6 @@ final class VueProjectGeneration implements GenerationSession.OutputHandler {
                 () -> {
                     var sources = new java.util.LinkedHashMap<>(template);
                     sources.putAll(sourcesForModel());
-                    if (files.hasVuePhoto(userId, appId, generationId)) {
-                        sources.put(GeneratedFileManager.VUE_PHOTO, readPhotoAttribution());
-                    }
                     return mapper.writeValueAsString(sources);
                 }, done -> generateTurn(model, conversation, session, history, done),
                 builder.enabled() ? () -> build(session, history) : null, () -> deliver(session, history), text -> {
@@ -295,11 +292,11 @@ final class VueProjectGeneration implements GenerationSession.OutputHandler {
             return mapper.writeValueAsString(files.listVueSources(userId, appId, generationId));
         }
 
-        @Tool("读取 src 源文件或只读照片署名 xy-photo.json")
+        @Tool("读取 src 源文件，或按工程清单中的照片路径读取只读署名")
         public String readFile(@P("相对路径") String relativePath) throws IOException {
             progress = "已读取：" + relativePath;
             if (ArtworkProviders.MERMAID_IMAGE.equals(relativePath)) return "图像由平台生成，节点和连线见 xy-architecture.json";
-            return GeneratedFileManager.VUE_PHOTO.equals(relativePath) ? readPhotoAttribution()
+            return GeneratedFileManager.isVuePhoto(relativePath) ? readPhotoAttribution(relativePath)
                     : files.readVueSource(userId, appId, generationId, relativePath);
         }
 
@@ -532,7 +529,7 @@ final class VueProjectGeneration implements GenerationSession.OutputHandler {
             GenerationSession session, StringBuilder history, VueAssetPrompt assets) throws IOException {
         String result;
         if (photo.isPresent()) {
-            files.saveVuePhoto(userId, appId, generationId, mapper.writeValueAsString(photo.get()));
+            files.saveVuePhoto(userId, appId, generationId, GeneratedFileManager.VUE_PHOTO, mapper.writeValueAsString(photo.get()));
             assets.add(GeneratedFileManager.VUE_PHOTO, "内容照片", theme + " 主题，绑定 photo.src 显示；"
                     + "许可 " + photo.get().license() + "，署名使用 photo.source");
             result = "已保存内容配图：xy-photo.json。在 src/App.vue 通过 import photo from '../xy-photo.json' 引入，"
@@ -550,11 +547,12 @@ final class VueProjectGeneration implements GenerationSession.OutputHandler {
         var sources = files.readVueSources(userId, appId, generationId);
         sources.computeIfPresent(ArtworkProviders.MERMAID_IMAGE, (k,v) -> "平台按最终节点和连线渲染的图像");
         sources.replaceAll((k,v) -> v.contains("data-xy-artwork=") ? v.replaceAll("data:image/png;base64,[A-Za-z0-9+/=]+", "[本地图像]") : v);
+        for (var name : files.listVuePhotos(userId, appId, generationId)) sources.put(name, readPhotoAttribution(name));
         return sources;
     }
 
-    private String readPhotoAttribution() throws IOException {
-        var attribution = mapper.readValue(files.readVuePhoto(userId, appId, generationId), OpenversePhotoSearch.Attribution.class);
+    private String readPhotoAttribution(String name) throws IOException {
+        var attribution = mapper.readValue(files.readVuePhoto(userId, appId, generationId, name), OpenversePhotoSearch.Attribution.class);
         return mapper.writeValueAsString(attribution);
     }
 

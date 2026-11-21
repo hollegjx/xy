@@ -38,6 +38,7 @@ public class GeneratedFileManager {
     private static final Set<String> MULTI_FILE_NAMES = Set.of("index.html", "style.css", "script.js");
     private static final Set<String> VUE_TEMPLATE_NAMES = Set.of("package.json", "index.html", "vite.config.js", "src/main.js");
     public static final String VUE_PHOTO = "xy-photo.json";
+    private static final Pattern NUMBERED_PHOTO = Pattern.compile("xy-photo-(?:[2-9]|[1-9][0-9]+)\\.json");
     // 版本私有标记，不属于模型可写的 src 或打包、构建的文件清单。
     private static final String VUE_ARCHITECTURE_MARKER = ".xy-architecture";
     private final Path root;
@@ -131,17 +132,26 @@ public class GeneratedFileManager {
         }
     }
 
-    public void saveVuePhoto(long userId, long appId, long generationId, String json) throws IOException {
-        Files.writeString(createVersionDirectory(userId, appId, generationId).resolve(VUE_PHOTO),
+    public static boolean isVuePhoto(String name) {
+        return VUE_PHOTO.equals(name) || name != null && NUMBERED_PHOTO.matcher(name).matches();
+    }
+
+    public void saveVuePhoto(long userId, long appId, long generationId, String name, String json) throws IOException {
+        if (!isVuePhoto(name)) throw new IllegalArgumentException("无效的照片路径");
+        Files.writeString(createVersionDirectory(userId, appId, generationId).resolve(name),
                 json, StandardCharsets.UTF_8, StandardOpenOption.CREATE_NEW);
     }
 
-    public boolean hasVuePhoto(long userId, long appId, long generationId) throws IOException {
-        return !Files.notExists(versionDirectory(userId, appId, generationId).resolve(VUE_PHOTO), LinkOption.NOFOLLOW_LINKS);
+    public List<String> listVuePhotos(long userId, long appId, long generationId) throws IOException {
+        try (var entries = Files.list(versionDirectory(userId, appId, generationId))) {
+            return entries.map(path -> path.getFileName().toString()).filter(GeneratedFileManager::isVuePhoto)
+                    .sorted(java.util.Comparator.comparingInt(String::length).thenComparing(String::compareTo)).toList();
+        }
     }
 
-    public String readVuePhoto(long userId, long appId, long generationId) throws IOException {
-        return readFile(versionDirectory(userId, appId, generationId), VUE_PHOTO);
+    public String readVuePhoto(long userId, long appId, long generationId, String name) throws IOException {
+        if (!isVuePhoto(name)) throw new IllegalArgumentException("无效的照片路径");
+        return readFile(versionDirectory(userId, appId, generationId), name);
     }
 
     public boolean hasVueArchitecture(long userId, long appId, long generationId) throws IOException {
@@ -157,7 +167,7 @@ public class GeneratedFileManager {
         List<String> paths = new ArrayList<>();
         for (var file : readVueProject(userId, appId, previousId).entrySet()) {
             if (VUE_TEMPLATE_NAMES.contains(file.getKey())) continue;
-            if (VUE_PHOTO.equals(file.getKey())) saveVuePhoto(userId, appId, generationId, file.getValue());
+            if (isVuePhoto(file.getKey())) saveVuePhoto(userId, appId, generationId, file.getKey(), file.getValue());
             else writeVueSource(userId, appId, generationId, file.getKey(), file.getValue());
             paths.add(file.getKey());
         }
@@ -206,7 +216,7 @@ public class GeneratedFileManager {
         Map<String, String> sources = readVueSources(userId, appId, generationId);
         Map<String, String> files = new LinkedHashMap<>();
         for (String name : VUE_TEMPLATE_NAMES) files.put(name, readFile(directory, name));
-        if (hasVuePhoto(userId, appId, generationId)) files.put(VUE_PHOTO, readFile(directory, VUE_PHOTO));
+        for (var name : listVuePhotos(userId, appId, generationId)) files.put(name, readFile(directory, name));
         files.putAll(sources);
         if (files.values().stream().anyMatch(String::isBlank)) throw new IOException("源码文件不完整");
         return files;
@@ -264,7 +274,7 @@ public class GeneratedFileManager {
         var names = new LinkedHashSet<>(VUE_TEMPLATE_NAMES);
         names.add("src/App.vue");
         names.addAll(listVueSources(userId, appId, generationId));
-        if (hasVuePhoto(userId, appId, generationId)) names.add(VUE_PHOTO);
+        names.addAll(listVuePhotos(userId, appId, generationId));
         return archive(names, name -> {
             var text = name.startsWith("src/") ? readVueSource(userId, appId, generationId, name) : readFile(directory, name);
             if (text.isBlank()) throw new IOException("源码文件不完整");

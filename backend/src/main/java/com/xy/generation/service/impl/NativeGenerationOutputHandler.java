@@ -93,7 +93,7 @@ final class NativeGenerationOutputHandler implements GenerationSession.OutputHan
                     conversation.add(response.aiMessage());
                     done.run();
                 })),
-                () -> session.onCompleteResponse(candidate), session::onPartialResponse);
+                null, () -> session.onCompleteResponse(candidate), session::onPartialResponse);
         workflow.run();
     }
 

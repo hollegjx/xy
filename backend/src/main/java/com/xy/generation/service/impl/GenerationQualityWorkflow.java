@@ -36,13 +36,14 @@ final class GenerationQualityWorkflow {
     private final String reviewContext;
     private final Callable<String> sources;
     private final Consumer<Runnable> generate;
+    private final Runnable build;
     private final Runnable deliver;
     private final Consumer<String> progress;
     private CompletableFuture<Map<String, Object>> pending;
 
     GenerationQualityWorkflow(CodeGenTypeEnum mode, StreamingChatModel model, ObjectMapper mapper, GenerationSession session,
             List<ChatMessage> conversation, String previousSource, Callable<String> sources,
-            Consumer<Runnable> generate, Runnable deliver, Consumer<String> progress) {
+            Consumer<Runnable> generate, Runnable build, Runnable deliver, Consumer<String> progress) {
         this.mode = mode;
         this.modeLabel = switch (mode) {
             case HTML -> "单 HTML 页面";
@@ -65,6 +66,7 @@ final class GenerationQualityWorkflow {
         this.reviewContext = context.toString();
         this.sources = sources;
         this.generate = generate;
+        this.build = build;
         this.deliver = deliver;
         this.progress = progress;
     }
@@ -82,11 +84,16 @@ final class GenerationQualityWorkflow {
                                 + state.<String>value("report").orElseThrow()));
                         return generationNode(Map.of("repaired", true));
                     })
+                    .addNode("approved", node_async(state -> {
+                        if (session.isRunning()) progress.accept("\n检查通过。\n");
+                        return Map.of();
+                    }))
+                    .addNode("build", node_async(state -> {
+                        if (session.isRunning()) build.run();
+                        return Map.of();
+                    }))
                     .addNode("deliver", node_async(state -> {
-                        if (session.isRunning()) {
-                            progress.accept("\n检查通过。\n");
-                            deliver.run();
-                        }
+                        if (session.isRunning()) deliver.run();
                         return Map.of();
                     }))
                     .addNode("fail", node_async(state -> {
@@ -95,9 +102,12 @@ final class GenerationQualityWorkflow {
                     }))
                     .addEdge(START, "generate").addEdge("generate", "check")
                     .addConditionalEdges("check", edge_async(state ->
-                            state.<Boolean>value("valid").orElse(false) ? "deliver"
+                            state.<Boolean>value("valid").orElse(false) ? "approved"
                                     : state.<Boolean>value("repaired").orElse(false) ? "fail" : "repair"),
-                            Map.of("deliver", "deliver", "repair", "repair", "fail", "fail"))
+                            Map.of("approved", "approved", "repair", "repair", "fail", "fail"))
+                    .addConditionalEdges("approved", edge_async(state -> build == null ? "deliver" : "build"),
+                            Map.of("build", "build", "deliver", "deliver"))
+                    .addEdge("build", "deliver")
                     .addEdge("repair", "check").addEdge("deliver", END).addEdge("fail", END)
                     .compile().invoke(Map.of());
         } catch (Exception error) {

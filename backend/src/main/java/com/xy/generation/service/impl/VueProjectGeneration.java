@@ -97,7 +97,10 @@ final class VueProjectGeneration implements GenerationSession.OutputHandler {
         var conversation = new ArrayList<>(messages);
         var history = new StringBuilder();
         if (!qualityCheck) {
-            generateTurn(model, conversation, session, history, () -> complete(session, history));
+            generateTurn(model, conversation, session, history, () -> {
+                if (builder.enabled()) build(session, history);
+                deliver(session, history);
+            });
             return;
         }
         // 在工具写入候选工程之前取出继承的源码；生成对话中的 AI 消息只有文件清单。
@@ -117,7 +120,7 @@ final class VueProjectGeneration implements GenerationSession.OutputHandler {
                     }
                     return mapper.writeValueAsString(sources);
                 }, done -> generateTurn(model, conversation, session, history, done),
-                () -> complete(session, history), text -> {
+                builder.enabled() ? () -> build(session, history) : null, () -> deliver(session, history), text -> {
                     history.append(text);
                     session.onPartialResponse(text);
                 });
@@ -522,48 +525,56 @@ final class VueProjectGeneration implements GenerationSession.OutputHandler {
         }
     }
 
-    private void complete(GenerationSession session, StringBuilder history) {
-        if (!changedSource) {
-            session.fail("本次未写入 Vue 源码，请重试");
-            return;
+    private boolean prepareDelivery(GenerationSession session) throws IOException {
+        String error = changedSource ? candidateError() : "本次未写入 Vue 源码，请重试";
+        if (error != null) {
+            session.fail(error);
+            return false;
         }
-        try {
-            String error = candidateError();
-            if (error != null) {
-                session.fail(error);
-                return;
-            }
-            if (files.hasVueArchitecture(userId, appId, generationId)) {
-                var sources = files.readVueSources(userId, appId, generationId);
-                if (VueComponentReferences.references(sources, ArtworkProviders.MERMAID_IMAGE)) {
-                    var diagram = VueArchitectureDiagram.parse(mapper, sources.get(VueArchitectureDiagram.DATA));
-                    String src = artwork.diagramImage(diagram);
-                    synchronized (session) {
-                        if (!session.isRunning()) return;
-                        files.writeVueSource(userId, appId, generationId, ArtworkProviders.MERMAID_IMAGE,
-                                mapper.writeValueAsString(Map.of("src", src)));
-                    }
-                }
-            }
-            if (builder.enabled()) {
+        if (files.hasVueArchitecture(userId, appId, generationId)) {
+            var sources = files.readVueSources(userId, appId, generationId);
+            if (VueComponentReferences.references(sources, ArtworkProviders.MERMAID_IMAGE)) {
+                var diagram = VueArchitectureDiagram.parse(mapper, sources.get(VueArchitectureDiagram.DATA));
+                String src = artwork.diagramImage(diagram);
                 synchronized (session) {
-                    if (!session.isRunning()) return;
-                    files.finishVueProject(userId, appId, generationId, template);
-                    buildPaths = files.prepareVueBuild(userId, appId, generationId);
-                    String progress = "\n源码已保存，正在构建 Vue 工程…\n";
-                    history.append(progress);
-                    session.onPartialResponse(progress);
+                    if (!session.isRunning()) return false;
+                    files.writeVueSource(userId, appId, generationId, ArtworkProviders.MERMAID_IMAGE,
+                            mapper.writeValueAsString(Map.of("src", src)));
                 }
-                if (!session.isRunning()) return;
-                builder.build(buildPaths, session::isRunning);
             }
+        }
+        return session.isRunning();
+    }
+
+    private void build(GenerationSession session, StringBuilder history) {
+        try {
+            if (!prepareDelivery(session)) return;
+            synchronized (session) {
+                if (!session.isRunning()) return;
+                files.finishVueProject(userId, appId, generationId, template);
+                buildPaths = files.prepareVueBuild(userId, appId, generationId);
+                String progress = "\n源码已保存，正在构建 Vue 工程…\n";
+                history.append(progress);
+                session.onPartialResponse(progress);
+            }
+            if (session.isRunning()) builder.build(buildPaths, session::isRunning);
+        } catch (IllegalArgumentException error) {
+            session.fail(invalidOutputMessage());
+        } catch (IOException | RuntimeException error) {
+            session.fail("Vue 工程构建失败，请检查源码和构建环境后重试");
+        }
+    }
+
+    private void deliver(GenerationSession session, StringBuilder history) {
+        try {
+            if (!session.isRunning() || (!builder.enabled() && !prepareDelivery(session))) return;
             history.append('\n').append(completedMessage());
             session.onCompleteResponse(ChatResponse.builder().finishReason(FinishReason.STOP)
                     .aiMessage(AiMessage.from(history.toString())).build());
         } catch (IllegalArgumentException error) {
             session.fail(invalidOutputMessage());
         } catch (IOException | RuntimeException error) {
-            session.fail("Vue 工程构建失败，请检查源码和构建环境后重试");
+            session.fail("Vue 工程交付失败，请检查源码后重试");
         }
     }
 

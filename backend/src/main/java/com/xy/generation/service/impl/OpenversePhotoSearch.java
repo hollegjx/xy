@@ -32,7 +32,13 @@ public class OpenversePhotoSearch {
 
     public OpenversePhotoSearch(ObjectMapper mapper) { this.mapper = mapper; }
 
-    public record Photo(String src, String source, String license) {}
+    public record Photo(String src, String source, String license) {
+        String workId() {
+            var landing = LANDING.matcher(source);
+            if (!landing.matches()) throw new IllegalArgumentException("照片缺少已核对的 Flickr 原作");
+            return landing.group(1);
+        }
+    }
 
     static List<String> themes() { return QUERIES.keySet().stream().sorted().toList(); }
 
@@ -55,15 +61,16 @@ public class OpenversePhotoSearch {
 
     // 同一主题的多张照片从一次分页搜索取候选，各自核对原页许可，重复作品不会占用另一个位置。
     public List<Photo> findMany(String theme, int count) {
-        return findMany(theme, count, new HashSet<>());
+        return findMany(theme, count, Set.of());
     }
 
-    /** 已使用的 Flickr 作品 ID 仅属于当前作品；并发主题共用时传入并发集合。 */
-    public List<Photo> findMany(String theme, int count, Set<String> usedIds) {
+    /** 不下载已排除的原作；不同主题可独立发现同一原作，汇总时再按可选范围分配。 */
+    public List<Photo> findMany(String theme, int count, Set<String> excludedIds) {
         String query = theme == null ? null : QUERIES.get(theme);
         if (query == null || count < 1) return List.of();
         int pageSize = Math.min(count, 20);
         var photos = new ArrayList<Photo>();
+        var usedIds = new HashSet<>(excludedIds);
         String base = "https://api.openverse.org/v1/images/?q=" + URLEncoder.encode(query, StandardCharsets.UTF_8)
                 + "&license=cc0&source=flickr&page_size=" + pageSize;
         boolean hasNext = true;

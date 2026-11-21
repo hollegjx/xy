@@ -356,8 +356,8 @@ final class VueProjectGeneration implements GenerationSession.OutputHandler {
             var jobs = new ArrayList<CompletableFuture<List<AssetResult>>>();
             for (var group : groups.entrySet()) {
                 if (group.getKey().equals("findPhoto") && permitted.contains(group.getKey())) {
-                    photos.group(group.getValue(), mapper).forEach((theme, uses) -> jobs.add(
-                            CompletableFuture.supplyAsync(() -> preparePhotos(theme, uses, session, history), tasks)));
+                    jobs.add(photos.collect(group.getValue(), mapper, photoSearch, tasks, session::isRunning)
+                            .thenApply(choices -> savePhotos(choices, session, history)));
                 } else if (group.getKey().equals("generateLogo") && permitted.contains(group.getKey())) {
                     jobs.add(prepareLogos(group.getValue(), tasks, session, history));
                 } else {
@@ -510,25 +510,22 @@ final class VueProjectGeneration implements GenerationSession.OutputHandler {
         return result;
     }
 
-    private List<AssetResult> preparePhotos(String theme, List<VuePhotos.Use> uses, GenerationSession session,
-            StringBuilder history) {
-        if (!session.isRunning()) return List.of();
-        var found = photos.collect(theme, uses.size(), photoSearch);
+    private List<AssetResult> savePhotos(List<VuePhotos.Choice> choices, GenerationSession session, StringBuilder history) {
         synchronized (session) {
             if (!session.isRunning()) return List.of();
             var results = new ArrayList<AssetResult>();
-            for (int i = 0; i < uses.size(); i++) {
-                var use = uses.get(i);
+            for (var choice : choices) {
+                var use = choice.use();
+                var photo = choice.photo();
                 var assets = new VueAssetPrompt();
                 String progress, receipt;
-                if (i < found.size()) {
-                    var photo = found.get(i);
+                if (photo != null) {
                     try {
                         files.saveVuePhoto(userId, appId, generationId, use.path(), use.file(photo, mapper));
                         receipt = "已保存内容配图：" + use.path() + "。从 src/App.vue 导入 '../" + use.path()
                                 + "'，绑定 photo.src 展示图片。来源和许可：" + mapper.writeValueAsString(use.credit(photo));
                     } catch (IOException error) { throw new UncheckedIOException(error); }
-                    assets.add(use.path(), "内容照片", theme + " 主题；用途：" + (use.purpose().isBlank() ? "内容配图" : use.purpose())
+                    assets.add(use.path(), "内容照片", use.theme() + " 主题；用途：" + (use.purpose().isBlank() ? "内容配图" : use.purpose())
                             + "；绑定 photo.src 显示，许可 " + photo.license() + "，署名使用 photo.source");
                     progress = "已准备本地内容配图";
                 } else {

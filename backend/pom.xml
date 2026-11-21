@@ -16,6 +16,7 @@
   <modules>
     <module>modules/common</module>
     <module>modules/model</module>
+    <module>modules/web</module>
     <module>modules/client</module>
     <module>modules/user-data</module>
     <module>modules/screenshot-renderer</module>
@@ -46,6 +47,11 @@
       <dependency>
         <groupId>com.xy</groupId>
         <artifactId>xy-model</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>com.xy</groupId>
+        <artifactId>xy-web</artifactId>
         <version>${project.version}</version>
       </dependency>
       <dependency>

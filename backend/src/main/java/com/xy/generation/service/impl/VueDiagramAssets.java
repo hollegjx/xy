@@ -100,7 +100,8 @@ final class VueDiagramAssets {
         var sources = files.readVueSources(user, app, version);
         for (var slot : saved) {
             String image = sources.get(slot.image());
-            if (image == null) continue;
+            // 上版未使用的图像可能早于当前关系文件，重新启用时必须按最终关系绘制。
+            if (image == null || !VueComponentReferences.references(sources, slot.image())) continue;
             try {
                 var src = mapper.readTree(image).path("src");
                 if (src.isTextual() && !src.textValue().isBlank())

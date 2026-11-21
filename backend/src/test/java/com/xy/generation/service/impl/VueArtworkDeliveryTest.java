@@ -114,4 +114,25 @@ class VueArtworkDeliveryTest {
         assertThat(files.readVueSource(1,2,3,"src/components/XyArchitecture2.vue")).contains("./xy-architecture-2.json");
         assertThat(assets.findError(files.readVueSources(1,2,3))).isNull();
     }
+
+    @Test
+    void restoresARemovedRendererUsingTheCurrentRelations(@TempDir Path dir) throws Exception {
+        var files = new GeneratedFileManager(dir);
+        var slot = new VueArchitectureDiagram.Slot(1);
+        // 上一成功版只展示文字：关系已改为发货，停用的图片仍是付款。
+        files.writeVueSource(1,2,3,"src/App.vue","<template>订单说明</template>");
+        files.writeVueSource(1,2,3,slot.data(),"{\"nodes\":[\"下单\",\"发货\"],\"edges\":[{\"from\":\"下单\",\"to\":\"发货\"}]}");
+        files.writeVueSource(1,2,3,slot.image(),"{\"src\":\"image:付款\"}");
+        files.markVueArchitecture(1,2,3,1);
+        var artwork = mock(ArtworkProviders.class);
+        when(artwork.diagramImage(any())).thenAnswer(call -> "image:" + call.<VueArchitectureDiagram.Diagram>getArgument(0).nodes().getLast());
+        var assets = new VueDiagramAssets(json, artwork, files, 1, 2, 3);
+        assets.inherit();
+        files.writeVueSource(1,2,3,slot.component(),slot.renderer(true));
+        files.writeVueSource(1,2,3,"src/App.vue","<script setup>import G from './components/XyArchitecture.vue'</script><template><G/></template>");
+        var session = mock(GenerationSession.class);
+        when(session.isRunning()).thenReturn(true);
+        assertThat(assets.refreshImages(files.readVueSources(1,2,3), session)).isTrue();
+        assertThat(files.readVueSource(1,2,3,slot.image())).contains("image:发货").doesNotContain("付款");
+    }
 }

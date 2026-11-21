@@ -10,6 +10,8 @@
   <properties><surefire.failIfNoSpecifiedTests>false</surefire.failIfNoSpecifiedTests></properties>
   <dependencies>
     <dependency><groupId>com.xy</groupId><artifactId>xy-common</artifactId></dependency>
+    <!-- HTTP 服务通过 starter-validation 提供校验；纯 RPC 消费方不需要加载校验实现。 -->
+    <dependency><groupId>org.hibernate.validator</groupId><artifactId>hibernate-validator</artifactId><optional>true</optional></dependency>
     <dependency><groupId>io.swagger.core.v3</groupId><artifactId>swagger-annotations-jakarta</artifactId></dependency>
     <dependency>
       <groupId>com.mybatis-flex</groupId><artifactId>mybatis-flex-annotation</artifactId>

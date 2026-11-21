@@ -21,6 +21,9 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Consumer;
+import reactor.core.Disposable;
+import reactor.core.Disposables;
+import reactor.core.publisher.BaseSubscriber;
 
 // 处理本次原生生成的完整输出；文件存取仍统一经过 GeneratedFileManager。
 final class NativeGenerationOutputHandler implements GenerationSession.OutputHandler {
@@ -36,9 +39,12 @@ final class NativeGenerationOutputHandler implements GenerationSession.OutputHan
     private final NativeContentPhoto photo;
     private GenerationQualityWorkflow workflow;
     private ChatResponse candidate;
+    private final NativeCodeStream writer;
+    private final Disposable.Swap stream = Disposables.swap();
 
     NativeGenerationOutputHandler(long userId, long appId, long generationId, String codeGenType,
-            GeneratedFileManager fileManager, ObjectMapper objectMapper, boolean qualityCheck, OpenversePhotoSearch photoSearch) {
+            GeneratedFileManager fileManager, ObjectMapper objectMapper, boolean qualityCheck, OpenversePhotoSearch photoSearch, NativeCodeStream writer) {
+        this.writer = writer;
         this.userId = userId;
         this.appId = appId;
         this.generationId = generationId;
@@ -75,18 +81,29 @@ final class NativeGenerationOutputHandler implements GenerationSession.OutputHan
             conversation.set(0, SystemMessage.from(system.text() + "\n" + hint));
         }
         if (!qualityCheck) {
-            model.chat(conversation, receiveCandidate(session, first, session::onCompleteResponse));
+            stream(conversation, session, receiveCandidate(session, first, session::onCompleteResponse));
             return;
         }
         workflow = new GenerationQualityWorkflow(mode, model, mapper, session, conversation, previousSource,
                 () -> candidate.aiMessage().text(),
-                done -> model.chat(List.copyOf(conversation), receiveCandidate(session, first, response -> {
+                done -> stream(List.copyOf(conversation), session, receiveCandidate(session, first, response -> {
                     candidate = response;
                     conversation.add(response.aiMessage());
                     done.run();
                 })),
                 () -> session.onCompleteResponse(candidate), session::onPartialResponse);
         workflow.run();
+    }
+
+    private void stream(List<ChatMessage> messages, GenerationSession session, StreamingChatResponseHandler target) {
+        var subscriber = new BaseSubscriber<NativeCodeStream.Chunk>() {
+            @Override protected void hookOnNext(NativeCodeStream.Chunk chunk) {
+                if (chunk.finalResponse() == null) target.onPartialResponse(chunk.delta());
+                else target.onCompleteResponse(chunk.finalResponse());
+            }
+            @Override protected void hookOnError(Throwable error) { target.onError(error); }
+        };
+        if (stream.update(subscriber)) writer.generate(messages, session).subscribe(subscriber);
     }
 
     private StreamingChatResponseHandler receiveCandidate(GenerationSession session, boolean first, Consumer<ChatResponse> next) {
@@ -138,7 +155,7 @@ final class NativeGenerationOutputHandler implements GenerationSession.OutputHan
     }
 
     @Override
-    public void stop() { if (workflow != null) workflow.stop(); }
+    public void stop() { stream.dispose(); if (workflow != null) workflow.stop(); }
 
     @Override
     public void save(String output) throws IOException {

@@ -72,7 +72,7 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.AdditionalAnswers.delegatesTo;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doNothing;
@@ -134,6 +134,14 @@ class GenerationControllerTest {
     private final ScheduledFuture<?> heartbeatTask = mock(ScheduledFuture.class);
     private long generationId;
 
+    private static boolean nativeDraft(ChatRequest request) {
+        return request != null && (request.toolSpecifications() == null || request.toolSpecifications().isEmpty())
+                && request.messages().getFirst() instanceof SystemMessage system && !system.text().contains("本次生成类型：");
+    }
+
+    private static ChatRequest draftRequest() { return argThat(GenerationControllerTest::nativeDraft); }
+    private static ChatRequest nonDraftRequest() { return argThat(r -> r != null && !nativeDraft(r)); }
+
     @DynamicPropertySource
     static void outputDirectory(DynamicPropertyRegistry registry) {
         registry.add("xy.generation.output-directory", () -> directory.toString());
@@ -155,13 +163,13 @@ class GenerationControllerTest {
     @Test
     void streamsAndReportsCompletionOnlyAfterSavingTheFileAndVersion() throws Exception {
         doAnswer(invocation -> {
-            List<ChatMessage> messages = invocation.getArgument(0);
+            List<ChatMessage> messages = invocation.<ChatRequest>getArgument(0).messages();
             assertThat(((UserMessage) messages.get(1)).singleText()).isEqualTo("摄影作品集");
             StreamingChatResponseHandler handler = invocation.getArgument(1);
             handler.onPartialResponse(HTML);
             handler.onCompleteResponse(response(HTML, FinishReason.STOP));
             return null;
-        }).when(model).chat(anyList(), any(StreamingChatResponseHandler.class));
+        }).when(model).chat(draftRequest(), any(StreamingChatResponseHandler.class));
         doAnswer(invocation -> {
             assertThat(Files.readString(htmlPath())).isEqualTo(HTML);
             return null;
@@ -186,13 +194,13 @@ class GenerationControllerTest {
         Map<String, String> files = multiFiles();
         String json = objectMapper.writeValueAsString(files);
         doAnswer(invocation -> {
-            List<ChatMessage> messages = invocation.getArgument(0);
+            List<ChatMessage> messages = invocation.<ChatRequest>getArgument(0).messages();
             assertThat(((SystemMessage) messages.getFirst()).text()).contains("合法 JSON 对象", "style.css", "script.js");
             StreamingChatResponseHandler handler = invocation.getArgument(1);
             handler.onPartialResponse(json);
             handler.onCompleteResponse(response(json, FinishReason.STOP));
             return null;
-        }).when(model).chat(anyList(), any(StreamingChatResponseHandler.class));
+        }).when(model).chat(draftRequest(), any(StreamingChatResponseHandler.class));
         doAnswer(invocation -> {
             for (var file : files.entrySet()) {
                 assertThat(Files.readString(htmlPath().resolveSibling(file.getKey()))).isEqualTo(file.getValue());
@@ -235,14 +243,14 @@ class GenerationControllerTest {
         var writes = new AtomicInteger();
         var checks = new AtomicInteger();
         doAnswer(call -> {
-            List<ChatMessage> messages = call.getArgument(0);
+            List<ChatMessage> messages = call.<ChatRequest>getArgument(0).messages();
             assertThat(((SystemMessage) messages.getFirst()).text()).contains("xy:illustration:reading", "不要插画");
             boolean initial = writes.incrementAndGet() == 1;
             if (initial) assertThat(((UserMessage) messages.getLast()).singleText()).isEqualTo(prompt);
             else assertThat(((AiMessage) messages.get(messages.size() - 2)).text()).isEqualTo(firstOutput);
             call.<StreamingChatResponseHandler>getArgument(1).onCompleteResponse(response(initial ? raw : output, FinishReason.STOP));
             return null;
-        }).when(model).chat(anyList(), any(StreamingChatResponseHandler.class));
+        }).when(model).chat(draftRequest(), any(StreamingChatResponseHandler.class));
         doAnswer(call -> {
             ChatRequest review = call.getArgument(0);
             boolean initial = checks.incrementAndGet() == 1;
@@ -251,7 +259,7 @@ class GenerationControllerTest {
                     repair && initial ? "{\"isValid\":false,\"errors\":[\"修改标题\"],\"suggestions\":[]}"
                             : "{\"isValid\":true,\"errors\":[],\"suggestions\":[]}", FinishReason.STOP));
             return null;
-        }).when(model).chat(any(ChatRequest.class), any(StreamingChatResponseHandler.class));
+        }).when(model).chat(nonDraftRequest(), any(StreamingChatResponseHandler.class));
         var saved = new ChatHistory();
         saved.setAppId(55L);
         saved.setUserId(42L);
@@ -309,7 +317,7 @@ class GenerationControllerTest {
                 .when(persistence).complete(eq(55L), eq(42L), any(Long.class), any());
         var writes = new AtomicInteger();
         doAnswer(call -> {
-            List<ChatMessage> messages = call.getArgument(0);
+            List<ChatMessage> messages = call.<ChatRequest>getArgument(0).messages();
             String output = raw;
             if (writes.incrementAndGet() == 1) {
                 assertThat(((SystemMessage) messages.getFirst()).text()).contains("data-xy-logo", "data-xy-architecture");
@@ -321,14 +329,14 @@ class GenerationControllerTest {
             }
             call.<StreamingChatResponseHandler>getArgument(1).onCompleteResponse(response(output, FinishReason.STOP));
             return null;
-        }).when(model).chat(anyList(), any(StreamingChatResponseHandler.class));
+        }).when(model).chat(draftRequest(), any(StreamingChatResponseHandler.class));
         doAnswer(call -> {
             String candidate = ((UserMessage) call.<ChatRequest>getArgument(0).messages().getLast()).singleText();
             assertThat(candidate).contains("<svg").doesNotContain("data-xy-logo=", "data-xy-architecture=");
             call.<StreamingChatResponseHandler>getArgument(1).onCompleteResponse(response(
                     "{\"isValid\":true,\"errors\":[],\"suggestions\":[]}", FinishReason.STOP));
             return null;
-        }).when(model).chat(any(ChatRequest.class), any(StreamingChatResponseHandler.class));
+        }).when(model).chat(nonDraftRequest(), any(StreamingChatResponseHandler.class));
 
         String events = finish(mockMvc.perform(generate().session(session()).content(objectMapper.writeValueAsString(
                 Map.of("prompt", "摄影作品集", "qualityCheck", multi)))).andReturn());
@@ -378,7 +386,7 @@ class GenerationControllerTest {
                     HTML.replace("你好", "<img data-xy-photo='coffee' alt='咖啡'>"), FinishReason.STOP));
             callbackFinished.countDown();
             return null;
-        }).when(model).chat(anyList(), any(StreamingChatResponseHandler.class));
+        }).when(model).chat(draftRequest(), any(StreamingChatResponseHandler.class));
 
         var result = mockMvc.perform(generate().session(session())
                 .content("{\"prompt\":\"摄影作品集\",\"qualityCheck\":true}")).andReturn();
@@ -395,7 +403,7 @@ class GenerationControllerTest {
         assertThat(finish(result)).containsSubsequence("正在查找内容配图", ":keepalive", "event:cancelled")
                 .doesNotContain("已准备本地内容配图", "event:completed");
         assertThat(htmlPath()).doesNotExist();
-        verify(model, never()).chat(any(ChatRequest.class), any());
+        verify(model, never()).chat(nonDraftRequest(), any());
         verify(persistence, never()).complete(eq(55L), eq(42L), eq(generationId), any());
     }
 
@@ -413,7 +421,7 @@ class GenerationControllerTest {
         doAnswer(call -> {
             call.<StreamingChatResponseHandler>getArgument(1).onCompleteResponse(response(page, FinishReason.STOP));
             return null;
-        }).when(model).chat(anyList(), any(StreamingChatResponseHandler.class));
+        }).when(model).chat(draftRequest(), any(StreamingChatResponseHandler.class));
         boolean quality = theme.equals("coffee");
         doAnswer(call -> {
             var messages = call.<ChatRequest>getArgument(0).messages();
@@ -422,7 +430,7 @@ class GenerationControllerTest {
             call.<StreamingChatResponseHandler>getArgument(1).onCompleteResponse(response(
                     "{\"isValid\":true,\"errors\":[],\"suggestions\":[]}", FinishReason.STOP));
             return null;
-        }).when(model).chat(any(ChatRequest.class), any(StreamingChatResponseHandler.class));
+        }).when(model).chat(nonDraftRequest(), any(StreamingChatResponseHandler.class));
         String events = finish(mockMvc.perform(generate().session(session()).content(objectMapper.writeValueAsString(
                 Map.of("prompt", "摄影作品集", "qualityCheck", quality)))).andReturn());
         assertThat(events).contains("event:completed").doesNotContain("event:failed");
@@ -462,7 +470,7 @@ class GenerationControllerTest {
         var writes = new AtomicInteger();
         var checks = new AtomicInteger();
         doAnswer(call -> {
-            List<ChatMessage> messages = call.getArgument(0);
+            List<ChatMessage> messages = call.<ChatRequest>getArgument(0).messages();
             assertThat(messages.toString()).doesNotContain(src);
             assertThat(((SystemMessage) messages.getFirst()).text()).contains("data-xy-photo");
             String result = page;
@@ -478,7 +486,7 @@ class GenerationControllerTest {
             handler.onPartialResponse(result);
             handler.onCompleteResponse(response(result, FinishReason.STOP));
             return null;
-        }).when(model).chat(anyList(), any(StreamingChatResponseHandler.class));
+        }).when(model).chat(draftRequest(), any(StreamingChatResponseHandler.class));
         doAnswer(call -> {
             var messages = call.<ChatRequest>getArgument(0).messages();
             assertThat(((UserMessage) messages.getLast()).singleText()).contains(credit, "CC0").doesNotContain("base64,");
@@ -487,7 +495,7 @@ class GenerationControllerTest {
                     ? "{\"isValid\":false,\"errors\":[\"请补全标题\"],\"suggestions\":[]}"
                     : "{\"isValid\":true,\"errors\":[],\"suggestions\":[]}", FinishReason.STOP));
             return null;
-        }).when(model).chat(any(ChatRequest.class), any(StreamingChatResponseHandler.class));
+        }).when(model).chat(nonDraftRequest(), any(StreamingChatResponseHandler.class));
         var completed = new ChatHistory();
         completed.setAppId(55L);
         completed.setUserId(42L);
@@ -549,7 +557,7 @@ class GenerationControllerTest {
                                 writeFile("src/components/Card.vue", "<template>作品集</template>")))).build());
             }
             return null;
-        }).when(model).chat(any(ChatRequest.class), any(StreamingChatResponseHandler.class));
+        }).when(model).chat(nonDraftRequest(), any(StreamingChatResponseHandler.class));
         doAnswer(invocation -> {
             assertThat(fileManager.readVueProject(42, 55, generationId)).containsEntry("src/App.vue", source);
             app.setGeneratedVersion(generationId);
@@ -627,7 +635,7 @@ class GenerationControllerTest {
             handler.onCompleteResponse(calls.isEmpty() ? response("完成", FinishReason.STOP)
                     : ChatResponse.builder().finishReason(FinishReason.TOOL_EXECUTION).aiMessage(AiMessage.from(calls)).build());
             return null;
-        }).when(model).chat(any(ChatRequest.class), any(StreamingChatResponseHandler.class));
+        }).when(model).chat(nonDraftRequest(), any(StreamingChatResponseHandler.class));
 
         String events = finish(mockMvc.perform(generate().session(session())
                 .content(objectMapper.writeValueAsString(Map.of("prompt", prompt, "qualityCheck", qualityCheck)))).andReturn());
@@ -703,7 +711,7 @@ class GenerationControllerTest {
             handler.onCompleteResponse(writes.isEmpty() ? response("完成", FinishReason.STOP)
                     : ChatResponse.builder().finishReason(FinishReason.TOOL_EXECUTION).aiMessage(AiMessage.from(writes)).build());
             return null;
-        }).when(model).chat(any(ChatRequest.class), any(StreamingChatResponseHandler.class));
+        }).when(model).chat(nonDraftRequest(), any(StreamingChatResponseHandler.class));
 
         var result = mockMvc.perform(generate().session(session())).andExpect(request().asyncStarted()).andReturn();
         var version = htmlPath().getParent();
@@ -757,7 +765,7 @@ class GenerationControllerTest {
                         .aiMessage(AiMessage.from(writeFile("src/App.vue", source))).build());
             } else handler.onCompleteResponse(response("完成", FinishReason.STOP));
             return null;
-        }).when(model).chat(any(ChatRequest.class), any(StreamingChatResponseHandler.class));
+        }).when(model).chat(nonDraftRequest(), any(StreamingChatResponseHandler.class));
 
         String events = finish(mockMvc.perform(generate().session(session())).andReturn());
         assertThat(events).containsSubsequence("正在查找内容配图", found ? "已准备本地内容配图" : "未取得可用配图", "event:completed");
@@ -810,7 +818,7 @@ class GenerationControllerTest {
                         .aiMessage(AiMessage.from(writeFile("src/App.vue", credited))).build());
             } else handler.onCompleteResponse(response("已标注来源", FinishReason.STOP));
             return null;
-        }).when(model).chat(any(ChatRequest.class), any(StreamingChatResponseHandler.class));
+        }).when(model).chat(nonDraftRequest(), any(StreamingChatResponseHandler.class));
         String prompt = "给已有照片标注来源和许可";
         when(persistence.start(55L, 42L, prompt)).thenReturn(generationId);
         String events = finish(mockMvc.perform(generate().session(session())
@@ -854,7 +862,7 @@ class GenerationControllerTest {
                 handler.onCompleteResponse(response("完成", FinishReason.STOP));
             }
             return null;
-        }).when(model).chat(any(ChatRequest.class), any(StreamingChatResponseHandler.class));
+        }).when(model).chat(nonDraftRequest(), any(StreamingChatResponseHandler.class));
         String events = finish(mockMvc.perform(generate().session(session())).andReturn());
         assertThat(events).containsSubsequence(label == null ? "没有匹配的内置插画" : "已准备插画：" + label, "event:completed");
         var zip = unzipSources(fileManager.readVueSourceZip(42, 55, generationId));
@@ -911,7 +919,7 @@ class GenerationControllerTest {
             handler.onCompleteResponse(ChatResponse.builder().finishReason(FinishReason.TOOL_EXECUTION)
                     .aiMessage(AiMessage.from(tool)).build());
             return null;
-        }).when(model).chat(any(ChatRequest.class), any(StreamingChatResponseHandler.class));
+        }).when(model).chat(nonDraftRequest(), any(StreamingChatResponseHandler.class));
         String events = finish(mockMvc.perform(generate().session(session())
                 .content(objectMapper.writeValueAsString(Map.of("prompt", prompt)))).andReturn());
         if (outcome.equals("dangling")) {
@@ -957,7 +965,7 @@ class GenerationControllerTest {
                         .aiMessage(AiMessage.from(edit)).build());
             }
             return null;
-        }).when(model).chat(any(ChatRequest.class), any(StreamingChatResponseHandler.class));
+        }).when(model).chat(nonDraftRequest(), any(StreamingChatResponseHandler.class));
         String updated = finish(mockMvc.perform(generate().session(session())
                 .content(objectMapper.writeValueAsString(Map.of("prompt", change)))).andReturn());
         assertThat(updated).contains("已局部修改：" + component, "event:completed").doesNotContain("已生成品牌 Logo");
@@ -1008,7 +1016,7 @@ class GenerationControllerTest {
                         .aiMessage(AiMessage.from(writeFile(data, graph.replaceFirst("后端", "网关")))).build());
             } else handler.onCompleteResponse(response("完成", FinishReason.STOP));
             return null;
-        }).when(model).chat(any(ChatRequest.class), any(StreamingChatResponseHandler.class));
+        }).when(model).chat(nonDraftRequest(), any(StreamingChatResponseHandler.class));
 
         String events = finish(mockMvc.perform(generate().session(session())
                 .content(objectMapper.writeValueAsString(Map.of("prompt", prompt)))).andReturn());
@@ -1097,7 +1105,7 @@ class GenerationControllerTest {
                         .aiMessage(AiMessage.from(fixEdge)).build());
             } else handler.onCompleteResponse(response("已改名", FinishReason.STOP));
             return null;
-        }).when(model).chat(any(ChatRequest.class), any(StreamingChatResponseHandler.class));
+        }).when(model).chat(nonDraftRequest(), any(StreamingChatResponseHandler.class));
         String events = finish(mockMvc.perform(generate().session(session())).andReturn());
         if (both) {
             assertThat(events).contains("event:completed").doesNotContain("event:failed");
@@ -1152,7 +1160,7 @@ class GenerationControllerTest {
                         .aiMessage(AiMessage.from(edits)).build());
             }
             return null;
-        }).when(model).chat(any(ChatRequest.class), any(StreamingChatResponseHandler.class));
+        }).when(model).chat(nonDraftRequest(), any(StreamingChatResponseHandler.class));
         String events = finish(mockMvc.perform(generate().session(session())).andReturn());
         assertThat(events).contains("event:completed").doesNotContain("event:failed");
         assertThat(unzipSources(fileManager.readVueSourceZip(42, 55, generationId)))
@@ -1194,7 +1202,7 @@ class GenerationControllerTest {
                                 .arguments("{\"relativePath\":\"src/Card.vue\"}").build())).build());
             }
             return null;
-        }).when(model).chat(any(ChatRequest.class), any(StreamingChatResponseHandler.class));
+        }).when(model).chat(nonDraftRequest(), any(StreamingChatResponseHandler.class));
 
         String events = finish(mockMvc.perform(generate().session(session())).andReturn());
         assertThat(events).containsSubsequence("已读取：src/Card.vue", "已局部修改：src/Card.vue", "event:completed")
@@ -1215,7 +1223,7 @@ class GenerationControllerTest {
             handler.onCompleteResponse(ChatResponse.builder().finishReason(FinishReason.TOOL_EXECUTION)
                     .aiMessage(AiMessage.from(replaceCardFragment(oldText, "替换后的内容"))).build());
             return null;
-        }).when(model).chat(any(ChatRequest.class), any(StreamingChatResponseHandler.class));
+        }).when(model).chat(nonDraftRequest(), any(StreamingChatResponseHandler.class));
         String events = finish(mockMvc.perform(generate().session(session())).andReturn());
         assertThat(events).contains("event:failed", "原代码片段未找到或匹配多处").doesNotContain("event:completed");
         for (long id : List.of(previous, generationId)) {
@@ -1253,7 +1261,7 @@ class GenerationControllerTest {
                                 .arguments("{\"relativePath\":\"src/Card.vue\"}").build())).build());
             }
             return null;
-        }).when(model).chat(any(ChatRequest.class), any(StreamingChatResponseHandler.class));
+        }).when(model).chat(nonDraftRequest(), any(StreamingChatResponseHandler.class));
         String events = finish(mockMvc.perform(generate().session(session())).andReturn());
         assertThat(events).contains("event:failed", "src/App.vue", "仍引用已删除组件 src/Card.vue")
                 .doesNotContain("event:completed");
@@ -1291,7 +1299,7 @@ class GenerationControllerTest {
                         .aiMessage(AiMessage.from(tools)).build());
             }
             return null;
-        }).when(model).chat(any(ChatRequest.class), any(StreamingChatResponseHandler.class));
+        }).when(model).chat(nonDraftRequest(), any(StreamingChatResponseHandler.class));
         String events = finish(mockMvc.perform(generate().session(session())).andReturn());
         assertThat(events).containsSubsequence("已删除组件：src/Card.vue", "event:completed");
         assertThat(unzipSources(fileManager.readVueSourceZip(42, 55, generationId)))
@@ -1337,7 +1345,7 @@ class GenerationControllerTest {
                         .aiMessage(AiMessage.from(List.of(writeFile(
                                 outcome.equals("invalid_path") ? "../App.vue" : "src/App.vue", "<template>页面</template>")))).build());
             return null;
-        }).when(model).chat(any(ChatRequest.class), any(StreamingChatResponseHandler.class));
+        }).when(model).chat(nonDraftRequest(), any(StreamingChatResponseHandler.class));
 
         String events = finish(mockMvc.perform(generate().session(session())).andReturn());
         assertThat(events).contains(outcome.equals("cancelled") ? "event:cancelled" : "event:failed")
@@ -1406,7 +1414,7 @@ class GenerationControllerTest {
                                 "<template>候选" + writes.incrementAndGet() + "</template>"))).build());
             }
             return null;
-        }).when(model).chat(any(ChatRequest.class), any(StreamingChatResponseHandler.class));
+        }).when(model).chat(nonDraftRequest(), any(StreamingChatResponseHandler.class));
 
         String events = finish(mockMvc.perform(generate().session(session())
                 .content("{\"prompt\":\"摄影作品集\",\"qualityCheck\":true}")).andReturn());
@@ -1469,7 +1477,7 @@ class GenerationControllerTest {
         var writes = new ArrayList<List<ChatMessage>>();
         var checks = new ArrayList<ChatRequest>();
         doAnswer(call -> {
-            writes.add(List.copyOf(call.getArgument(0)));
+            writes.add(List.copyOf(call.<ChatRequest>getArgument(0).messages()));
             StreamingChatResponseHandler handler = call.getArgument(1);
             String output = writes.size() == 1 ? draft : repaired;
             if (outcome.equals("cancel_repair") && writes.size() == 2) {
@@ -1481,7 +1489,7 @@ class GenerationControllerTest {
             handler.onPartialResponse(output);
             handler.onCompleteResponse(response(output, FinishReason.STOP));
             return null;
-        }).when(model).chat(anyList(), any(StreamingChatResponseHandler.class));
+        }).when(model).chat(draftRequest(), any(StreamingChatResponseHandler.class));
         doAnswer(call -> {
             checks.add(call.getArgument(0));
             boolean valid = outcome.equals("passed") || outcome.equals("invalid_files")
@@ -1492,7 +1500,7 @@ class GenerationControllerTest {
             handler.onPartialResponse(report);
             handler.onCompleteResponse(response(report, FinishReason.STOP));
             return null;
-        }).when(model).chat(any(ChatRequest.class), any(StreamingChatResponseHandler.class));
+        }).when(model).chat(nonDraftRequest(), any(StreamingChatResponseHandler.class));
 
         String events = finish(mockMvc.perform(generate().session(session())
                 .content("{\"prompt\":\"摄影作品集\",\"qualityCheck\":true}")).andReturn());
@@ -1554,7 +1562,7 @@ class GenerationControllerTest {
             call.<StreamingChatResponseHandler>getArgument(1).onCompleteResponse(
                     response(writes.incrementAndGet() == 1 ? draft : fixed, FinishReason.STOP));
             return null;
-        }).when(model).chat(anyList(), any(StreamingChatResponseHandler.class));
+        }).when(model).chat(draftRequest(), any(StreamingChatResponseHandler.class));
         var reviews = new ArrayList<String>();
         doAnswer(call -> {
             var messages = call.<ChatRequest>getArgument(0).messages();
@@ -1566,7 +1574,7 @@ class GenerationControllerTest {
             call.<StreamingChatResponseHandler>getArgument(1).onCompleteResponse(response(objectMapper.writeValueAsString(
                     Map.of("isValid", passed, "errors", passed ? List.of() : List.of("字号尚未翻倍"), "suggestions", List.of())), FinishReason.STOP));
             return null;
-        }).when(model).chat(any(ChatRequest.class), any(StreamingChatResponseHandler.class));
+        }).when(model).chat(nonDraftRequest(), any(StreamingChatResponseHandler.class));
 
         String events = finish(mockMvc.perform(generate().session(session()).content(
                 objectMapper.writeValueAsString(Map.of("prompt", prompt, "qualityCheck", true)))).andReturn());
@@ -1599,7 +1607,7 @@ class GenerationControllerTest {
         doAnswer(call -> {
             call.<StreamingChatResponseHandler>getArgument(1).onCompleteResponse(response(HTML, FinishReason.STOP));
             return null;
-        }).when(model).chat(anyList(), any(StreamingChatResponseHandler.class));
+        }).when(model).chat(draftRequest(), any(StreamingChatResponseHandler.class));
         var result = mockMvc.perform(post("/api/apps/56/generations").contextPath("/api").session(session())
                         .contentType(MediaType.APPLICATION_JSON).content("{\"prompt\":\"另一个应用\"}"))
                 .andExpect(request().asyncStarted()).andReturn();
@@ -1633,7 +1641,7 @@ class GenerationControllerTest {
             } else handler.onCompleteResponse(ChatResponse.builder().finishReason(FinishReason.TOOL_EXECUTION)
                     .aiMessage(AiMessage.from(writeFile("src/App.vue", "<template>候选</template>"))).build());
             return null;
-        }).when(model).chat(any(ChatRequest.class), any(StreamingChatResponseHandler.class));
+        }).when(model).chat(nonDraftRequest(), any(StreamingChatResponseHandler.class));
         MvcResult result = mockMvc.perform(generate().session(session())
                 .content("{\"prompt\":\"摄影作品集\",\"qualityCheck\":true}")).andReturn();
         assertThat(waiting.await(5, TimeUnit.SECONDS)).isTrue();
@@ -1666,8 +1674,8 @@ class GenerationControllerTest {
             waiting.countDown();
             return null;
         };
-        doAnswer(silentModel).when(model).chat(anyList(), any(StreamingChatResponseHandler.class));
-        doAnswer(silentModel).when(model).chat(any(ChatRequest.class), any(StreamingChatResponseHandler.class));
+        doAnswer(silentModel).when(model).chat(draftRequest(), any(StreamingChatResponseHandler.class));
+        doAnswer(silentModel).when(model).chat(nonDraftRequest(), any(StreamingChatResponseHandler.class));
         MvcResult result = mockMvc.perform(generate().session(session())).andReturn();
         assertThat(waiting.await(5, TimeUnit.SECONDS)).isTrue();
         Runnable heartbeat = heartbeatTick();
@@ -1701,7 +1709,7 @@ class GenerationControllerTest {
                     : ChatResponse.builder().finishReason(FinishReason.TOOL_EXECUTION)
                             .aiMessage(AiMessage.from(List.of(writeFile("src/App.vue", "<template>作品</template>")))).build());
             return null;
-        }).when(model).chat(any(ChatRequest.class), any(StreamingChatResponseHandler.class));
+        }).when(model).chat(nonDraftRequest(), any(StreamingChatResponseHandler.class));
         doAnswer(invocation -> {
             verify(persistence, never()).complete(eq(55L), eq(42L), eq(generationId), any());
             var paths = (GeneratedFileManager.VueBuildPaths) invocation.getArgument(0);
@@ -1747,10 +1755,10 @@ class GenerationControllerTest {
         when(persistence.start(55, 42, prompt)).thenReturn(generationId);
         AtomicReference<List<ChatMessage>> sent = new AtomicReference<>();
         doAnswer(invocation -> {
-            sent.set(invocation.getArgument(0));
+            sent.set(invocation.<ChatRequest>getArgument(0).messages());
             ((StreamingChatResponseHandler) invocation.getArgument(1)).onCompleteResponse(response(source, FinishReason.STOP));
             return null;
-        }).when(model).chat(anyList(), any(StreamingChatResponseHandler.class));
+        }).when(model).chat(draftRequest(), any(StreamingChatResponseHandler.class));
 
         String events = finish(mockMvc.perform(generate().session(session())
                 .content(objectMapper.writeValueAsString(Map.of("prompt", prompt)))).andReturn());
@@ -1841,7 +1849,7 @@ class GenerationControllerTest {
             handler.onPartialResponse(output);
             handler.onCompleteResponse(response(output, FinishReason.STOP));
             return null;
-        }).when(model).chat(anyList(), any(StreamingChatResponseHandler.class));
+        }).when(model).chat(draftRequest(), any(StreamingChatResponseHandler.class));
 
         String events = finish(mockMvc.perform(generate().session(session())).andReturn());
         assertThat(events).contains("event:failed", "模型未返回完整的 HTML/CSS/JS 文件").doesNotContain("event:completed");
@@ -1858,7 +1866,7 @@ class GenerationControllerTest {
             // 已失败的旧回调不能再次完成，也不能更新成功版本。
             handler.onCompleteResponse(response(HTML, FinishReason.STOP));
             return null;
-        }).when(model).chat(anyList(), any(StreamingChatResponseHandler.class));
+        }).when(model).chat(draftRequest(), any(StreamingChatResponseHandler.class));
 
         String events = finish(mockMvc.perform(generate().session(session())).andReturn());
 
@@ -1877,7 +1885,7 @@ class GenerationControllerTest {
             handler.onPartialResponse(text);
             handler.onCompleteResponse(response(text, truncated ? FinishReason.LENGTH : FinishReason.STOP));
             return null;
-        }).when(model).chat(anyList(), any(StreamingChatResponseHandler.class));
+        }).when(model).chat(draftRequest(), any(StreamingChatResponseHandler.class));
 
         String events = finish(mockMvc.perform(generate().session(session())).andReturn());
 
@@ -1929,11 +1937,11 @@ class GenerationControllerTest {
         when(persistence.start(55, 42, corrected)).thenReturn(generationId);
         var sent = new AtomicReference<String>();
         doAnswer(call -> {
-            List<ChatMessage> messages = call.getArgument(0);
+            List<ChatMessage> messages = call.<ChatRequest>getArgument(0).messages();
             sent.set(((UserMessage) messages.getLast()).singleText());
             call.<StreamingChatResponseHandler>getArgument(1).onCompleteResponse(response(HTML, FinishReason.STOP));
             return null;
-        }).when(model).chat(anyList(), any(StreamingChatResponseHandler.class));
+        }).when(model).chat(draftRequest(), any(StreamingChatResponseHandler.class));
         String events = finish(mockMvc.perform(generate().session(session())
                 .content(objectMapper.writeValueAsString(Map.of("prompt", corrected)))).andReturn());
         assertThat(events).contains("event:completed");
@@ -1948,7 +1956,7 @@ class GenerationControllerTest {
             handler.set(invocation.getArgument(1));
             started.countDown();
             return null;
-        }).when(model).chat(anyList(), any(StreamingChatResponseHandler.class));
+        }).when(model).chat(draftRequest(), any(StreamingChatResponseHandler.class));
         MvcResult first = mockMvc.perform(generate().session(session())).andExpect(request().asyncStarted()).andReturn();
         assertThat(started.await(3, TimeUnit.SECONDS)).isTrue();
         try {
@@ -1963,7 +1971,7 @@ class GenerationControllerTest {
         doAnswer(invocation -> {
             ((StreamingChatResponseHandler) invocation.getArgument(1)).onError(new IllegalStateException("retry failure"));
             return null;
-        }).when(model).chat(anyList(), any(StreamingChatResponseHandler.class));
+        }).when(model).chat(draftRequest(), any(StreamingChatResponseHandler.class));
         assertThat(finish(mockMvc.perform(generate().session(session())).andReturn())).contains("event:started");
     }
 
@@ -2052,7 +2060,7 @@ class GenerationControllerTest {
             current.onPartialResponse(new PartialResponse("partial"), new PartialResponseContext(handle));
             started.countDown();
             return null;
-        }).when(model).chat(anyList(), any(StreamingChatResponseHandler.class));
+        }).when(model).chat(draftRequest(), any(StreamingChatResponseHandler.class));
         MvcResult result = mockMvc.perform(generate().session(session())).andExpect(request().asyncStarted()).andReturn();
         assertThat(started.await(3, TimeUnit.SECONDS)).isTrue();
         return result;

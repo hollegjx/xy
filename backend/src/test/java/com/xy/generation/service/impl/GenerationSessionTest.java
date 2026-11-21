@@ -53,7 +53,7 @@ class GenerationSessionTest {
     private final ScheduledExecutorService scheduler = mock(ScheduledExecutorService.class);
     private final ScheduledFuture<?> heartbeatTask = mock(ScheduledFuture.class);
     private final GenerationSession session = new GenerationSession(55, 42, 101, emitter, persistence,
-            new NativeGenerationOutputHandler(42, 55, 101, "html", files, new ObjectMapper(), false, photos), release, scheduler);
+            new NativeGenerationOutputHandler(42, 55, 101, "html", files, new ObjectMapper(), false, photos, mock(NativeCodeStream.class)), release, scheduler);
 
     @Test
     void startsHeartbeatsAfterStartedAndSendsOnlyCommentsWithoutChangingMessageContent() throws Exception {
@@ -164,7 +164,7 @@ class GenerationSessionTest {
         Map<String, String> output = Map.of("index.html", "html", "style.css", "css", "script.js", "js");
         String json = mapper.writeValueAsString(output);
         GenerationSession multiFile = new GenerationSession(55, 42, 101, mock(SseEmitter.class),
-                persistence, new NativeGenerationOutputHandler(42, 55, 101, "multi_file", files, mapper, false, photos), release, scheduler);
+                persistence, new NativeGenerationOutputHandler(42, 55, 101, "multi_file", files, mapper, false, photos, mock(NativeCodeStream.class)), release, scheduler);
         doThrow(new IOException("disk unavailable")).when(files).saveMultiFile(42, 55, 101, output);
         multiFile.onPartialResponse(json);
         multiFile.onCompleteResponse(ChatResponse.builder().aiMessage(AiMessage.from(json))
@@ -218,7 +218,7 @@ class GenerationSessionTest {
         when(messages.selectListByQuery(any())).thenReturn(List.of(stored));
         SseEmitter recoveringEmitter = mock(SseEmitter.class);
         GenerationSession recoveringSession = new GenerationSession(55, 42, 101, recoveringEmitter,
-                actualPersistence, new NativeGenerationOutputHandler(42, 55, 101, "html", files, new ObjectMapper(), false, photos), release, scheduler);
+                actualPersistence, new NativeGenerationOutputHandler(42, 55, 101, "html", files, new ObjectMapper(), false, photos, mock(NativeCodeStream.class)), release, scheduler);
         StreamingHandle handle = mock(StreamingHandle.class);
         recoveringSession.onPartialResponse(new PartialResponse("partial"), new PartialResponseContext(handle));
         if (timedOut) {

@@ -18,6 +18,9 @@ import dev.langchain4j.model.chat.response.StreamingHandle;
 import dev.langchain4j.model.output.FinishReason;
 import java.io.IOException;
 import java.util.List;
+import java.util.HashMap;
+import java.util.Map;
+import dev.langchain4j.exception.UnsupportedFeatureException;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
@@ -50,7 +53,8 @@ final class GenerationSession implements StreamingChatResponseHandler {
     private final Runnable release;
     private final ScheduledExecutorService heartbeatScheduler;
     private final StringBuilder content = new StringBuilder();
-    private StreamingHandle handle;
+    // 同一流可混用带句柄的回调和兼容回调；SDK 为后者合成的无取消能力句柄不能覆盖前者。
+    private final Map<Class<?>, StreamingHandle> handles = new HashMap<>();
     private ScheduledFuture<?> heartbeat;
     private boolean finished;
 
@@ -110,17 +114,14 @@ final class GenerationSession implements StreamingChatResponseHandler {
 
     @Override
     public synchronized void onPartialResponse(PartialResponse response, PartialResponseContext context) {
-        handle = context.streamingHandle();
-        if (finished) {
-            stopModel();
-            return;
-        }
+        trackHandle(context.streamingHandle());
+        if (finished) return;
         onPartialResponse(response.text());
     }
 
     synchronized void trackHandle(StreamingHandle current) {
-        handle = current;
-        if (finished) stopModel();
+        if (finished) cancelHandle(current);
+        else handles.put(current.getClass(), current);
     }
 
     // 工作流的一次调用只结束当前节点；质检报告不进入 SSE，所有节点仍支持取消。
@@ -154,14 +155,12 @@ final class GenerationSession implements StreamingChatResponseHandler {
 
     @Override
     public synchronized void onPartialThinking(PartialThinking thinking, PartialThinkingContext context) {
-        handle = context.streamingHandle();
-        if (finished) stopModel();
+        trackHandle(context.streamingHandle());
     }
 
     @Override
     public synchronized void onPartialToolCall(PartialToolCall call, PartialToolCallContext context) {
-        handle = context.streamingHandle();
-        if (finished) stopModel();
+        trackHandle(context.streamingHandle());
     }
 
     @Override
@@ -245,9 +244,15 @@ final class GenerationSession implements StreamingChatResponseHandler {
     }
 
     private void stopModel() {
-        if (handle == null) return;
+        handles.values().forEach(this::cancelHandle);
+        handles.clear();
+    }
+
+    private void cancelHandle(StreamingHandle handle) {
         try {
             handle.cancel();
+        } catch (UnsupportedFeatureException legacyCallback) {
+            // 无上下文分片没有可取消的上游句柄。
         } catch (RuntimeException error) {
             logFailure(error);
         }

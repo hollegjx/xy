@@ -200,12 +200,16 @@ public class GeneratedFileManager {
         return files;
     }
 
-    public Map<String, String> readVueSources(long userId, long appId, long generationId) throws IOException {
-        Path directory = versionDirectory(userId, appId, generationId);
+    public List<String> listVueSources(long userId, long appId, long generationId) throws IOException {
+        Path directory;
+        try {
+            directory = versionDirectory(userId, appId, generationId);
+        } catch (NoSuchFileException emptyDraft) {
+            return List.of();
+        }
         Path source = directory.resolve("src");
-        if (Files.isSymbolicLink(source)) throw new IOException("源码目录不可使用符号链接");
-        Map<String, String> files = new LinkedHashMap<>();
-        files.put("src/App.vue", readFile(source, "App.vue"));
+        if (Files.notExists(source, LinkOption.NOFOLLOW_LINKS)) return List.of();
+        List<String> names = new ArrayList<>();
         try (var paths = Files.walk(source)) {
             for (Path path : paths.sorted().toList()) {
                 if (Files.isSymbolicLink(path)) throw new IOException("源码不可使用符号链接");
@@ -213,13 +217,22 @@ public class GeneratedFileManager {
                 String name = directory.relativize(path).toString();
                 try {
                     vueSourcePath(name);
-                } catch (IllegalArgumentException error) {
+                } catch (IllegalArgumentException invalid) {
                     throw new IOException("存在无效的源码路径");
                 }
-                files.put(name, readFile(path.getParent(), path.getFileName().toString()));
+                names.add(name);
             }
         }
-        return files;
+        return names;
+    }
+
+    public Map<String, String> readVueSources(long userId, long appId, long generationId) throws IOException {
+        Map<String, String> sources = new LinkedHashMap<>();
+        sources.put("src/App.vue", readVueSource(userId, appId, generationId, "src/App.vue"));
+        for (String name : listVueSources(userId, appId, generationId)) {
+            if (!sources.containsKey(name)) sources.put(name, readVueSource(userId, appId, generationId, name));
+        }
+        return sources;
     }
 
     private Path vueSourcePath(String value) {

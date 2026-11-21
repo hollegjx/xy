@@ -6,6 +6,11 @@ import com.xy.manager.GeneratedFileManager;
 import com.xy.manager.VueProjectBuildManager;
 import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import dev.langchain4j.agent.tool.ToolSpecification;
+import dev.langchain4j.agent.tool.ToolSpecifications;
+import dev.langchain4j.agent.tool.Tool;
+import dev.langchain4j.agent.tool.P;
+import dev.langchain4j.service.tool.DefaultToolExecutor;
+import dev.langchain4j.invocation.InvocationContext;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.ToolExecutionResultMessage;
@@ -31,25 +36,7 @@ import java.util.concurrent.FutureTask;
 // 一次 Vue 源码生成的工具循环；任务终态和 SSE 生命周期仍由 GenerationSession 管理。
 final class VueProjectGeneration implements GenerationSession.OutputHandler {
     private static final Set<String> ASSET_TOOLS = Set.of("findPhoto", "selectIllustration", "drawArchitecture", "generateLogo");
-    private static final ToolSpecification READ_FILE = ToolSpecification.builder().name("readFile")
-            .description("读取 src 下的源码；读取已有 xy-photo.json 时只返回照片来源和许可")
-            .parameters(JsonObjectSchema.builder().addStringProperty("relativePath", "如 src/App.vue")
-                    .required("relativePath").additionalProperties(false).build()).build();
-    private static final ToolSpecification WRITE_FILE = ToolSpecification.builder().name("writeFile")
-            .description("在本次工程的 src 目录写入一个完整源文件，不能修改 src/main.js")
-            .parameters(JsonObjectSchema.builder().addStringProperty("relativePath", "如 src/App.vue")
-                    .addStringProperty("content", "完整源码").required("relativePath", "content")
-                    .additionalProperties(false).build()).build();
-    private static final ToolSpecification REPLACE_FRAGMENT = ToolSpecification.builder().name("replaceFragment")
-            .description("局部修改已有源文件，按原文替换唯一匹配的片段")
-            .parameters(JsonObjectSchema.builder().addStringProperty("relativePath", "如 src/App.vue")
-                    .addStringProperty("oldText", "原文件中唯一的非空片段，保留空白和换行")
-                    .addStringProperty("newText", "替换后的片段")
-                    .required("relativePath", "oldText", "newText").additionalProperties(false).build()).build();
-    private static final ToolSpecification DELETE_COMPONENT = ToolSpecification.builder().name("deleteComponent")
-            .description("删除本次工程中不再使用的非入口 .vue 组件，须先清理对它的引用")
-            .parameters(JsonObjectSchema.builder().addStringProperty("relativePath", "如 src/components/Notice.vue")
-                    .required("relativePath").additionalProperties(false).build()).build();
+    private static final List<ToolSpecification> SOURCE_TOOLS = ToolSpecifications.toolSpecificationsFrom(SourceTools.class);
     private static final ToolSpecification FIND_PHOTO = ToolSpecification.builder().name("findPhoto")
             .description("首次创建需要照片时，在写文件前选择一次公开主题，可与其他素材工具同批调用")
             .parameters(JsonObjectSchema.builder().addEnumProperty("theme", OpenversePhotoSearch.themes(), "预设照片主题")
@@ -67,6 +54,7 @@ final class VueProjectGeneration implements GenerationSession.OutputHandler {
     private GeneratedFileManager.VueBuildPaths buildPaths;
     private boolean choosingAssets, photoRequested, illustrationRequested, logoRequested;
     private int remainingDiagramAttempts = 2;
+    private final SourceTools sourceTools = new SourceTools();
     private boolean changedSource;
     private final Set<String> deletedComponents = new HashSet<>();
     private final VueAssetPrompt assetPrompt = new VueAssetPrompt();
@@ -134,7 +122,7 @@ final class VueProjectGeneration implements GenerationSession.OutputHandler {
             boolean offerIllustration = choosingAssets && !changedSource && !illustrationRequested;
             boolean offerDiagram = choosingAssets && !changedSource && remainingDiagramAttempts > 0;
             boolean offerLogo = choosingAssets && !changedSource && !logoRequested;
-            var tools = new ArrayList<>(List.of(READ_FILE, WRITE_FILE, REPLACE_FRAGMENT, DELETE_COMPONENT));
+            var tools = new ArrayList<>(SOURCE_TOOLS);
             if (offerPhoto) tools.add(FIND_PHOTO);
             if (offerIllustration) tools.add(ThemeIllustrations.TOOL);
             if (offerDiagram) tools.add(VueArchitectureDiagram.TOOL);
@@ -174,45 +162,22 @@ final class VueProjectGeneration implements GenerationSession.OutputHandler {
                                             "本批只准备素材，此文件操作未执行。请根据返回的素材结果重新提交需要的源码操作。"));
                                     continue;
                                 }
+                                var spec = SOURCE_TOOLS.stream().filter(t -> t.name().equals(tool.name())).findFirst().orElseThrow();
                                 var args = mapper.readTree(tool.arguments());
-                                if (args == null || !args.path("relativePath").isTextual()) throw new IllegalArgumentException();
-                                String path = args.get("relativePath").textValue();
-                                String result, progress;
-                                switch (tool.name()) {
-                                    case "readFile" -> {
-                                        result = GeneratedFileManager.VUE_PHOTO.equals(path) ? readPhotoAttribution()
-                                                : files.readVueSource(userId, appId, generationId, path);
-                                        progress = "\n已读取：" + path + "\n";
-                                    }
-                                    case "writeFile" -> {
-                                        if (!args.path("content").isTextual()) throw new IllegalArgumentException();
-                                        files.writeVueSource(userId, appId, generationId, path, args.get("content").textValue());
-                                        changedSource = true;
-                                        result = "文件已保存：" + path;
-                                        progress = "\n已写入：" + path + "\n";
-                                    }
-                                    case "replaceFragment" -> {
-                                        if (!args.path("oldText").isTextual() || !args.path("newText").isTextual())
-                                            throw new IllegalArgumentException();
-                                        if (!files.replaceVueSourceFragment(userId, appId, generationId, path,
-                                                args.get("oldText").textValue(), args.get("newText").textValue())) {
-                                            session.fail("原代码片段未找到或匹配多处，未替换，请重试");
-                                            return;
-                                        }
-                                        changedSource = true;
-                                        result = "已局部修改：" + path;
-                                        progress = "\n" + result + "\n";
-                                    }
-                                    case "deleteComponent" -> {
-                                        files.deleteVueComponent(userId, appId, generationId, path);
-                                        assetPrompt.remove(path);
-                                        deletedComponents.add(path);
-                                        changedSource = true;
-                                        result = "已删除组件：" + path;
-                                        progress = "\n" + result + "\n";
-                                    }
-                                    default -> throw new IllegalArgumentException();
+                                if (args == null || !args.isObject() || spec.parameters() != null
+                                        && !spec.parameters().required().stream().allMatch(k -> args.path(k).isTextual())) {
+                                    throw new IllegalArgumentException();
                                 }
+                                var execution = new DefaultToolExecutor(sourceTools, tool).executeWithContext(tool, InvocationContext.builder().build());
+                                if (execution.isError()) {
+                                    if ("replaceFragment".equals(tool.name()) && SourceTools.NO_MATCH.equals(execution.resultText())) {
+                                        session.fail(SourceTools.NO_MATCH);
+                                        return;
+                                    }
+                                    throw new IllegalArgumentException();
+                                }
+                                String result = execution.resultText();
+                                String progress = "\n" + sourceTools.progress + "\n";
                                 history.append(progress);
                                 session.onPartialResponse(progress);
                                 if (!session.isRunning()) return;
@@ -237,6 +202,51 @@ final class VueProjectGeneration implements GenerationSession.OutputHandler {
                 }));
         } catch (RuntimeException error) {
             session.onError(error);
+        }
+    }
+
+    private final class SourceTools {
+        private static final String NO_MATCH = "原代码片段未找到或匹配多处，未替换，请重试";
+        private String progress;
+
+        @Tool("列出本次 Vue 草稿 src 内已有的源码路径，无需参数")
+        public String listFiles() throws IOException {
+            progress = "已列出工程文件";
+            return mapper.writeValueAsString(files.listVueSources(userId, appId, generationId));
+        }
+
+        @Tool("读取 src 源文件或只读照片署名 xy-photo.json")
+        public String readFile(@P("相对路径") String relativePath) throws IOException {
+            progress = "已读取：" + relativePath;
+            return GeneratedFileManager.VUE_PHOTO.equals(relativePath) ? readPhotoAttribution()
+                    : files.readVueSource(userId, appId, generationId, relativePath);
+        }
+
+        @Tool("写入本次工程 src 中的完整源码，不可修改启动入口 src/main.js")
+        public String writeFile(@P("相对路径") String relativePath, @P("完整源码") String content) throws IOException {
+            files.writeVueSource(userId, appId, generationId, relativePath, content);
+            changedSource = true;
+            progress = "已写入：" + relativePath;
+            return "文件已保存：" + relativePath;
+        }
+
+        @Tool("局部修改源文件，仅替换原文中唯一匹配的片段")
+        public String replaceFragment(@P("相对路径") String relativePath, @P("原文片段") String oldText,
+                @P("替换后的片段") String newText) throws IOException {
+            if (!files.replaceVueSourceFragment(userId, appId, generationId, relativePath, oldText, newText)) {
+                throw new IllegalArgumentException(NO_MATCH);
+            }
+            changedSource = true;
+            return progress = "已局部修改：" + relativePath;
+        }
+
+        @Tool("删除不再使用的非入口 .vue 组件，须先清理引用")
+        public String deleteComponent(@P("相对路径") String relativePath) throws IOException {
+            files.deleteVueComponent(userId, appId, generationId, relativePath);
+            assetPrompt.remove(relativePath);
+            deletedComponents.add(relativePath);
+            changedSource = true;
+            return progress = "已删除组件：" + relativePath;
         }
     }
 

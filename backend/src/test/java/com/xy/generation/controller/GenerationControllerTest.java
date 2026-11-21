@@ -546,11 +546,18 @@ class GenerationControllerTest {
             ChatRequest request = invocation.getArgument(0);
             StreamingChatResponseHandler handler = invocation.getArgument(1);
             if (request.messages().getLast() instanceof ToolExecutionResultMessage) {
-                assertThat(request.messages()).hasSize(5);
-                handler.onCompleteResponse(response("已完成作品集。", FinishReason.STOP));
+                var last = (ToolExecutionResultMessage) request.messages().getLast();
+                if (last.toolName().equals("listFiles")) {
+                    assertThat(objectMapper.readTree(last.text())).isEqualTo(
+                            objectMapper.readTree("[\"src/App.vue\",\"src/components/Card.vue\"]"));
+                    handler.onCompleteResponse(response("已完成作品集。", FinishReason.STOP));
+                } else {
+                    handler.onCompleteResponse(ChatResponse.builder().finishReason(FinishReason.TOOL_EXECUTION)
+                            .aiMessage(AiMessage.from(ToolExecutionRequest.builder().id("list").name("listFiles").arguments("{}").build())).build());
+                }
             } else {
                 assertThat(request.toolSpecifications()).extracting("name")
-                        .containsExactlyInAnyOrder("readFile", "writeFile", "replaceFragment", "deleteComponent",
+                        .containsExactlyInAnyOrder("listFiles", "readFile", "writeFile", "replaceFragment", "deleteComponent",
                                 "findPhoto", "selectIllustration", "drawArchitecture", "generateLogo");
                 handler.onCompleteResponse(ChatResponse.builder().finishReason(FinishReason.TOOL_EXECUTION)
                         .aiMessage(AiMessage.from(List.of(writeFile("src/App.vue", source),

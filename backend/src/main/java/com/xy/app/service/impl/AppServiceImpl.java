@@ -68,7 +68,7 @@ public class AppServiceImpl implements AppService {
         String prompt = request.initPrompt();
         if (!request.requestsAutomaticMode()) PromptInputGuard.check(prompt);
         int nameLength = Math.min(12, prompt.codePointCount(0, prompt.length()));
-        CodeGenTypeEnum codeGenType = modeRouter.select(request);
+        CodeGenTypeEnum codeGenType = modeRouter.select(request, loginUser.getId());
 
         App app = new App();
         app.setUserId(loginUser.getId());

@@ -39,7 +39,7 @@ class GenerationQualityReviewerTest {
         });
         gateway.start();
         try {
-            var upstream = new AiModelConfiguration().streamingChatModel(
+            var upstream = new AiModelConfiguration(java.util.Optional.empty()).streamingChatModel(
                     "http://127.0.0.1:" + gateway.getAddress().getPort() + "/v1", "test-only", "local-review", 5, 2000, schema);
             var session = new GenerationSession(1, 2, 3, new SseEmitter(), mock(GenerationPersistence.class),
                     mock(GenerationSession.OutputHandler.class), () -> {}, mock(ScheduledExecutorService.class));

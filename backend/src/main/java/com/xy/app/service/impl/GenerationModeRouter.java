@@ -4,6 +4,7 @@ import com.xy.app.model.dto.AppAddRequest;
 import com.xy.app.model.enums.CodeGenTypeEnum;
 import com.xy.common.ErrorCode;
 import com.xy.exception.BusinessException;
+import com.xy.manager.AiModelMetrics;
 import com.xy.manager.PromptInputGuard;
 import dev.langchain4j.guardrail.InputGuardrailException;
 import dev.langchain4j.service.AiServices;
@@ -35,10 +36,11 @@ public class GenerationModeRouter {
         this.models = models;
     }
 
-    public CodeGenTypeEnum select(AppAddRequest request) {
+    public CodeGenTypeEnum select(AppAddRequest request, Long userId) {
         if (request.codeGenType() == null) return CodeGenTypeEnum.MULTI_FILE;
         if (!request.requestsAutomaticMode()) return CodeGenTypeEnum.fromValue(request.codeGenType());
-        ChatModel model = models.getIfAvailable();
+        // 自动选型先于应用入库，此处没有 appId。
+        ChatModel model = AiModelMetrics.forClient(userId, null, models::getIfAvailable);
         if (model == null) {
             PromptInputGuard.check(request.initPrompt());
             throw new BusinessException(ErrorCode.SERVICE_UNAVAILABLE, "尚未配置自动选择，请手动选择生成模式");

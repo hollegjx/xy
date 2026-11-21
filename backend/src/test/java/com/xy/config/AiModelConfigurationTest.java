@@ -71,7 +71,7 @@ class AiModelConfigurationTest {
             context.run(beans -> {
                 assertThat(beans.getBean(StreamingChatModel.class)).isNotSameAs(beans.getBean(StreamingChatModel.class));
                 var classifier = new GenerationModeRouter(beans.getBeanProvider(ChatModel.class));
-                assertThat(classifier.select(new AppAddRequest("做邀请函", "auto"))).isEqualTo(CodeGenTypeEnum.HTML);
+                assertThat(classifier.select(new AppAddRequest("做邀请函", "auto"), 1L)).isEqualTo(CodeGenTypeEnum.HTML);
                 var route = classification.get(1, TimeUnit.SECONDS);
                 assertThat(route.path("model").asText()).isEqualTo(
                         routingModel == null || routingModel.isEmpty() ? "gpt-6.1-sol" : routingModel);

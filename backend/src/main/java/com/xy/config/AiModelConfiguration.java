@@ -1,11 +1,13 @@
 package com.xy.config;
 
+import com.xy.manager.AiModelMetrics;
 import dev.langchain4j.model.chat.Capability;
 import dev.langchain4j.model.chat.ChatModel;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.model.openai.OpenAiChatModel;
 import dev.langchain4j.model.openai.OpenAiStreamingChatModel;
 import java.time.Duration;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -21,6 +23,11 @@ import org.springframework.beans.factory.config.ConfigurableBeanFactory;
 
 @Configuration
 public class AiModelConfiguration {
+    private final Optional<AiModelMetrics> metrics;
+
+    public AiModelConfiguration(Optional<AiModelMetrics> metrics) {
+        this.metrics = metrics;
+    }
 
     @Bean
     @Scope(ConfigurableBeanFactory.SCOPE_PROTOTYPE)
@@ -29,9 +36,11 @@ public class AiModelConfiguration {
             @Value("${xy.ai.api-key}") String apiKey, @Value("${xy.ai.model-name}") String modelName,
             @Value("${xy.ai.routing-model-name:}") String routingModelName) {
         String classifier = routingModelName.isBlank() ? modelName : routingModelName.strip();
-        return OpenAiChatModel.builder().baseUrl(baseUrl).apiKey(apiKey).modelName(classifier)
+        var builder = OpenAiChatModel.builder().baseUrl(baseUrl).apiKey(apiKey).modelName(classifier)
                 .timeout(Duration.ofSeconds(45)).maxRetries(0).maxCompletionTokens(512)
-                .logRequests(false).logResponses(false).build();
+                .logRequests(false).logResponses(false);
+        metrics.ifPresent(m -> builder.listeners(m.listener("routing", classifier)));
+        return builder.build();
     }
 
     @Bean
@@ -45,7 +54,7 @@ public class AiModelConfiguration {
             @Value("${xy.ai.timeout-seconds:180}") long timeoutSeconds,
             @Value("${xy.ai.max-completion-tokens:16384}") int maxCompletionTokens,
             @Value("${xy.ai.quality-json-schema:false}") boolean jsonSchema) {
-        return streamingModel(baseUrl, apiKey, modelName, timeoutSeconds, maxCompletionTokens, jsonSchema);
+        return streamingModel("native", baseUrl, apiKey, modelName, timeoutSeconds, maxCompletionTokens, jsonSchema);
     }
 
     @Bean
@@ -56,15 +65,16 @@ public class AiModelConfiguration {
             @Value("${xy.ai.vue-model-name:}") String vueName, @Value("${xy.ai.timeout-seconds:180}") long timeoutSeconds,
             @Value("${xy.ai.vue-max-completion-tokens:${xy.ai.max-completion-tokens:16384}}") int maxCompletionTokens,
             @Value("${xy.ai.quality-json-schema:false}") boolean jsonSchema) {
-        return streamingModel(baseUrl, apiKey, vueName.isBlank() ? defaultName : vueName.strip(), timeoutSeconds, maxCompletionTokens, jsonSchema);
+        return streamingModel("vue", baseUrl, apiKey, vueName.isBlank() ? defaultName : vueName.strip(), timeoutSeconds, maxCompletionTokens, jsonSchema);
     }
 
-    private StreamingChatModel streamingModel(String baseUrl, String apiKey, String modelName,
+    private StreamingChatModel streamingModel(String client, String baseUrl, String apiKey, String modelName,
             long timeoutSeconds, int maxCompletionTokens, boolean jsonSchema) {
         var builder = OpenAiStreamingChatModel.builder()
                 .baseUrl(baseUrl).apiKey(apiKey).modelName(modelName)
                 .timeout(Duration.ofSeconds(timeoutSeconds)).maxCompletionTokens(maxCompletionTokens)
                 .logRequests(false).logResponses(false);
+        metrics.ifPresent(m -> builder.listeners(m.listener(client, modelName)));
         if (!jsonSchema) return builder.build();
         // 仅向 SDK 声明网关支持该能力；普通源码或文件工具请求不会被强制设为 JSON。
         return new OpenAiStreamingChatModel(builder.strictJsonSchema(true)) {

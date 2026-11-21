@@ -34,18 +34,33 @@
     <springdoc.version>2.8.17</springdoc.version>
     <mybatis-flex.version>1.11.8</mybatis-flex.version>
     <dubbo.version>3.3.7</dubbo.version>
+    <spring-cloud.version>2025.0.3</spring-cloud.version>
+    <spring-cloud-alibaba.version>2025.0.0.0</spring-cloud-alibaba.version>
     <langchain4j.version>1.22.0</langchain4j.version>
   </properties>
   <dependencyManagement>
     <dependencies>
+      <!-- 与本文件的 Spring Boot parent 同步；优先用其 Spring/Netty 版本，Dubbo 管理 RPC 与 Nacos 客户端。 -->
       <dependency>
-        <groupId>org.apache.dubbo</groupId><artifactId>dubbo</artifactId><version>${dubbo.version}</version>
+        <groupId>org.springframework.boot</groupId><artifactId>spring-boot-dependencies</artifactId><version>3.5.16</version>
+        <type>pom</type><scope>import</scope>
+      </dependency>
+      <!-- 百炼 SDK 的 OkHttp 客户端、SSE 和日志适配器使用同一版本。 -->
+      <dependency>
+        <groupId>com.squareup.okhttp3</groupId><artifactId>okhttp-bom</artifactId><version>4.12.0</version>
+        <type>pom</type><scope>import</scope>
       </dependency>
       <dependency>
-        <groupId>org.apache.dubbo</groupId><artifactId>dubbo-spring-boot-starter</artifactId><version>${dubbo.version}</version>
+        <groupId>org.apache.dubbo</groupId><artifactId>dubbo-bom</artifactId><version>${dubbo.version}</version>
+        <type>pom</type><scope>import</scope>
       </dependency>
       <dependency>
-        <groupId>org.apache.dubbo</groupId><artifactId>dubbo-nacos-spring-boot-starter</artifactId><version>${dubbo.version}</version>
+        <groupId>org.springframework.cloud</groupId><artifactId>spring-cloud-dependencies</artifactId><version>${spring-cloud.version}</version>
+        <type>pom</type><scope>import</scope>
+      </dependency>
+      <dependency>
+        <groupId>com.alibaba.cloud</groupId><artifactId>spring-cloud-alibaba-dependencies</artifactId><version>${spring-cloud-alibaba.version}</version>
+        <type>pom</type><scope>import</scope>
       </dependency>
       <dependency>
         <groupId>com.xy</groupId>

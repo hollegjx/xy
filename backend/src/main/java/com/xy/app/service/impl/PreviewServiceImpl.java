@@ -11,7 +11,7 @@ import com.xy.chat.model.enums.MessageStatusEnum;
 import com.xy.common.ErrorCode;
 import com.xy.exception.BusinessException;
 import com.xy.manager.GeneratedFileManager;
-import com.xy.user.model.entity.User;
+import com.xy.user.model.UserActor;
 import java.io.IOException;
 import java.nio.file.NoSuchFileException;
 import org.slf4j.Logger;
@@ -33,7 +33,7 @@ public class PreviewServiceImpl implements PreviewService {
     }
 
     @Override
-    public String getPreview(long appId, User loginUser) {
+    public String getPreview(long appId, UserActor loginUser) {
         App app = appService.getOwnedApp(appId, loginUser);
         Long versionId = app.getGeneratedVersion();
         if (versionId == null) {

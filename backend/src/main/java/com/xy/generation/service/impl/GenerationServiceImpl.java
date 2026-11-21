@@ -16,7 +16,7 @@ import com.xy.generation.service.GenerationService;
 import com.xy.manager.GeneratedFileManager;
 import com.xy.manager.PromptInputGuard;
 import com.xy.manager.VueProjectBuildManager;
-import com.xy.user.model.entity.User;
+import com.xy.user.model.UserActor;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.SystemMessage;
@@ -90,7 +90,7 @@ public class GenerationServiceImpl implements GenerationService {
     }
 
     @Override
-    public SseEmitter generate(long appId, GenerationRequest request, User loginUser) {
+    public SseEmitter generate(long appId, GenerationRequest request, UserActor loginUser) {
         AppVO app = appService.getAppById(appId, loginUser);
         PromptInputGuard.check(request.prompt());
         String systemPrompt = systemPrompts.get(app.codeGenType());
@@ -143,7 +143,7 @@ public class GenerationServiceImpl implements GenerationService {
         return emitter;
     }
 
-    private List<ChatMessage> buildMessages(long appId, User loginUser, long generationId, String systemPrompt, String prompt)
+    private List<ChatMessage> buildMessages(long appId, UserActor loginUser, long generationId, String systemPrompt, String prompt)
             throws IOException {
         // 在占用生成任务后读取最新版本，避免使用进入接口时的旧快照。
         App app = appService.getOwnedApp(appId, loginUser);
@@ -202,7 +202,7 @@ public class GenerationServiceImpl implements GenerationService {
     }
 
     @Override
-    public void cancel(long appId, long generationId, User loginUser) {
+    public void cancel(long appId, long generationId, UserActor loginUser) {
         appService.getAppById(appId, loginUser);
         persistence.recoverInterruptedGenerations();
         GenerationSession session = runningSessions.get(appId);

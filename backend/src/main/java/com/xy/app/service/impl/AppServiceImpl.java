@@ -28,7 +28,7 @@ import com.xy.config.DeploymentConfiguration;
 import com.xy.exception.BusinessException;
 import com.xy.manager.GeneratedFileManager;
 import com.xy.manager.PromptInputGuard;
-import com.xy.user.model.entity.User;
+import com.xy.user.model.UserActor;
 import com.xy.user.model.enums.UserRoleEnum;
 import java.io.IOException;
 import java.nio.file.NoSuchFileException;
@@ -65,7 +65,7 @@ public class AppServiceImpl implements AppService {
     }
 
     @Override
-    public long createApp(AppAddRequest request, User loginUser) {
+    public long createApp(AppAddRequest request, UserActor loginUser) {
         String prompt = request.initPrompt();
         if (!request.requestsAutomaticMode()) PromptInputGuard.check(prompt);
         int nameLength = Math.min(12, prompt.codePointCount(0, prompt.length()));
@@ -83,12 +83,12 @@ public class AppServiceImpl implements AppService {
     }
 
     @Override
-    public AppVO getAppById(long id, User loginUser) {
+    public AppVO getAppById(long id, UserActor loginUser) {
         return getAppVO(getOwnedApp(id, loginUser));
     }
 
     @Override
-    public AppPageVO listMyApps(AppQueryRequest request, User loginUser) {
+    public AppPageVO listMyApps(AppQueryRequest request, UserActor loginUser) {
         QueryWrapper query = QueryWrapper.create()
                 .eq(App::getUserId, loginUser.getId())
                 .like(App::getAppName, request.appName(), !request.appName().isEmpty())
@@ -101,7 +101,7 @@ public class AppServiceImpl implements AppService {
 
     @Override
     @RequireRole(value = UserRoleEnum.ADMIN, message = "仅管理员可查询全平台应用")
-    public AppAdminPageVO listAppsForAdmin(AppAdminQueryRequest request, User loginUser) {
+    public AppAdminPageVO listAppsForAdmin(AppAdminQueryRequest request, UserActor loginUser) {
         QueryWrapper query = QueryWrapper.create()
                 .like(App::getAppName, request.appName(), !request.appName().isEmpty())
                 .eq(App::getUserId, request.userId(), request.userId() != null)
@@ -143,7 +143,7 @@ public class AppServiceImpl implements AppService {
     }
 
     @Override
-    public boolean updateApp(long id, AppUpdateRequest request, User loginUser) {
+    public boolean updateApp(long id, AppUpdateRequest request, UserActor loginUser) {
         App app = getOwnedApp(id, loginUser);
         if (app.getAppName().equals(request.appName())) {
             return true;
@@ -157,7 +157,7 @@ public class AppServiceImpl implements AppService {
 
     @Override
     @RequireRole(value = UserRoleEnum.ADMIN, message = "仅管理员可通过管理接口修改应用名称")
-    public boolean updateAppForAdmin(long id, AppUpdateRequest request, User loginUser) {
+    public boolean updateAppForAdmin(long id, AppUpdateRequest request, UserActor loginUser) {
         App app = appMapper.selectOneById(id);
         if (app == null) {
             throw new BusinessException(ErrorCode.NOT_FOUND_ERROR, "应用不存在");
@@ -173,13 +173,13 @@ public class AppServiceImpl implements AppService {
     }
 
     @Override
-    public boolean deleteApp(long id, User loginUser) {
+    public boolean deleteApp(long id, UserActor loginUser) {
         return deleteAuthorizedApp(getOwnedApp(id, loginUser));
     }
 
     @Override
     @RequireRole(value = UserRoleEnum.ADMIN, message = "仅管理员可设置应用精选状态")
-    public boolean updateFeaturedForAdmin(long id, AppFeaturedRequest request, User loginUser) {
+    public boolean updateFeaturedForAdmin(long id, AppFeaturedRequest request, UserActor loginUser) {
         App app = appMapper.selectOneById(id);
         if (app == null) {
             throw new BusinessException(ErrorCode.NOT_FOUND_ERROR, "应用不存在");
@@ -199,7 +199,7 @@ public class AppServiceImpl implements AppService {
 
     @Override
     @RequireRole(value = UserRoleEnum.ADMIN, message = "仅管理员可通过管理接口删除应用")
-    public boolean deleteAppForAdmin(long id, User loginUser) {
+    public boolean deleteAppForAdmin(long id, UserActor loginUser) {
         App app = appMapper.selectOneById(id);
         if (app == null) {
             throw new BusinessException(ErrorCode.NOT_FOUND_ERROR, "应用不存在");
@@ -240,7 +240,7 @@ public class AppServiceImpl implements AppService {
     }
 
     @Override
-    public App getOwnedApp(long id, User loginUser) {
+    public App getOwnedApp(long id, UserActor loginUser) {
         App app = appMapper.selectOneById(id);
         if (app == null) {
             throw new BusinessException(ErrorCode.NOT_FOUND_ERROR, "应用不存在");
@@ -252,7 +252,7 @@ public class AppServiceImpl implements AppService {
     }
 
     @Override
-    public GeneratedFileManager.SourceArchive downloadSource(long id, User loginUser) {
+    public GeneratedFileManager.SourceArchive downloadSource(long id, UserActor loginUser) {
         App app = getOwnedApp(id, loginUser);
         long versionId = getSuccessfulVersion(app);
         try {
@@ -270,7 +270,7 @@ public class AppServiceImpl implements AppService {
     }
 
     @Override
-    public AppDeployVO deployApp(long id, User loginUser) {
+    public AppDeployVO deployApp(long id, UserActor loginUser) {
         App app = getOwnedApp(id, loginUser);
         long versionId = getSuccessfulVersion(app);
         String key = app.getDeployKey();

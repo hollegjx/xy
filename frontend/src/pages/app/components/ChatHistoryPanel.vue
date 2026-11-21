@@ -195,6 +195,7 @@ async function generate(): Promise<void> {
   live.value = null
   output.value = ''
   submittedPrompt = form.prompt
+  let rateLimited = false
   try {
     await generateApp(
       props.appId,
@@ -212,12 +213,14 @@ async function generate(): Promise<void> {
       qualityCheck.value || undefined,
     )
   } catch (cause) {
+    rateLimited = cause instanceof ApiError && cause.code === 42900
     if (active && !currentController.signal.aborted) showGenerationError(cause)
   } finally {
     if (active) {
       generating.value = false
       controller = null
-      await load()
+      // 限流发生在开流前，没有新增消息；保留用户已展开的历史页和输入。
+      if (!rateLimited) await load()
     }
   }
 }

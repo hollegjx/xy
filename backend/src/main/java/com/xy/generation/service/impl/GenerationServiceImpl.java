@@ -38,6 +38,7 @@ public class GenerationServiceImpl implements GenerationService {
 
     private final AppService appService;
     private final GenerationPersistence persistence;
+    private final GenerationStartLimiter startLimiter;
     private final GeneratedFileManager fileManager;
     private final VueProjectBuildManager vueBuilder;
     private final OpenversePhotoSearch photoSearch;
@@ -51,7 +52,7 @@ public class GenerationServiceImpl implements GenerationService {
     // 当前部署为单实例；保证较早的生成不会晚于后一次生成覆盖成功版本。
     private final Map<Long, GenerationSession> runningSessions = new ConcurrentHashMap<>();
 
-    public GenerationServiceImpl(AppService appService, GenerationPersistence persistence,
+    public GenerationServiceImpl(AppService appService, GenerationPersistence persistence, GenerationStartLimiter startLimiter,
             GeneratedFileManager fileManager, ObjectProvider<StreamingChatModel> modelProvider,
             @Qualifier("generationExecutor") Executor executor,
             @Qualifier("generationHeartbeatScheduler") ScheduledExecutorService heartbeatScheduler,
@@ -61,6 +62,7 @@ public class GenerationServiceImpl implements GenerationService {
             @Value("${xy.ai.timeout-seconds:180}") long timeoutSeconds) throws IOException {
         this.appService = appService;
         this.persistence = persistence;
+        this.startLimiter = startLimiter;
         this.fileManager = fileManager;
         this.modelProvider = modelProvider;
         this.executor = executor;
@@ -96,7 +98,8 @@ public class GenerationServiceImpl implements GenerationService {
             if (current != null) {
                 throw new BusinessException(ErrorCode.OPERATION_ERROR, "该应用正在生成，请等待本次结束");
             }
-            long generationId = persistence.start(appId, loginUser.getId(), request.prompt());
+            long userId = loginUser.getId();
+            long generationId = startLimiter.start(userId, () -> persistence.start(appId, userId, request.prompt()));
             GenerationSession.OutputHandler outputHandler = CodeGenTypeEnum.VUE_PROJECT.getValue().equals(app.codeGenType())
                     ? new VueProjectGeneration(loginUser.getId(), appId, generationId, fileManager, objectMapper,
                             vueTemplate, vueBuilder, qualityCheck, photoSearch, executor)

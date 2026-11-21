@@ -42,6 +42,9 @@ public class GenerationController {
     @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200",
             description = "SSE 流，必须检查最终事件，不能仅凭 HTTP 200 判断生成成功",
             content = @Content(mediaType = "text/event-stream", schema = @Schema(implementation = GenerationEventVO.class)))
+    @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "429",
+            description = "该账号最近 60 秒已发起 5 轮生成；返回 42900 和重试等待时间，不建立 SSE",
+            content = @Content(mediaType = "application/json", schema = @Schema(implementation = ApiResponse.class)))
     @PostMapping
     public SseEmitter generate(
             @Parameter(description = "应用 ID，必须大于 0", example = "55") @Positive @PathVariable long appId,

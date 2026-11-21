@@ -631,6 +631,8 @@ async function checkFollowUp(page: Page, mode: 'html' | 'multi_file' | 'vue_proj
   const updatedApp = { ...app, codeGenType: mode }
   const sent: string[] = []
   const records: ChatHistoryVO[] = []
+  let historyReads = 0
+  let rateLimitNext = false
   let currentPreview = ''
   await page.route(
     (url) => url.pathname.startsWith('/api/'),
@@ -642,11 +644,20 @@ async function checkFollowUp(page: Page, mode: 'html' | 'multi_file' | 'vue_proj
       } else if (path === `/api/apps/${app.id}`) {
         await route.fulfill({ json: { code: 0, data: updatedApp, message: 'ok' } })
       } else if (path === `/api/apps/${app.id}/messages`) {
+        historyReads += 1
         await route.fulfill({
           json: { code: 0, data: { records, hasMore: false, nextCursor: null }, message: 'ok' },
         })
       } else if (path === `/api/apps/${app.id}/generations`) {
         expect(request.method()).toBe('POST')
+        if (rateLimitNext) {
+          rateLimitNext = false
+          await route.fulfill({
+            status: 429,
+            json: { code: 42900, data: null, message: '每个账号 60 秒内最多发起 5 次生成，请在 12 秒后重试' },
+          })
+          return
+        }
         const prompt = expectedPrompts[sent.length]!
         expect(request.postDataJSON()).toEqual(
           sent.length === 1 ? { prompt, qualityCheck: true } : { prompt },
@@ -722,7 +733,19 @@ async function checkFollowUp(page: Page, mode: 'html' | 'multi_file' | 'vue_proj
   const quality = page.getByRole('checkbox', { name: 'AI 质检与修复' })
   await expect(quality).not.toBeChecked()
   await quality.check()
-  await page.getByRole('button', { name: '提交需求', exact: true }).click()
+  if (mode === 'html') {
+    const previousReads = historyReads
+    rateLimitNext = true
+    await page.getByRole('button', { name: '提交需求', exact: true }).click()
+    await expect(page.getByRole('alert')).toContainText('请在 12 秒后重试')
+    await expect(prompt).toHaveValue(change)
+    await expect(quality).toBeChecked()
+    await expect(frame.getByRole('button', { name: '查看照片 1' })).toBeVisible()
+    expect(historyReads).toBe(previousReads)
+    await page.getByRole('button', { name: '重试生成', exact: true }).click()
+  } else {
+    await page.getByRole('button', { name: '提交需求', exact: true }).click()
+  }
   await expect(live).toContainText(qualityFailure)
   await expect(prompt).toHaveValue(change)
   await expect(frame.getByRole('button', { name: '查看照片 1' })).toBeVisible()

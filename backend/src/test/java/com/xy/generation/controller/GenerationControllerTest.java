@@ -135,13 +135,26 @@ class GenerationControllerTest {
     private final ScheduledFuture<?> heartbeatTask = mock(ScheduledFuture.class);
     private long generationId;
 
+    private static boolean assetPlan(ChatRequest request) {
+        return request != null && request.messages().getFirst() instanceof SystemMessage system
+                && system.text().contains("XY 页面素材规划师");
+    }
+
     private static boolean nativeDraft(ChatRequest request) {
-        return request != null && (request.toolSpecifications() == null || request.toolSpecifications().isEmpty())
+        return request != null && !assetPlan(request) && (request.toolSpecifications() == null || request.toolSpecifications().isEmpty())
                 && request.messages().getFirst() instanceof SystemMessage system && !system.text().contains("本次生成类型：");
     }
 
     private static ChatRequest draftRequest() { return argThat(GenerationControllerTest::nativeDraft); }
-    private static ChatRequest nonDraftRequest() { return argThat(r -> r != null && !nativeDraft(r)); }
+    private static ChatRequest nonDraftRequest() { return argThat(r -> r != null && !nativeDraft(r) && !assetPlan(r)); }
+    private static ChatRequest planRequest() { return argThat(GenerationControllerTest::assetPlan); }
+
+    private void planReturns(String json) {
+        doAnswer(call -> {
+            call.<StreamingChatResponseHandler>getArgument(1).onCompleteResponse(response(json, FinishReason.STOP));
+            return null;
+        }).when(model).chat(planRequest(), any(StreamingChatResponseHandler.class));
+    }
 
     @DynamicPropertySource
     static void outputDirectory(DynamicPropertyRegistry registry) {
@@ -150,6 +163,7 @@ class GenerationControllerTest {
 
     @BeforeEach
     void prepare() {
+        planReturns("{}");
         doAnswer(call -> ReactiveModelFixture.publish(model, call.getArgument(0)))
                 .when(model).chat(any(ChatRequest.class));
         doReturn(heartbeatTask).when(heartbeatScheduler)
@@ -243,14 +257,20 @@ class GenerationControllerTest {
         boolean repair = quality && useArt;
         if (repair) expected.compute("index.html", (key, text) -> text.replace("摄影作品集", "数据看板"));
         String output = multi ? objectMapper.writeValueAsString(expected) : expected.get("index.html");
+        if (quality && useArt) planReturns(objectMapper.writeValueAsString(Map.of("illustrationTheme", theme)));
         var writes = new AtomicInteger();
         var checks = new AtomicInteger();
         doAnswer(call -> {
             List<ChatMessage> messages = call.<ChatRequest>getArgument(0).messages();
-            assertThat(((SystemMessage) messages.getFirst()).text()).contains("xy:illustration:reading", "不要插画");
             boolean initial = writes.incrementAndGet() == 1;
-            if (initial) assertThat(((UserMessage) messages.getLast()).singleText()).isEqualTo(prompt);
-            else assertThat(((AiMessage) messages.get(messages.size() - 2)).text()).isEqualTo(firstOutput);
+            if (!quality) {
+                assertThat(((SystemMessage) messages.getFirst()).text()).contains("xy:illustration:reading", "不要插画");
+                assertThat(((UserMessage) messages.getLast()).singleText()).isEqualTo(prompt);
+            } else {
+                String enhanced = ((UserMessage) messages.get(1)).singleText();
+                assertThat(enhanced).startsWith(prompt).contains(useArt ? slot : "无").doesNotContain("xy:illustration:reading");
+                if (!initial) assertThat(((AiMessage) messages.get(messages.size() - 2)).text()).isEqualTo(firstOutput);
+            }
             call.<StreamingChatResponseHandler>getArgument(1).onCompleteResponse(response(initial ? raw : output, FinishReason.STOP));
             return null;
         }).when(model).chat(draftRequest(), any(StreamingChatResponseHandler.class));
@@ -277,6 +297,7 @@ class GenerationControllerTest {
                 Map.of("prompt", prompt, "qualityCheck", quality)))).andReturn());
         assertThat(events).contains("event:completed").doesNotContain("event:failed");
         assertThat(writes.get()).isEqualTo(repair ? 2 : 1);
+        verify(model, times(quality ? 1 : 0)).chat(planRequest(), any());
         assertThat(checks.get()).isEqualTo(repair ? 2 : quality ? 1 : 0);
         if (useArt) assertThat(events).containsSubsequence("已嵌入主题插画", "event:completed");
         else assertThat(events).doesNotContain("已嵌入主题插画");
@@ -376,21 +397,69 @@ class GenerationControllerTest {
     }
 
     @Test
+    void cancellingDuringNativePlanningStopsItsModelAndIgnoresLatePlans() throws Exception {
+        var underway = new CompletableFuture<StreamingChatResponseHandler>();
+        var handle = mock(StreamingHandle.class);
+        doAnswer(call -> {
+            var handler = call.<StreamingChatResponseHandler>getArgument(1);
+            handler.onPartialResponse(new PartialResponse("{\"photoTheme\":"), new PartialResponseContext(handle));
+            underway.complete(handler);
+            return null;
+        }).when(model).chat(planRequest(), any(StreamingChatResponseHandler.class));
+        var result = mockMvc.perform(generate().session(session())
+                .content("{\"prompt\":\"摄影作品集\",\"qualityCheck\":true}")).andReturn();
+        var handler = underway.get(3, TimeUnit.SECONDS);
+        mockMvc.perform(cancel(generationId).session(session())).andExpect(status().isOk());
+        verify(handle).cancel();
+        handler.onCompleteResponse(response("{\"photoTheme\":\"coffee\"}", FinishReason.STOP));
+        assertThat(finish(result)).contains("正在规划页面素材", "event:cancelled")
+                .doesNotContain("photoTheme", "开始生成页面", "event:completed");
+        verifyNoInteractions(photoSearch);
+        verify(model, never()).chat(draftRequest(), any());
+        assertThat(htmlPath()).doesNotExist();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"invalid", "offline", "private"})
+    void unavailableOrUnusableAssetPlanStillDeliversATextPage(String outcome) throws Exception {
+        doAnswer(call -> {
+            var handler = call.<StreamingChatResponseHandler>getArgument(1);
+            if (outcome.equals("offline")) handler.onError(new IOException("规划服务暂不可用"));
+            else handler.onCompleteResponse(response(outcome.equals("private")
+                    ? "{\"photoTheme\":\"private name\",\"illustrationTheme\":\"unknown\"}" : "不是 JSON", FinishReason.STOP));
+            return null;
+        }).when(model).chat(planRequest(), any(StreamingChatResponseHandler.class));
+        doAnswer(call -> {
+            var prompt = ((UserMessage) call.<ChatRequest>getArgument(0).messages().getLast()).singleText();
+            assertThat(prompt).startsWith("摄影作品集").endsWith("无").doesNotContain("private name", "不是 JSON");
+            call.<StreamingChatResponseHandler>getArgument(1).onCompleteResponse(response(HTML, FinishReason.STOP));
+            return null;
+        }).when(model).chat(draftRequest(), any(StreamingChatResponseHandler.class));
+        doAnswer(call -> {
+            call.<StreamingChatResponseHandler>getArgument(1).onCompleteResponse(response(
+                    "{\"isValid\":true,\"errors\":[],\"suggestions\":[]}", FinishReason.STOP));
+            return null;
+        }).when(model).chat(nonDraftRequest(), any(StreamingChatResponseHandler.class));
+        String events = finish(mockMvc.perform(generate().session(session())
+                .content("{\"prompt\":\"摄影作品集\",\"qualityCheck\":true}")).andReturn());
+        assertThat(events).containsSubsequence("正在规划页面素材", "开始生成页面", "检查通过", "event:completed");
+        assertThat(Files.readString(htmlPath())).isEqualTo(HTML);
+        verifyNoInteractions(photoSearch);
+    }
+
+    @Test
     void cancellingDuringNativePhotoLookupKeepsHeartbeatsAndIgnoresTheLatePhoto() throws Exception {
         var searching = new CountDownLatch(1);
         var release = new CountDownLatch(1);
         var callbackFinished = new CountDownLatch(1);
+        planReturns("{\"photoTheme\":\"coffee\"}");
         when(photoSearch.find("coffee")).thenAnswer(call -> {
             searching.countDown();
-            if (!release.await(5, TimeUnit.SECONDS)) throw new AssertionError("图库一直未释放");
+            try { if (!release.await(5, TimeUnit.SECONDS)) throw new AssertionError("图库一直未释放"); }
+            catch (InterruptedException stopped) { Thread.currentThread().interrupt(); }
+            finally { callbackFinished.countDown(); }
             return java.util.Optional.of(new OpenversePhotoSearch.Photo("data:image/jpeg;base64,late", "source", "CC0"));
         });
-        doAnswer(call -> {
-            call.<StreamingChatResponseHandler>getArgument(1).onCompleteResponse(response(
-                    HTML.replace("你好", "<img data-xy-photo='coffee' alt='咖啡'>"), FinishReason.STOP));
-            callbackFinished.countDown();
-            return null;
-        }).when(model).chat(draftRequest(), any(StreamingChatResponseHandler.class));
 
         var result = mockMvc.perform(generate().session(session())
                 .content("{\"prompt\":\"摄影作品集\",\"qualityCheck\":true}")).andReturn();
@@ -407,6 +476,7 @@ class GenerationControllerTest {
         assertThat(finish(result)).containsSubsequence("正在查找内容配图", ":keepalive", "event:cancelled")
                 .doesNotContain("已准备本地内容配图", "event:completed");
         assertThat(htmlPath()).doesNotExist();
+        verify(model, never()).chat(draftRequest(), any());
         verify(model, never()).chat(nonDraftRequest(), any());
         verify(persistence, never()).complete(eq(55L), eq(42L), eq(generationId), any());
     }
@@ -427,6 +497,7 @@ class GenerationControllerTest {
             return null;
         }).when(model).chat(draftRequest(), any(StreamingChatResponseHandler.class));
         boolean quality = theme.equals("coffee");
+        if (quality) planReturns("{\"photoTheme\":\"coffee\"}");
         doAnswer(call -> {
             var messages = call.<ChatRequest>getArgument(0).messages();
             assertThat(((SystemMessage) messages.getFirst()).text()).contains("允许保留替代文字");
@@ -461,6 +532,7 @@ class GenerationControllerTest {
         javax.imageio.ImageIO.write(new java.awt.image.BufferedImage(3, 2, java.awt.image.BufferedImage.TYPE_INT_RGB), "jpeg", bytes);
         String src = "data:image/jpeg;base64," + java.util.Base64.getEncoder().encodeToString(bytes.toByteArray());
         String credit = "https://www.flickr.com/photos/xy/123";
+        if (multi) planReturns("{\"photoTheme\":\"coffee\"}");
         when(photoSearch.find("coffee")).thenReturn(java.util.Optional.of(new OpenversePhotoSearch.Photo(src, credit, "CC0")));
         var files = new LinkedHashMap<>(multi ? multiFiles() : Map.of("index.html", HTML));
         String slot = multi ? "<img DATA-XY-PHOTO='coffee' alt='咖啡豆'>" : "<img data-xy-photo='coffee' alt='咖啡豆'>";
@@ -476,7 +548,9 @@ class GenerationControllerTest {
         doAnswer(call -> {
             List<ChatMessage> messages = call.<ChatRequest>getArgument(0).messages();
             assertThat(messages.toString()).doesNotContain(src);
-            assertThat(((SystemMessage) messages.getFirst()).text()).contains("data-xy-photo");
+            if (multi && !((UserMessage) messages.getLast()).singleText().equals(followup))
+                assertThat(((UserMessage) messages.get(1)).singleText()).contains("data-xy-photo", credit, "CC0");
+            else assertThat(((SystemMessage) messages.getFirst()).text()).contains("data-xy-photo");
             String result = page;
             if (writes.incrementAndGet() > 1) {
                 String compact = messages.stream().filter(AiMessage.class::isInstance).map(AiMessage.class::cast)
@@ -537,6 +611,7 @@ class GenerationControllerTest {
             }
         }
         verify(photoSearch).find("coffee");
+        verify(model, times(multi ? 1 : 0)).chat(planRequest(), any());
         assertThat(writes).hasValue(multi ? 3 : 2);
         assertThat(checks).hasValue(multi ? 3 : 1);
     }

@@ -20,6 +20,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.Executor;
 import java.util.function.Consumer;
 import reactor.core.Disposable;
 import reactor.core.Disposables;
@@ -37,6 +38,8 @@ final class NativeGenerationOutputHandler implements GenerationSession.OutputHan
     private final ObjectReader multiFileReader;
     private final boolean qualityCheck;
     private final NativeContentPhoto photo;
+    private final Executor executor;
+    private NativeWorkflowAssets planned;
     private GenerationQualityWorkflow workflow;
     private ChatResponse candidate;
     private final NativeCodeStream writer;
@@ -44,7 +47,9 @@ final class NativeGenerationOutputHandler implements GenerationSession.OutputHan
     private final Disposable.Swap stream = Disposables.swap();
 
     NativeGenerationOutputHandler(long userId, long appId, long generationId, String codeGenType,
-            GeneratedFileManager fileManager, ObjectMapper objectMapper, boolean qualityCheck, OpenversePhotoSearch photoSearch, NativeCodeStream writer, ArtworkProviders artwork) {
+            GeneratedFileManager fileManager, ObjectMapper objectMapper, boolean qualityCheck, OpenversePhotoSearch photoSearch,
+            NativeCodeStream writer, ArtworkProviders artwork, Executor executor) {
+        this.executor = executor;
         this.writer = writer;
         this.images = new NativeAssetImages(artwork);
         this.userId = userId;
@@ -81,9 +86,11 @@ final class NativeGenerationOutputHandler implements GenerationSession.OutputHan
             conversation.set(baseline, AiMessage.from(previousSource));
         }
         boolean first = previousSource == null;
+        if (first && qualityCheck) planned = new NativeWorkflowAssets(mapper, photo, executor);
         if (first || photo.available()) {
             var system = (SystemMessage) conversation.getFirst();
-            String hint = first ? String.join("\n", ThemeIllustrations.HTML_HINT, NativeContentPhoto.HTML_HINT, NativeVectorAssets.HTML_HINT)
+            String hint = planned != null ? NativeVectorAssets.HTML_HINT
+                    : first ? String.join("\n", ThemeIllustrations.HTML_HINT, NativeContentPhoto.HTML_HINT, NativeVectorAssets.HTML_HINT)
                     : NativeContentPhoto.EDIT_HINT;
             conversation.set(0, SystemMessage.from(system.text() + "\n" + hint));
         }
@@ -99,7 +106,7 @@ final class NativeGenerationOutputHandler implements GenerationSession.OutputHan
                     done.run();
                 })),
                 null, () -> session.onCompleteResponse(candidate), session::onPartialResponse);
-        workflow.run();
+        workflow.run(planned);
     }
 
     private void stream(List<ChatMessage> messages, GenerationSession session, StreamingChatResponseHandler target) {
@@ -131,12 +138,12 @@ final class NativeGenerationOutputHandler implements GenerationSession.OutputHan
                 String original = response.aiMessage().text();
                 String output = editIndex(original, html -> {
                     if (first) {
-                        var illustrated = ThemeIllustrations.embedInBody(html);
+                        var illustrated = ThemeIllustrations.embedInBody(html, planned == null ? null : planned.illustrations());
                         if (!illustrated.labels().isEmpty()) session.onPartialResponse("\n候选页面已嵌入主题插画："
                                 + String.join("、", illustrated.labels()) + "。\n");
                         html = images.conceal(NativeVectorAssets.embed(illustrated.html(), mapper, session::onPartialResponse, images));
                     }
-                    return photo.prepare(html, first, session);
+                    return photo.prepare(html, first && planned == null, session);
                 });
                 if (session.isRunning()) next.accept(original.equals(output) ? response
                         : response.toBuilder().aiMessage(AiMessage.from(output)).build());
@@ -166,7 +173,11 @@ final class NativeGenerationOutputHandler implements GenerationSession.OutputHan
     }
 
     @Override
-    public void stop() { stream.dispose(); if (workflow != null) workflow.stop(); }
+    public void stop() {
+        stream.dispose();
+        if (workflow != null) workflow.stop();
+        if (planned != null) planned.stop();
+    }
 
     @Override
     public void save(String output) throws IOException {

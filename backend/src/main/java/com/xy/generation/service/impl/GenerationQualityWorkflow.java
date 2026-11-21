@@ -68,11 +68,13 @@ final class GenerationQualityWorkflow {
         this.progress = progress;
     }
 
-    void run() {
+    void run() { run(null); }
+
+    void run(NativeWorkflowAssets assets) {
         try {
-            new StateGraph<AgentState>(AgentState::new)
+            var graph = new StateGraph<AgentState>(AgentState::new)
                     .addNode("generate", state -> generationNode(Map.of()))
-                    .addNode("check", state -> check())
+                    .addNode("check", state -> check(state.<String>value("assetManifest").orElse("")))
                     .addNode("repair", state -> {
                         progress.accept("\n正在修复（最多一次）…\n");
                         String instruction = mode == CodeGenTypeEnum.VUE_PROJECT ? "用文件工具修改当前工程"
@@ -97,7 +99,7 @@ final class GenerationQualityWorkflow {
                         session.fail("自动修复一次后，" + modeLabel + "仍未通过 AI 质检，请重试");
                         return Map.of();
                     }))
-                    .addEdge(START, "generate").addEdge("generate", "check")
+                    .addEdge("generate", "check")
                     .addConditionalEdges("check", edge_async(state ->
                             state.<Boolean>value("valid").orElse(false) ? "approved"
                                     : state.<Boolean>value("repaired").orElse(false) ? "fail" : "repair"),
@@ -105,11 +107,39 @@ final class GenerationQualityWorkflow {
                     .addConditionalEdges("approved", edge_async(state -> build == null ? "deliver" : "build"),
                             Map.of("build", "build", "deliver", "deliver"))
                     .addEdge("build", "deliver")
-                    .addEdge("repair", "check").addEdge("deliver", END).addEdge("fail", END)
-                    .compile().invoke(Map.of());
+                    .addEdge("repair", "check").addEdge("deliver", END).addEdge("fail", END);
+            if (assets == null) graph.addEdge(START, "generate");
+            else graph.addNode("planAssets", state -> planAssets(assets))
+                    .addNode("collectAssets", node_async(state -> Map.of("assetManifest",
+                            assets.collect(state.<String>value("assetPlan").orElseThrow(), session))))
+                    .addNode("enhancePrompt", node_async(state -> {
+                        if (session.isRunning()) {
+                            NativeWorkflowAssets.enhance(conversation, state.<String>value("assetManifest").orElseThrow());
+                            progress.accept("\n素材准备结束，开始生成页面。\n");
+                        }
+                        return Map.of();
+                    }))
+                    .addEdge(START, "planAssets").addEdge("planAssets", "collectAssets")
+                    .addEdge("collectAssets", "enhancePrompt").addEdge("enhancePrompt", "generate");
+            graph.compile().invoke(Map.of());
         } catch (Exception error) {
             session.fail("AI 质检流程执行失败，请重试");
         }
+    }
+
+    private CompletableFuture<Map<String, Object>> planAssets(NativeWorkflowAssets assets) {
+        var node = beginNode();
+        if (node.isDone()) return node;
+        var prompt = ((UserMessage) conversation.getLast()).singleText();
+        CompletableFuture<String> planned;
+        try { planned = assets.plan(model, session, node, prompt); }
+        catch (RuntimeException error) { planned = CompletableFuture.failedFuture(error); }
+        planned.whenComplete((plan, error) -> {
+            if (node.isDone()) return;
+            if (error != null) progress.accept("\n未取得素材计划，继续生成文字布局。\n");
+            node.complete(Map.of("assetPlan", error == null ? plan : "{}"));
+        });
+        return node;
     }
 
     private CompletableFuture<Map<String, Object>> generationNode(Map<String, Object> result) {
@@ -118,13 +148,13 @@ final class GenerationQualityWorkflow {
         return future;
     }
 
-    private CompletableFuture<Map<String, Object>> check() {
+    private CompletableFuture<Map<String, Object>> check(String manifest) {
         var future = beginNode();
         if (future.isDone()) return future;
         progress.accept("\n正在检查 " + modeLabel + "…\n");
         try {
             GenerationQualityReviewer.check(model, session, future, mapper, mode.getValue(),
-                    reviewContext + "本次候选源码：\n" + sources.call()).whenComplete((report, error) -> {
+                    reviewContext + (manifest.isEmpty() ? "" : manifest + "\n") + "本次候选源码：\n" + sources.call()).whenComplete((report, error) -> {
                 if (!session.isRunning()) return;
                 if (error != null) session.fail("AI 质检报告无效，请重试");
                 else future.complete(Map.of("valid", report.isValid(), "report",

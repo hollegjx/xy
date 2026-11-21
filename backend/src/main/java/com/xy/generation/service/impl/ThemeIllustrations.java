@@ -48,7 +48,7 @@ final class ThemeIllustrations {
         return load(theme);
     }
 
-    private static Optional<Illustration> load(String theme) throws IOException {
+    static Optional<Illustration> load(String theme) throws IOException {
         String label = THEMES.get(theme);
         if (label == null) return Optional.empty();
         var asset = new ClassPathResource("illustrations/" + theme + ".svg");
@@ -56,6 +56,10 @@ final class ThemeIllustrations {
     }
 
     static Embedded embedInBody(String html) throws IOException {
+        return embedInBody(html, null);
+    }
+
+    static Embedded embedInBody(String html, Map<String, Illustration> prepared) throws IOException {
         if (!html.contains(SLOT)) return new Embedded(html, List.of());
         var body = Parser.htmlParser().setTrackPosition(true).parseInput(html, "").body();
         var slots = body.nodeStream(Comment.class)
@@ -66,7 +70,8 @@ final class ThemeIllustrations {
         var labels = new LinkedHashSet<String>();
         int offset = 0;
         for (var slot : slots) {
-            var illustration = load(slot.getData().strip().substring(SLOT.length()));
+            String theme = slot.getData().strip().substring(SLOT.length());
+            var illustration = prepared == null ? load(theme) : Optional.ofNullable(prepared.get(theme));
             if (illustration.isEmpty()) continue;
             var range = slot.sourceRange();
             output.append(html, offset, range.startPos()).append(illustration.get().svg().strip());

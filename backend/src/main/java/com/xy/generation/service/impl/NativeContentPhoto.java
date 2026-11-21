@@ -44,23 +44,27 @@ final class NativeContentPhoto {
         });
     }
 
-    String prepare(String html, boolean maySearch, GenerationSession session) {
-        return rewriteImages(html, image -> {
-            String requested = image.attr(THEME);
-            if (maySearch && theme == null && OpenversePhotoSearch.themes().contains(requested) && session.isRunning()) {
-                theme = requested;
-                session.onPartialResponse("\n正在查找内容配图…\n");
-                if (!session.isRunning()) return null;
-                OpenversePhotoSearch.Photo found;
-                try {
-                    found = search.find(theme).orElse(null); // 不持有 session 锁，心跳与停止可在图库等待期间执行。
-                } catch (RuntimeException unavailable) {
-                    found = null; // 可选图库出错与查无结果使用同一份文字稿。
-                }
+    OpenversePhotoSearch.Attribution collect(String requested, GenerationSession session) {
+        if (requested != null && theme == null && OpenversePhotoSearch.themes().contains(requested) && session.isRunning()) {
+            theme = requested;
+            session.onPartialResponse("\n正在查找内容配图…\n");
+            if (!session.isRunning()) return null;
+            OpenversePhotoSearch.Photo found;
+            try { found = search.find(theme).orElse(null); }
+            catch (RuntimeException unavailable) { found = null; }
+            synchronized (session) {
                 if (!session.isRunning()) return null;
                 photo = found;
                 session.onPartialResponse(available() ? "\n已准备本地内容配图（CC0）。\n" : "\n未取得可用配图，使用替代文字。\n");
             }
+        }
+        return available() ? photo.attribution() : null;
+    }
+
+    String prepare(String html, boolean maySearch, GenerationSession session) {
+        return rewriteImages(html, image -> {
+            String requested = image.attr(THEME);
+            if (maySearch) collect(requested, session);
             if (available() && theme.equals(requested)) {
                 return image.removeAttr("src").removeAttr("srcset").attr(SOURCE, photo.source())
                         .attr(LICENSE, photo.license()).outerHtml();

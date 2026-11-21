@@ -6,6 +6,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.TreeMap;
 import java.util.function.Function;
+import java.util.function.Supplier;
 import java.util.regex.Pattern;
 import org.jsoup.nodes.Element;
 import org.jsoup.nodes.Range;
@@ -46,11 +47,16 @@ final class NativeContentPhoto {
     }
 
     List<OpenversePhotoSearch.Photo> collect(String theme, int count, GenerationSession session) {
-        if (!session.isRunning() || !OpenversePhotoSearch.themes().contains(theme)) return List.of();
+        if (!OpenversePhotoSearch.themes().contains(theme)) return List.of();
+        return lookup(session, () -> search.findMany(theme, count));
+    }
+
+    private List<OpenversePhotoSearch.Photo> lookup(GenerationSession session, Supplier<List<OpenversePhotoSearch.Photo>> query) {
+        if (!session.isRunning()) return List.of();
         session.onPartialResponse("\n正在查找内容配图…\n");
         if (!session.isRunning()) return List.of();
         List<OpenversePhotoSearch.Photo> found;
-        try { found = count == 1 ? search.find(theme).stream().toList() : search.findMany(theme, count); }
+        try { found = query.get(); }
         catch (RuntimeException unavailable) { found = List.of(); }
         synchronized (session) {
             if (!session.isRunning()) return List.of();
@@ -67,8 +73,10 @@ final class NativeContentPhoto {
     String prepare(String html, boolean maySearch, GenerationSession session) {
         return rewriteImages(html, image -> {
             String requested = image.attr(THEME);
-            if (maySearch && attempted.isEmpty() && OpenversePhotoSearch.themes().contains(requested))
-                remember(requested, collect(requested, 1, session).stream().findFirst().orElse(null));
+            if (maySearch && attempted.isEmpty() && OpenversePhotoSearch.themes().contains(requested)) {
+                var first = lookup(session, () -> search.find(requested).stream().toList());
+                remember(requested, first.stream().findFirst().orElse(null));
+            }
             var photo = photos.get(requested);
             if (photo != null) {
                 return image.removeAttr("src").removeAttr("srcset").attr(SOURCE, photo.source())

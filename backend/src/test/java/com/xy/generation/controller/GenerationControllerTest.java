@@ -480,12 +480,12 @@ class GenerationControllerTest {
         var release = new CountDownLatch(1);
         var callbackFinished = new CountDownLatch(1);
         planReturns("{\"photos\":[{\"theme\":\"coffee\"}]}");
-        when(photoSearch.find("coffee")).thenAnswer(call -> {
+        when(photoSearch.findMany("coffee", 1)).thenAnswer(call -> {
             searching.countDown();
             try { if (!release.await(5, TimeUnit.SECONDS)) throw new AssertionError("图库一直未释放"); }
             catch (InterruptedException stopped) { Thread.currentThread().interrupt(); }
             finally { callbackFinished.countDown(); }
-            return java.util.Optional.of(new OpenversePhotoSearch.Photo("data:image/jpeg;base64,late", "source", "CC0"));
+            return List.of(new OpenversePhotoSearch.Photo("data:image/jpeg;base64,late", "source", "CC0"));
         });
 
         var result = mockMvc.perform(generate().session(session())
@@ -513,7 +513,7 @@ class GenerationControllerTest {
     void unavailableNativePhotoLeavesReadableTextAndDoesNotSearchForFreeText(String mode, String theme, boolean unavailable) throws Exception {
         boolean multi = mode.equals("multi_file");
         when(appMapper.selectOneById(55L)).thenReturn(app(42L, mode));
-        if (unavailable) when(photoSearch.find("coffee")).thenThrow(new IllegalStateException("图库服务不可用"));
+        if (unavailable) when(photoSearch.findMany("coffee", 1)).thenThrow(new IllegalStateException("图库服务不可用"));
         String img = "<img id='hero' class='cover' hidden aria-live='polite' data-panel='hero' srcset='lost.jpg' data-xy-photo='" + theme + "' alt='咖啡 &lt;b&gt;'>";
         String script = "<script>const example = \"<img data-xy-photo='travel'>\"</script>";
         var files = new LinkedHashMap<>(multi ? multiFiles() : Map.of("index.html", HTML));
@@ -544,7 +544,7 @@ class GenerationControllerTest {
         assertThat(fallback.hasAttr("srcset")).isFalse();
         assertThat(body.select("img, b")).isEmpty();
         if (theme.equals("coffee")) {
-            verify(photoSearch).find("coffee");
+            verify(photoSearch).findMany("coffee", 1);
             assertThat(events).contains("未取得可用配图");
         } else verifyNoInteractions(photoSearch);
     }
@@ -560,7 +560,9 @@ class GenerationControllerTest {
         String src = "data:image/jpeg;base64," + java.util.Base64.getEncoder().encodeToString(bytes.toByteArray());
         String credit = "https://www.flickr.com/photos/xy/123";
         if (multi) planReturns("{\"photos\":[{\"theme\":\"coffee\"}]}");
-        when(photoSearch.find("coffee")).thenReturn(java.util.Optional.of(new OpenversePhotoSearch.Photo(src, credit, "CC0")));
+        var imageResult = new OpenversePhotoSearch.Photo(src, credit, "CC0");
+        if (multi) when(photoSearch.findMany("coffee", 1)).thenReturn(List.of(imageResult));
+        else when(photoSearch.find("coffee")).thenReturn(java.util.Optional.of(imageResult));
         var files = new LinkedHashMap<>(multi ? multiFiles() : Map.of("index.html", HTML));
         String slot = multi ? "<img DATA-XY-PHOTO='coffee' alt='咖啡豆'>" : "<img data-xy-photo='coffee' alt='咖啡豆'>";
         String picture = "<picture><source id='wide' media='(min-width: 768px)' srcset='coffee-wide.jpg'>" + slot + "</picture>";
@@ -637,7 +639,8 @@ class GenerationControllerTest {
                 if (prompt.equals(followup)) assertThat(html).contains("<figcaption>来源：Flickr · CC0</figcaption>");
             }
         }
-        verify(photoSearch).find("coffee");
+        if (multi) verify(photoSearch).findMany("coffee", 1);
+        else verify(photoSearch).find("coffee");
         verify(model, times(multi ? 1 : 0)).chat(planRequest(), any());
         assertThat(writes).hasValue(multi ? 3 : 2);
         assertThat(checks).hasValue(multi ? 3 : 1);
@@ -713,7 +716,7 @@ class GenerationControllerTest {
         }
         verify(model).chat(planRequest(), any());
         verify(photoSearch).findMany("coffee", 2);
-        verify(photoSearch).find("food");
+        verify(photoSearch).findMany("food", 1);
         assertThat(writes).hasValue(3);
     }
 

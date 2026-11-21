@@ -60,9 +60,9 @@ class NativeWorkflowAssetsTest {
             try { if (!release.await(12, SECONDS)) throw new AssertionError("素材未收齐"); }
             catch (InterruptedException stopped) { interrupted.countDown(); }
         };
-        when(photos.find("coffee")).thenAnswer(i -> {
+        when(photos.findMany("coffee", 1)).thenAnswer(i -> {
             waitForAll.run();
-            return Optional.of(new OpenversePhotoSearch.Photo("data:image/jpeg;base64,Y29mZmVl", "https://example.org/credit", "CC0"));
+            return List.of(new OpenversePhotoSearch.Photo("data:image/jpeg;base64,Y29mZmVl", "https://example.org/credit", "CC0"));
         });
         when(providers.logoImage(any(), anyString())).thenAnswer(i -> {
             String design = i.getArgument(1);
@@ -119,7 +119,7 @@ class NativeWorkflowAssetsTest {
             run.get(4, SECONDS);
         }
         assertThat(plans).singleElement().asString().contains("书屋 {{私人备注}}");
-        verify(photos).find("coffee");
+        verify(photos).findMany("coffee", 1);
         verify(providers, times(2)).logoImage(any(), anyString());
         verify(providers, times(2)).diagramImage(any());
         if (cancel) {

@@ -14,10 +14,12 @@ import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 class OpenversePhotoSearchTest {
     @ParameterizedTest
-    @CsvSource({"2, duplicate", "2, changed-license", "2, unavailable", "21, exhausted"})
+    @CsvSource({"1, changed-license", "1, unavailable", "2, duplicate", "2, changed-license", "2, unavailable", "21, exhausted"})
     void fillsEachPlaceWithAVerifiedPhotoUntilTheGalleryRunsOut(int count, String scenario) throws Exception {
         String gallery = "https://www.flickr.com/photos/demo/";
         var jpeg = new ByteArrayOutputStream();
@@ -32,7 +34,7 @@ class OpenversePhotoSearchTest {
                 if (url.startsWith("https://api.openverse.org/")) {
                     assertThat(url).isIn(searchUrl + "1", searchUrl + "2");
                     var ids = url.equals(searchUrl + "1")
-                            ? List.of("1", scenario.equals("duplicate") ? "1" : "2")
+                            ? (count == 1 ? List.of("2") : List.of("1", scenario.equals("duplicate") ? "1" : "2"))
                             : (count == 2 ? List.of("3", "4") : List.of("3"));
                     return mapper.writeValueAsBytes(java.util.Map.of("page_count", count == 2 ? 3 : 2, "results", ids.stream()
                             .map(id -> java.util.Map.of("source", "flickr", "license", "cc0", "foreign_landing_url", gallery + id)).toList()));
@@ -51,11 +53,13 @@ class OpenversePhotoSearchTest {
         };
         assertThat(search.findMany("姓名或自由词", 21)).isEmpty();
         assertThat(urls).isEmpty();
-        assertThat(search.findMany("coffee", count)).extracting(OpenversePhotoSearch.Photo::source)
-                .containsExactly(gallery + "1", gallery + "3");
+        var session = mock(GenerationSession.class);
+        when(session.isRunning()).thenReturn(true);
+        assertThat(new NativeContentPhoto(search).collect("coffee", count, session)).extracting(OpenversePhotoSearch.Photo::source)
+                .containsExactlyElementsOf(count == 1 ? List.of(gallery + "3") : List.of(gallery + "1", gallery + "3"));
         assertThat(urls).filteredOn((String url) -> url.startsWith(searchUrl)).containsExactly(searchUrl + "1", searchUrl + "2");
         assertThat(urls).doesNotContain(gallery + "4");
-        assertThat(urls).filteredOn((String url) -> url.equals(gallery + "1")).hasSize(1);
+        assertThat(urls).filteredOn((String url) -> url.equals(gallery + "1")).hasSize(count == 1 ? 0 : 1);
     }
 
     @Test

@@ -59,6 +59,7 @@ final class VueProjectGeneration implements GenerationSession.OutputHandler {
     private GeneratedFileManager.VueBuildPaths buildPaths;
     private boolean choosingAssets, photoRequested, illustrationRequested, logoRequested;
     private int remainingDiagramAttempts = 2;
+    private int remainingToolRounds;
     private final SourceTools sourceTools = new SourceTools();
     private boolean changedSource;
     private final Set<String> deletedComponents = new HashSet<>();
@@ -66,7 +67,8 @@ final class VueProjectGeneration implements GenerationSession.OutputHandler {
 
     VueProjectGeneration(long userId, long appId, long generationId, GeneratedFileManager files,
             ObjectMapper mapper, Map<String, String> template, VueProjectBuildManager builder, boolean qualityCheck,
-            OpenversePhotoSearch photoSearch, Executor executor) {
+            OpenversePhotoSearch photoSearch, Executor executor, int maxToolRounds) {
+        this.remainingToolRounds = maxToolRounds;
         this.userId = userId;
         this.appId = appId;
         this.generationId = generationId;
@@ -148,6 +150,10 @@ final class VueProjectGeneration implements GenerationSession.OutputHandler {
                         return;
                     }
                     AiMessage reply = response.aiMessage();
+                    if (reply.hasToolExecutionRequests() && remainingToolRounds-- <= 0) {
+                        session.fail("已达到本轮工具调用上限，请缩小修改范围后重试");
+                        return;
+                    }
                     int previousAssetCount = assetPrompt.size();
                     AssetBatch batch;
                     try {

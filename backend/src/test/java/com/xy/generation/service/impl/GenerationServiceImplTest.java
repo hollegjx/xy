@@ -35,7 +35,7 @@ class GenerationServiceImplTest {
                 new GenerationModels(unavailable, unavailable), executor,
                 mock(ScheduledExecutorService.class),
                 new ClassPathResource("prompts/single-html.txt"), new ClassPathResource("prompts/multi-file.txt"),
-                new ObjectMapper(), mock(GenerationMemory.class), mock(VueProjectBuildManager.class), mock(OpenversePhotoSearch.class), 180);
+                new ObjectMapper(), mock(GenerationMemory.class), mock(VueProjectBuildManager.class), mock(OpenversePhotoSearch.class), 180, 40);
         User user = new User();
         user.setId(42L);
         when(apps.getAppById(55, user)).thenReturn(

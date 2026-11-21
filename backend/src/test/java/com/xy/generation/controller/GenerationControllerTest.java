@@ -95,7 +95,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.MOCK, properties = {
-        "server.servlet.context-path=/api", "xy.ai.enabled=false",
+        "server.servlet.context-path=/api", "xy.ai.enabled=false", "xy.ai.max-tool-rounds=12",
         "spring.datasource.url=jdbc:mysql://unused.invalid:3306/xy_test",
         "spring.datasource.username=test", "spring.datasource.password=test",
         "spring.datasource.driver-class-name=com.mysql.cj.jdbc.Driver",
@@ -622,6 +622,24 @@ class GenerationControllerTest {
         handler.onCompleteResponse(ChatResponse.builder().finishReason(FinishReason.TOOL_EXECUTION)
                 .aiMessage(AiMessage.from(writeFile("src/App.vue", "<template>完成的页面</template>"))).build());
         assertThat(finish(stream)).containsSubsequence("已选择工具：写入文件", "已写入：src/App.vue", "event:completed");
+    }
+
+    @Test
+    void stopsRepeatedToolRoundsBeforeDeliveringOrCallingTheModelAgain() throws Exception {
+        when(appMapper.selectOneById(55L)).thenReturn(app(42L, "vue_project"));
+        var calls = new AtomicInteger();
+        doAnswer(call -> {
+            int round = calls.incrementAndGet();
+            var handler = call.<StreamingChatResponseHandler>getArgument(1);
+            handler.onCompleteResponse(ChatResponse.builder().finishReason(FinishReason.TOOL_EXECUTION)
+                    .aiMessage(AiMessage.from(ToolExecutionRequest.builder().id("lookup-" + round)
+                            .name("listFiles").arguments("{}").build())).build());
+            return null;
+        }).when(model).chat(nonDraftRequest(), any(StreamingChatResponseHandler.class));
+        String events = finish(mockMvc.perform(generate().session(session())).andReturn());
+        assertThat(events).contains("event:failed", "工具调用上限").doesNotContain("event:completed");
+        assertThat(calls).hasValue(13);
+        verify(persistence, never()).complete(any(Long.class), any(Long.class), any(Long.class), any());
     }
 
     @ParameterizedTest

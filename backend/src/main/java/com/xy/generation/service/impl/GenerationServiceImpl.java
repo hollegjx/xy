@@ -48,6 +48,7 @@ public class GenerationServiceImpl implements GenerationService {
     private final Map<String, String> vueTemplate;
     private final ObjectMapper objectMapper;
     private final long timeoutMillis;
+    private final int maxToolRounds;
     // 当前部署为单实例；保证较早的生成不会晚于后一次生成覆盖成功版本。
     private final Map<Long, GenerationSession> runningSessions = new ConcurrentHashMap<>();
 
@@ -58,7 +59,8 @@ public class GenerationServiceImpl implements GenerationService {
             @Value("classpath:prompts/single-html.txt") Resource htmlPrompt,
             @Value("classpath:prompts/multi-file.txt") Resource multiFilePrompt,
             ObjectMapper objectMapper, GenerationMemory memory, VueProjectBuildManager vueBuilder, OpenversePhotoSearch photoSearch,
-            @Value("${xy.ai.timeout-seconds:180}") long timeoutSeconds) throws IOException {
+            @Value("${xy.ai.timeout-seconds:180}") long timeoutSeconds,
+            @Value("${xy.ai.max-tool-rounds:40}") int maxToolRounds) throws IOException {
         this.appService = appService;
         this.memory = memory;
         this.persistence = persistence;
@@ -76,6 +78,8 @@ public class GenerationServiceImpl implements GenerationService {
         this.objectMapper = objectMapper;
         this.vueBuilder = vueBuilder;
         this.photoSearch = photoSearch;
+        if (maxToolRounds < 1) throw new IllegalArgumentException("工具调用轮数须大于 0");
+        this.maxToolRounds = maxToolRounds;
         this.timeoutMillis = Math.multiplyExact(timeoutSeconds, 1000);
     }
 
@@ -102,7 +106,7 @@ public class GenerationServiceImpl implements GenerationService {
             long generationId = persistence.start(appId, userId, request.prompt());
             GenerationSession.OutputHandler outputHandler = CodeGenTypeEnum.VUE_PROJECT.getValue().equals(app.codeGenType())
                     ? new VueProjectGeneration(loginUser.getId(), appId, generationId, fileManager, objectMapper,
-                            vueTemplate, vueBuilder, qualityCheck, photoSearch, executor)
+                            vueTemplate, vueBuilder, qualityCheck, photoSearch, executor, maxToolRounds)
                     : new NativeGenerationOutputHandler(
                             loginUser.getId(), appId, generationId, app.codeGenType(), fileManager, objectMapper, qualityCheck, photoSearch, client.writer());
             return new GenerationSession(appId, loginUser.getId(), generationId,

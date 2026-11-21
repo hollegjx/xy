@@ -47,6 +47,7 @@ xy:
     # 可按模型单独设置 Vue 的输出上限；不设置则继承 max-completion-tokens。
     # vue-max-completion-tokens: 32768
     timeout-seconds: 180
+    max-tool-rounds: 40
     max-completion-tokens: 16384
   generation:
     output-directory: ./generated

@@ -20,6 +20,7 @@ final class VueBrandLogo {
     static final ToolSpecification TOOL = ToolSpecification.builder().name("generateLogo")
             .description("按用户的品牌名称、意象和配色定制矢量 Logo，需要品牌标志时在写源码前调用一次。")
             .parameters(JsonObjectSchema.builder().addStringProperty("name", "品牌名称，用作图片的无障碍名称")
+                    .addStringProperty("brief", "可选的图形意象或风格，不含用户原始需求或其他个人信息")
                     .addProperty("layers", JsonArraySchema.builder().description("100×100 透明画布，从底到顶依次绘制")
                             .items(JsonObjectSchema.builder()
                                     .addEnumProperty("shape", List.of("polygon", "line", "circle"), "实心多边形、折线或实心圆")

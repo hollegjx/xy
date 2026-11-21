@@ -1,7 +1,9 @@
 package com.xy.generation.service.impl;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 import org.jsoup.Jsoup;
 
@@ -9,7 +11,13 @@ import org.jsoup.Jsoup;
 final class NativeAssetImages {
     private final ArtworkProviders providers;
     private final Map<String,String> images = new HashMap<>();
+    private Optional<String> logo;
     NativeAssetImages(ArtworkProviders providers) { this.providers = providers; }
+
+    Optional<String> logo(ObjectMapper mapper, String design) {
+        if (logo == null) logo = providers.logoImage(mapper, design);
+        return logo.or(() -> VueBrandLogo.renderSvg(mapper, design));
+    }
 
     String diagram(VueArchitectureDiagram.Diagram diagram) {
         return providers.rendersMermaid() ? "<img data-xy-artwork=\"diagram\" alt=\"架构图\" src=\""

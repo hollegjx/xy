@@ -54,6 +54,10 @@ xy:
   artwork:
     # 已有的自托管 Kroki 根地址；只向该服务发送图的节点与关系。
     kroki-url: ''
+    # 配置已有的百炼账号后，可改成 dashscope；只在需求确实需要 Logo 时调用。
+    logo-provider: local
+    dashscope-model: wanx2.1-t2i-turbo
+    dashscope-api-key: ''
   vue-build:
     enabled: false
     docker-executable: docker

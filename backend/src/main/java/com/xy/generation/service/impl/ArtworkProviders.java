@@ -1,5 +1,7 @@
 package com.xy.generation.service.impl;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import dev.langchain4j.model.image.ImageModel;
 import java.io.IOException;
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -9,8 +11,10 @@ import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.Arrays;
 import java.util.Base64;
+import java.util.Optional;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
+import org.springframework.web.util.HtmlUtils;
 
 @Component
 final class ArtworkProviders {
@@ -24,12 +28,15 @@ final class ArtworkProviders {
             """;
     private static final HttpClient HTTP = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(3)).build();
     private static final int MAX_IMAGE_BYTES = 4 * 1024 * 1024;
+    private final Optional<ImageModel> logoModel;
     private final URI mermaid;
 
-    ArtworkProviders(@Value("${xy.artwork.kroki-url:}") String kroki) {
+    ArtworkProviders(Optional<ImageModel> logoModel, @Value("${xy.artwork.kroki-url:}") String kroki) {
+        this.logoModel = logoModel;
         this.mermaid = kroki.isBlank() ? null : URI.create(kroki.replaceAll("/+$", "") + "/mermaid/png");
     }
     boolean rendersMermaid() { return mermaid != null; }
+    boolean rendersLogo() { return logoModel.isPresent(); }
 
     String diagramImage(VueArchitectureDiagram.Diagram diagram) {
         if (mermaid != null) {
@@ -64,6 +71,38 @@ final class ArtworkProviders {
         raw.codePoints().forEach(c -> { if (Character.isLetterOrDigit(c) || c == ' ') out.appendCodePoint(c);
             else out.append('#').append(c).append(';'); });
         return out.toString();
+    }
+
+    Optional<String> logoImage(ObjectMapper mapper, String arguments) {
+        if (logoModel.isEmpty()) return Optional.empty();
+        try {
+            var design = mapper.readTree(arguments);
+            String name = design.path("name").asText("").strip();
+            if (name.isEmpty()) return Optional.empty();
+            // 不发送用户原始需求、历史或工程源码，只提交 Logo 的设计参数。
+            String brief = design.path("brief").asText("");
+            var palette = new java.util.LinkedHashSet<String>();
+            for (var layer : design.path("layers")) {
+                String color = layer.path("color").asText("");
+                if (color.matches("#[0-9A-Fa-f]{6}")) palette.add(color);
+            }
+            String prompt = "设计一个方形品牌标志。品牌：" + name + "。视觉简述：" + brief
+                    + "。色板：" + String.join("、", palette);
+            var image = logoModel.get().generate(prompt).content();
+            byte[] bytes;
+            if (image.base64Data() != null && image.base64Data().length() <= 4L * MAX_IMAGE_BYTES / 3 + 4) {
+                bytes = Base64.getDecoder().decode(image.base64Data());
+            } else {
+                URI url = image.url();
+                if (url == null || !"https".equals(url.getScheme()) || url.getUserInfo() != null
+                        || url.getHost() == null || !url.getHost().matches("dashscope-result[-.][a-z0-9-]+\\.oss[-.][a-z0-9-]+\\.aliyuncs\\.com")) return Optional.empty();
+                bytes = fetch(HttpRequest.newBuilder(url).timeout(Duration.ofSeconds(12)).GET().build());
+            }
+            return Optional.of("<img data-xy-artwork=\"logo\" alt=\"" + HtmlUtils.htmlEscape(name, "UTF-8")
+                    + "\" width=\"64\" height=\"64\" src=\"" + png(bytes) + "\" />");
+        } catch (IOException | RuntimeException unavailable) {
+            return Optional.empty();
+        }
     }
 
     private static byte[] fetch(HttpRequest request) throws IOException {

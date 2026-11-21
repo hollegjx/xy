@@ -22,7 +22,7 @@ import static org.mockito.Mockito.*;
 
 class ArtworkProvidersTest {
     @Test
-    void submitsMermaidAndKeepsDownloadsOffline() throws Exception {
+    void submitsMermaidAndAnImageBriefAndKeepsDownloadsOffline() throws Exception {
         var bytes = new ByteArrayOutputStream();
         ImageIO.write(new BufferedImage(3, 2, BufferedImage.TYPE_INT_RGB), "png", bytes);
         var encoded = Base64.getEncoder().encodeToString(bytes.toByteArray());
@@ -35,13 +35,19 @@ class ArtworkProvidersTest {
         });
         kroki.start();
         try {
-            var provider = new ArtworkProviders("http://127.0.0.1:" + kroki.getAddress().getPort());
+            var logo = mock(ImageModel.class);
+            when(logo.generate(contains("纸飞机"))).thenReturn(Response.from(Image.builder().base64Data(encoded).mimeType("image/png").build()));
+            var provider = new ArtworkProviders(Optional.of(logo), "http://127.0.0.1:" + kroki.getAddress().getPort());
             var assets = new NativeAssetImages(provider);
             String diagram = assets.diagram(new VueArchitectureDiagram.Diagram(List.of("A", "B"), List.of(new VueArchitectureDiagram.Edge("A", "B", "请求"))));
             assertThat(sent.get()).contains("flowchart TD", "n0 -->|\"请求\"| n1");
             assertThat(diagram).contains("data:image/png;base64," + encoded);
-            var html = assets.conceal("<html><body>" + diagram + "</body></html>");
-            assertThat(html).contains("架构图").doesNotContain(encoded);
+            String design = "{\"name\":\"星云\",\"brief\":\"纸飞机\",\"layers\":[]}";
+            String img = assets.logo(new ObjectMapper(), design).orElseThrow();
+            assertThat(assets.logo(new ObjectMapper(), design)).contains(img);
+            verify(logo).generate(contains("纸飞机"));
+            var html = assets.conceal("<html><body>" + img + diagram + "</body></html>");
+            assertThat(html).contains("星云", "架构图").doesNotContain(encoded);
             assertThat(assets.embed(html)).contains("data:image/png;base64," + encoded).doesNotContain("data-xy-art-id");
         } finally {
             kroki.stop(0);

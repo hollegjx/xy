@@ -32,7 +32,7 @@ final class NativeVectorAssets {
             boolean logo = slot.normalName().equals("span");
             String attribute = logo ? "data-xy-logo" : "data-xy-architecture";
             String design = slot.attr(attribute);
-            var svg = logo ? VueBrandLogo.renderSvg(mapper, design) : architecture(mapper, design, images);
+            var svg = logo ? images.logo(mapper, design) : architecture(mapper, design, images);
             var range = slot.sourceRange();
             // 只改占位元素的起始标签。视觉样式、按钮目标、说明文字与页面脚本都保持原样。
             slot.removeAttr(attribute);

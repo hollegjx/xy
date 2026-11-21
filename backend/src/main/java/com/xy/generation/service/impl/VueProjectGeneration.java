@@ -299,6 +299,14 @@ final class VueProjectGeneration implements GenerationSession.OutputHandler {
                 pendingPhoto = lookup;
                 executor.execute(lookup);
             }
+        }
+        // 云图像模型调用不占会话锁，等待时照片、心跳和停止仍可推进。
+        var remoteLogo = Optional.<String>empty();
+        if (planned.contains("generateLogo") && !logoRequested && artwork.rendersLogo() && session.isRunning()) {
+            var requested = calls.stream().filter(t -> t.name().equals("generateLogo")).findFirst().orElseThrow();
+            remoteLogo = artwork.logoImage(mapper, requested.arguments());
+        }
+        synchronized (session) {
             for (var call : calls) {
                 if (!session.isRunning()) return AssetBatch.EMPTY;
                 String result = switch (call.name()) {
@@ -313,7 +321,7 @@ final class VueProjectGeneration implements GenerationSession.OutputHandler {
                     case "generateLogo" -> {
                         if (!planned.contains(call.name()) || logoRequested) yield "本轮不再绘制 Logo，请沿用已有标志或品牌文字。";
                         logoRequested = true;
-                        yield generateLogo(call.arguments(), session, history, locals);
+                        yield generateLogo(call.arguments(), remoteLogo, session, history, locals);
                     }
                     default -> null;
                 };
@@ -371,8 +379,8 @@ final class VueProjectGeneration implements GenerationSession.OutputHandler {
                 + "在页面相应位置使用 <XyArchitecture />。组件及关系数据已保存，无须重写。";
     }
 
-    private String generateLogo(String arguments, GenerationSession session, StringBuilder history, VueAssetPrompt assets) throws IOException {
-        var source = VueBrandLogo.render(mapper, arguments);
+    private String generateLogo(String arguments, Optional<String> raster, GenerationSession session, StringBuilder history, VueAssetPrompt assets) throws IOException {
+        var source = raster.map(img -> "<template>" + img + "</template>").or(() -> VueBrandLogo.render(mapper, arguments));
         String progress, result;
         if (source.isPresent()) {
             files.writeVueSource(userId, appId, generationId, VueBrandLogo.COMPONENT, source.get());

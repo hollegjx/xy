@@ -90,9 +90,10 @@ class VuePhotoPagingTest {
                     entries.put(entry.getName(), new String(zip.readAllBytes(), StandardCharsets.UTF_8));
             }
             assertThat(entries.get("src/App.vue")).contains("../xy-photo.json");
-            assertThat(json.readValue(entries.get("xy-photo.json"), OpenversePhotoSearch.Photo.class))
-                    .isEqualTo(new OpenversePhotoSearch.Photo("data:image/jpeg;base64," + Base64.getEncoder().encodeToString(jpeg.toByteArray()),
-                            gallery + "2", "CC0"));
+            var saved = json.readTree(entries.get("xy-photo.json"));
+            assertThat(saved.path("src").asText()).isEqualTo("data:image/jpeg;base64," + Base64.getEncoder().encodeToString(jpeg.toByteArray()));
+            assertThat(saved.path("source").asText()).isEqualTo(gallery + "2");
+            assertThat(saved.path("license").asText()).isEqualTo("CC0");
         }
     }
 

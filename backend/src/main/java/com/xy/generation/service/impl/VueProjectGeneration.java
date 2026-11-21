@@ -35,7 +35,6 @@ import java.util.IdentityHashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
@@ -50,8 +49,9 @@ final class VueProjectGeneration implements GenerationSession.OutputHandler {
     private static final Set<String> ASSET_TOOLS = Set.of("findPhoto", "selectIllustration", "drawArchitecture", "generateLogo");
     private static final List<ToolSpecification> SOURCE_TOOLS = ToolSpecifications.toolSpecificationsFrom(SourceTools.class);
     private static final ToolSpecification FIND_PHOTO = ToolSpecification.builder().name("findPhoto")
-            .description("首次创建需要照片时，在写文件前选择一次公开主题，可与其他素材工具同批调用")
+            .description("首次创建时，为每个需要真实照片的位置选择预设主题；多处用途可同批调用")
             .parameters(JsonObjectSchema.builder().addEnumProperty("theme", OpenversePhotoSearch.themes(), "预设照片主题")
+                    .addStringProperty("purpose", "在页面中的用途或位置，仅用于本地素材清单")
                     .required("theme").additionalProperties(false).build()).build();
     private final OpenversePhotoSearch photoSearch;
     private final Executor executor;
@@ -67,7 +67,8 @@ final class VueProjectGeneration implements GenerationSession.OutputHandler {
     private final boolean qualityCheck;
     private GenerationQualityWorkflow workflow;
     private GeneratedFileManager.VueBuildPaths buildPaths;
-    private boolean choosingAssets, photoRequested;
+    private boolean choosingAssets;
+    private final VuePhotos photos = new VuePhotos();
     private final Map<String, String> illustrationFiles = new LinkedHashMap<>();
     private final VueLogoComponents logos = new VueLogoComponents();
     private int remainingDiagramAttempts = 2;
@@ -220,7 +221,7 @@ final class VueProjectGeneration implements GenerationSession.OutputHandler {
                 announced.clear();
                 var tools = new ArrayList<>(SOURCE_TOOLS);
                 if (choosingAssets && !changedSource) {
-                    if (!photoRequested) tools.add(FIND_PHOTO);
+                    tools.add(FIND_PHOTO);
                     tools.add(ThemeIllustrations.TOOL);
                     if (remainingDiagramAttempts > 0) tools.add(VueArchitectureDiagram.TOOL);
                     tools.add(VueBrandLogo.TOOL);
@@ -354,7 +355,10 @@ final class VueProjectGeneration implements GenerationSession.OutputHandler {
         try {
             var jobs = new ArrayList<CompletableFuture<List<AssetResult>>>();
             for (var group : groups.entrySet()) {
-                if (group.getKey().equals("generateLogo") && permitted.contains(group.getKey())) {
+                if (group.getKey().equals("findPhoto") && permitted.contains(group.getKey())) {
+                    photos.group(group.getValue(), mapper).forEach((theme, uses) -> jobs.add(
+                            CompletableFuture.supplyAsync(() -> preparePhotos(theme, uses, session, history), tasks)));
+                } else if (group.getKey().equals("generateLogo") && permitted.contains(group.getKey())) {
                     jobs.add(prepareLogos(group.getValue(), tasks, session, history));
                 } else {
                     jobs.add(CompletableFuture.supplyAsync(() -> group.getValue().stream()
@@ -388,17 +392,7 @@ final class VueProjectGeneration implements GenerationSession.OutputHandler {
         if (!session.isRunning()) return new AssetResult(call, "任务已结束", assets);
         try {
             String receipt = switch (call.name()) {
-                case "findPhoto" -> {
-                    if (!permitted || photoRequested) yield "本轮不再搜索照片，请沿用工程已有素材或无图布局。";
-                    photoRequested = true;
-                    String theme = photoTheme(call.arguments());
-                    Optional<OpenversePhotoSearch.Photo> photo;
-                    try { photo = photoSearch.findMany(theme, 1).stream().findFirst(); }
-                    catch (RuntimeException unavailable) { photo = Optional.empty(); }
-                    synchronized (session) {
-                        yield session.isRunning() ? savePhoto(theme, photo, session, history, assets) : "任务已结束";
-                    }
-                }
+                case "findPhoto" -> "本轮不再搜索照片，请沿用工程已有素材或无图布局。";
                 case "selectIllustration" -> {
                     if (!permitted) yield "本轮不再选择插画，沿用已有素材或继续编写页面。";
                     synchronized (session) {
@@ -516,31 +510,38 @@ final class VueProjectGeneration implements GenerationSession.OutputHandler {
         return result;
     }
 
-    private String photoTheme(String arguments) {
-        try {
-            var args = mapper.readTree(arguments);
-            return args == null ? "" : args.path("theme").asText("");
-        } catch (com.fasterxml.jackson.core.JsonProcessingException | IllegalArgumentException ignored) {
-            return "";
+    private List<AssetResult> preparePhotos(String theme, List<VuePhotos.Use> uses, GenerationSession session,
+            StringBuilder history) {
+        if (!session.isRunning()) return List.of();
+        var found = photos.collect(theme, uses.size(), photoSearch);
+        synchronized (session) {
+            if (!session.isRunning()) return List.of();
+            var results = new ArrayList<AssetResult>();
+            for (int i = 0; i < uses.size(); i++) {
+                var use = uses.get(i);
+                var assets = new VueAssetPrompt();
+                String progress, receipt;
+                if (i < found.size()) {
+                    var photo = found.get(i);
+                    try {
+                        files.saveVuePhoto(userId, appId, generationId, use.path(), use.file(photo, mapper));
+                        receipt = "已保存内容配图：" + use.path() + "。从 src/App.vue 导入 '../" + use.path()
+                                + "'，绑定 photo.src 展示图片。来源和许可：" + mapper.writeValueAsString(use.credit(photo));
+                    } catch (IOException error) { throw new UncheckedIOException(error); }
+                    assets.add(use.path(), "内容照片", theme + " 主题；用途：" + (use.purpose().isBlank() ? "内容配图" : use.purpose())
+                            + "；绑定 photo.src 显示，许可 " + photo.license() + "，署名使用 photo.source");
+                    progress = "已准备本地内容配图";
+                } else {
+                    progress = "未取得可用配图";
+                    receipt = "这个位置未取得可用配图，请使用无图布局；其他位置沿用各自返回的文件。";
+                }
+                String notice = "\n" + progress + (use.purpose().isBlank() ? "。" : "：" + use.purpose() + "。") + "\n";
+                history.append(notice);
+                session.onPartialResponse(notice);
+                results.add(new AssetResult(use.call(), receipt, assets));
+            }
+            return results;
         }
-    }
-
-    private String savePhoto(String theme, Optional<OpenversePhotoSearch.Photo> photo,
-            GenerationSession session, StringBuilder history, VueAssetPrompt assets) throws IOException {
-        String result;
-        if (photo.isPresent()) {
-            files.saveVuePhoto(userId, appId, generationId, GeneratedFileManager.VUE_PHOTO, mapper.writeValueAsString(photo.get()));
-            assets.add(GeneratedFileManager.VUE_PHOTO, "内容照片", theme + " 主题，绑定 photo.src 显示；"
-                    + "许可 " + photo.get().license() + "，署名使用 photo.source");
-            result = "已保存内容配图：xy-photo.json。在 src/App.vue 通过 import photo from '../xy-photo.json' 引入，"
-                    + "绑定 photo.src 展示图片。来源和许可：" + mapper.writeValueAsString(photo.get().attribution());
-        } else {
-            result = "未取得可用配图，继续生成无图布局，请勿引用图片文件或外链。";
-        }
-        String progress = photo.isPresent() ? "\n已准备本地内容配图。\n" : "\n未取得可用配图，继续生成。\n";
-        history.append(progress);
-        session.onPartialResponse(progress);
-        return result;
     }
 
     private Map<String, String> sourcesForModel() throws IOException {
@@ -552,7 +553,7 @@ final class VueProjectGeneration implements GenerationSession.OutputHandler {
     }
 
     private String readPhotoAttribution(String name) throws IOException {
-        var attribution = mapper.readValue(files.readVuePhoto(userId, appId, generationId, name), OpenversePhotoSearch.Attribution.class);
+        var attribution = mapper.readValue(files.readVuePhoto(userId, appId, generationId, name), VuePhotos.Credit.class);
         return mapper.writeValueAsString(attribution);
     }
 

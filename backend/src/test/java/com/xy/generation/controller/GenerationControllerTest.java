@@ -73,6 +73,7 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.AdditionalAnswers.delegatesTo;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anySet;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
@@ -841,7 +842,7 @@ class GenerationControllerTest {
         var bytes = new java.io.ByteArrayOutputStream();
         javax.imageio.ImageIO.write(new java.awt.image.BufferedImage(3, 2, java.awt.image.BufferedImage.TYPE_INT_RGB), "jpeg", bytes);
         String image = java.util.Base64.getEncoder().encodeToString(bytes.toByteArray());
-        when(photoSearch.findMany("coffee", 1)).thenReturn(List.of(new OpenversePhotoSearch.Photo(
+        when(photoSearch.findMany(eq("coffee"), eq(1), anySet())).thenReturn(List.of(new OpenversePhotoSearch.Photo(
                 "data:image/jpeg;base64," + image, "https://www.flickr.com/photos/xy/123", "CC0")));
         String page = """
                 <script setup>
@@ -914,7 +915,7 @@ class GenerationControllerTest {
         var release = new CountDownLatch(1);
         var returned = new CountDownLatch(1);
         var photo = new OpenversePhotoSearch.Photo("data:image/jpeg;base64,test", "https://www.flickr.com/photos/xy/123", "CC0");
-        when(photoSearch.findMany("coffee", 1)).thenAnswer(call -> {
+        when(photoSearch.findMany(eq("coffee"), eq(1), anySet())).thenAnswer(call -> {
             started.countDown();
             try {
                 if (!release.await(10, TimeUnit.SECONDS)) throw new AssertionError("图库替身未收到释放信号");
@@ -992,7 +993,7 @@ class GenerationControllerTest {
     void optionalPhotoReachesSourceZipBuildAndNextVersionOrFallsBack(boolean found) throws Exception {
         when(appMapper.selectOneById(55L)).thenReturn(app(42L, "vue_project"));
         var photo = new OpenversePhotoSearch.Photo("data:image/jpeg;base64,test", "https://www.flickr.com/photos/xy/123", "CC0");
-        when(photoSearch.findMany("coffee", 1)).thenReturn(found ? List.of(photo) : List.of());
+        when(photoSearch.findMany(eq("coffee"), eq(1), anySet())).thenReturn(found ? List.of(photo) : List.of());
         String source = found ? "<script setup>import photo from '../xy-photo.json'</script><template><img :src='photo.src'></template>"
                 : "<template>咖啡店</template>";
         doAnswer(invocation -> {
@@ -1006,7 +1007,7 @@ class GenerationControllerTest {
                 assertThat(result.text()).contains(found ? "xy-photo.json" : "无图布局").doesNotContain("base64");
                 if (!found) assertThat(((UserMessage) request.messages().get(1)).singleText()).isEqualTo("摄影作品集");
                 if (found) assertThat(result.text()).contains(photo.source(), photo.license());
-                assertThat(request.toolSpecifications()).extracting("name").doesNotContain("findPhoto").contains("selectIllustration");
+                assertThat(request.toolSpecifications()).extracting("name").contains("findPhoto", "selectIllustration");
                 handler.onCompleteResponse(ChatResponse.builder().finishReason(FinishReason.TOOL_EXECUTION)
                         .aiMessage(AiMessage.from(writeFile("src/App.vue", source))).build());
             } else handler.onCompleteResponse(response("完成", FinishReason.STOP));
@@ -1018,8 +1019,11 @@ class GenerationControllerTest {
         var zip = unzipSources(fileManager.readVueSourceZip(42, 55, generationId));
         assertThat(zip).containsEntry("src/App.vue", source);
         if (found) {
-            String json = objectMapper.writeValueAsString(photo);
-            assertThat(zip).containsEntry("xy-photo.json", json);
+            String json = zip.get("xy-photo.json");
+            var saved = objectMapper.readTree(json);
+            assertThat(saved.path("src").asText()).isEqualTo(photo.src());
+            assertThat(saved.path("source").asText()).isEqualTo(photo.source());
+            assertThat(saved.path("theme").asText()).isEqualTo("coffee");
             var inputs = fileManager.prepareVueBuild(42, 55, generationId);
             assertThat(Files.readString(inputs.source().resolve("xy-photo.json"))).isEqualTo(json);
             long next = IDS.incrementAndGet();
@@ -1040,8 +1044,8 @@ class GenerationControllerTest {
         String photo = objectMapper.writeValueAsString(new OpenversePhotoSearch.Photo(
                 "data:image/jpeg;base64," + image, source, "CC0"));
         String secondSource = "https://www.flickr.com/photos/demo/456";
-        String secondPhoto = objectMapper.writeValueAsString(new OpenversePhotoSearch.Photo(
-                "data:image/jpeg;base64,SECOND_IMAGE_BYTES", secondSource, "CC0"));
+        String secondPhoto = objectMapper.writeValueAsString(Map.of("src", "data:image/jpeg;base64,SECOND_IMAGE_BYTES",
+                "source", secondSource, "license", "CC0", "theme", "coffee", "purpose", "菜单"));
         String page = "<script setup>import hero from '../xy-photo.json'; import photo from '../xy-photo-2.json'</script>"
                 + "<template><img :src='hero.src'><img :src='photo.src'>";
         String original = page + "</template>";
@@ -1076,7 +1080,7 @@ class GenerationControllerTest {
                 .content(objectMapper.writeValueAsString(Map.of("prompt", prompt, "qualityCheck", true)))).andReturn());
         assertThat(events).contains("event:completed").doesNotContain("event:failed", "素材加入生成提示", image);
         for (String message : List.of(manifest.get(), readResult.get(), review.get())) {
-            assertThat(message).contains(secondSource, "CC0").doesNotContain(image, "SECOND_IMAGE_BYTES");
+            assertThat(message).contains(secondSource, "CC0", "菜单").doesNotContain(image, "SECOND_IMAGE_BYTES");
         }
         assertThat(readResult.get()).doesNotContain(source);
         assertThat(review.get()).contains(source);

@@ -1,6 +1,5 @@
 package com.xy.generation.service.impl;
 
-import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.ByteArrayInputStream;
@@ -14,6 +13,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.regex.Pattern;
 import javax.imageio.ImageIO;
 import javax.net.ssl.HttpsURLConnection;
@@ -32,12 +32,7 @@ public class OpenversePhotoSearch {
 
     public OpenversePhotoSearch(ObjectMapper mapper) { this.mapper = mapper; }
 
-    @JsonIgnoreProperties(ignoreUnknown = true)
-    record Attribution(String source, String license) {}
-
-    public record Photo(String src, String source, String license) {
-        Attribution attribution() { return new Attribution(source, license); }
-    }
+    public record Photo(String src, String source, String license) {}
 
     static List<String> themes() { return QUERIES.keySet().stream().sorted().toList(); }
 
@@ -60,11 +55,15 @@ public class OpenversePhotoSearch {
 
     // 同一主题的多张照片从一次分页搜索取候选，各自核对原页许可，重复作品不会占用另一个位置。
     public List<Photo> findMany(String theme, int count) {
+        return findMany(theme, count, new HashSet<>());
+    }
+
+    /** 已使用的 Flickr 作品 ID 仅属于当前作品；并发主题共用时传入并发集合。 */
+    public List<Photo> findMany(String theme, int count, Set<String> usedIds) {
         String query = theme == null ? null : QUERIES.get(theme);
         if (query == null || count < 1) return List.of();
         int pageSize = Math.min(count, 20);
         var photos = new ArrayList<Photo>();
-        var seen = new HashSet<String>();
         String base = "https://api.openverse.org/v1/images/?q=" + URLEncoder.encode(query, StandardCharsets.UTF_8)
                 + "&license=cc0&source=flickr&page_size=" + pageSize;
         boolean hasNext = true;
@@ -77,8 +76,8 @@ public class OpenversePhotoSearch {
                 for (var hit : hits) {
                     if (Thread.currentThread().isInterrupted()) return List.copyOf(photos);
                     var landing = LANDING.matcher(hit.path("foreign_landing_url").asText());
-                    if (!landing.matches() || seen.contains(landing.group(1))) continue;
-                    try { verifyPhoto(hit).ifPresent(p -> { seen.add(landing.group(1)); photos.add(p); }); }
+                    if (!landing.matches() || usedIds.contains(landing.group(1))) continue;
+                    try { verifyPhoto(hit).ifPresent(p -> { if (usedIds.add(landing.group(1))) photos.add(p); }); }
                     catch (IOException unavailable) { /* 单张损坏不影响同批其他照片。 */ }
                     if (photos.size() == count) return List.copyOf(photos);
                 }

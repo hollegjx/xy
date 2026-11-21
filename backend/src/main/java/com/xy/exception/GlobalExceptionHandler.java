@@ -75,6 +75,11 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
 
     @ExceptionHandler(DataAccessException.class)
     public ResponseEntity<ApiResponse<Void>> handleDataAccessException(DataAccessException exception) {
+        if (SessionAvailabilityFilter.redisUnavailable(exception)) {
+            var code = ErrorCode.SERVICE_UNAVAILABLE;
+            return ResponseEntity.status(code.getStatus()).contentType(MediaType.APPLICATION_JSON)
+                    .body(ApiResponse.failure(code.getCode(), SessionAvailabilityFilter.UNAVAILABLE));
+        }
         log.error("数据库访问失败", exception);
         return ResponseEntity.status(ErrorCode.SERVICE_UNAVAILABLE.getStatus())
                 .contentType(MediaType.APPLICATION_JSON)

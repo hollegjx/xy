@@ -14,6 +14,5 @@
     <dependency>
       <groupId>com.mybatis-flex</groupId><artifactId>mybatis-flex-core</artifactId><version>${mybatis-flex.version}</version>
     </dependency>
-    <dependency><groupId>org.springframework</groupId><artifactId>spring-context</artifactId></dependency>
   </dependencies>
 </project>

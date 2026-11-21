@@ -39,6 +39,9 @@ springdoc:
   packages-to-scan: com.xy
 
 xy:
+  user:
+    # 用户身份查询；独立服务同机运行时填 'tri://127.0.0.1:50051'，留空沿用单体查询。
+    rpc-url: ''
   ai:
     enabled: false
     base-url: https://YOUR_MODEL_GATEWAY/v1

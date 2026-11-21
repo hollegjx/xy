@@ -28,6 +28,8 @@ IDEA 从 `backend/pom.xml` 导入 Maven 父工程。`backend/modules/` 下的 `c
 
 截图可以与平台分开运行。在已具备封面镜像的机器上，从 `backend/` 执行 `java -jar services/screenshot/target/xy-screenshot-service-0.0.1-SNAPSHOT.jar`，默认只监听 IPv4 回环的 Triple 端口 50052。独立进程执行容器命令的路径用 `--xy.screenshot.docker-executable=...` 指定。平台设置 `xy.cover.enabled: true` 并把 `xy.cover.rpc-url` 填为 `'tri://127.0.0.1:50052'` 即可发送发布快照。地址留空时沿用原本机截图。图片仍由平台按发布版本保存，截图失败不影响作品网址。这一配置直接连接服务，不需要 Nacos。
 
+用户身份查询也可以分开运行。给用户进程准备一份仓库外的私有配置，只填与平台相同的 `spring.datasource`；再从 `backend/` 执行 `java -jar services/user/target/xy-user-service-0.0.1-SNAPSHOT.jar --spring.config.additional-location=file:/绝对路径/user.yml`。该进程默认只在 `127.0.0.1:50051` 监听 Triple。平台的 `xy.user.rpc-url` 填 `'tri://127.0.0.1:50051'` 后，工作台按 Session 中的账号 ID 远程查当前身份；留空时使用原数据库查询。独立进程不接收 Cookie，也不需要模型凭证。登录和注册的 HTTP 路径仍由平台提供。
+
 模块内沿用以下 Java 包：
 
 ```text

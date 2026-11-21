@@ -1364,6 +1364,13 @@ class GenerationControllerTest {
         verify(persistence).complete(eq(55L), eq(42L), eq(generationId), any());
     }
 
+    private static Map<String, String> unzipSources(GeneratedFileManager.SourceArchive source) throws IOException {
+        try (source; var bytes = new java.io.ByteArrayOutputStream()) {
+            source.writeTo(bytes);
+            return unzipSources(bytes.toByteArray());
+        }
+    }
+
     private static Map<String, String> unzipSources(byte[] archive) throws IOException {
         var entries = new LinkedHashMap<String, String>();
         try (var zip = new ZipInputStream(new ByteArrayInputStream(archive), StandardCharsets.UTF_8)) {

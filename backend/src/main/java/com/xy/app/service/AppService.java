@@ -1,5 +1,7 @@
 package com.xy.app.service;
 
+import com.xy.manager.GeneratedFileManager.SourceArchive;
+
 import com.xy.app.model.dto.AppAddRequest;
 import com.xy.app.model.dto.AppAdminQueryRequest;
 import com.xy.app.model.dto.AppFeaturedRequest;
@@ -45,7 +47,7 @@ public interface AppService {
 
     App getOwnedApp(long id, User loginUser);
 
-    byte[] downloadSource(long id, User loginUser);
+    SourceArchive downloadSource(long id, User loginUser);
 
     AppDeployVO deployApp(long id, User loginUser);
 }

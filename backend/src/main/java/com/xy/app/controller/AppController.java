@@ -18,6 +18,8 @@ import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+import java.io.IOException;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Positive;
@@ -149,17 +151,17 @@ public class AppController {
     @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "最近成功版本的源码 ZIP",
             content = @Content(mediaType = "application/zip", schema = @Schema(type = "string", format = "binary")))
     @GetMapping("/{id}/source")
-    public ResponseEntity<byte[]> downloadSource(
+    public void downloadSource(
             @Parameter(description = "应用 ID，必须大于 0", example = "55")
-            @Positive @PathVariable long id, HttpServletRequest servletRequest) {
-        byte[] source = appService.downloadSource(id, userService.getLoginUser(servletRequest));
-        return ResponseEntity.ok()
-                .contentType(MediaType.parseMediaType("application/zip"))
-                .contentLength(source.length)
-                .cacheControl(CacheControl.noStore())
-                .header(HttpHeaders.CONTENT_DISPOSITION,
-                        ContentDisposition.attachment().filename("xy-app-" + id + ".zip").build().toString())
-                .header("X-Content-Type-Options", "nosniff")
-                .body(source);
+            @Positive @PathVariable long id, HttpServletRequest servletRequest, HttpServletResponse response) throws IOException {
+        try (var source = appService.downloadSource(id, userService.getLoginUser(servletRequest))) {
+            response.setContentLengthLong(source.size());
+            response.setContentType("application/zip");
+            response.setHeader(HttpHeaders.CACHE_CONTROL, CacheControl.noStore().getHeaderValue());
+            response.setHeader(HttpHeaders.CONTENT_DISPOSITION,
+                    ContentDisposition.attachment().filename("xy-app-" + id + ".zip").build().toString());
+            response.setHeader("X-Content-Type-Options", "nosniff");
+            source.writeTo(response.getOutputStream());
+        }
     }
 }

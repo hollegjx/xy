@@ -1,7 +1,10 @@
 package com.xy.manager;
 
-import java.io.ByteArrayOutputStream;
+import cn.hutool.core.compress.ZipWriter;
+import cn.hutool.core.io.IORuntimeException;
+import java.io.ByteArrayInputStream;
 import java.io.IOException;
+import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.FileAlreadyExistsException;
 import java.nio.file.Files;
@@ -13,6 +16,7 @@ import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -20,8 +24,6 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.regex.Pattern;
-import java.util.zip.ZipEntry;
-import java.util.zip.ZipOutputStream;
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
 import org.springframework.beans.factory.annotation.Value;
@@ -257,8 +259,17 @@ public class GeneratedFileManager {
         return Path.of(value);
     }
 
-    public byte[] readVueSourceZip(long userId, long appId, long generationId) throws IOException {
-        return zip(readVueProject(userId, appId, generationId));
+    public SourceArchive readVueSourceZip(long userId, long appId, long generationId) throws IOException {
+        var directory = versionDirectory(userId, appId, generationId);
+        var names = new LinkedHashSet<>(VUE_TEMPLATE_NAMES);
+        names.add("src/App.vue");
+        names.addAll(listVueSources(userId, appId, generationId));
+        if (hasVuePhoto(userId, appId, generationId)) names.add(VUE_PHOTO);
+        return archive(names, name -> {
+            var text = name.startsWith("src/") ? readVueSource(userId, appId, generationId, name) : readFile(directory, name);
+            if (text.isBlank()) throw new IOException("源码文件不完整");
+            return text;
+        });
     }
 
     public record VueBuildPaths(Path source, Path output) {}
@@ -350,23 +361,40 @@ public class GeneratedFileManager {
                 "style.css", readFile(directory, "style.css"), "script.js", readFile(directory, "script.js"));
     }
 
-    public byte[] readSourceZip(long userId, long appId, long generationId, boolean multiFile) throws IOException {
-        // 只读取固定生成文件，全部打包成功后才返回，避免缺文件时下载到残缺 ZIP。
-        Map<String, String> files = multiFile ? readMultiFile(userId, appId, generationId)
-                : Map.of("index.html", readHtml(userId, appId, generationId));
-        return zip(files);
+    public SourceArchive readSourceZip(long userId, long appId, long generationId, boolean multiFile) throws IOException {
+        var directory = versionDirectory(userId, appId, generationId);
+        return archive(multiFile ? MULTI_FILE_NAMES : Set.of("index.html"), name -> readFile(directory, name));
     }
 
-    private byte[] zip(Map<String, String> files) throws IOException {
-        ByteArrayOutputStream output = new ByteArrayOutputStream();
-        try (ZipOutputStream zip = new ZipOutputStream(output, StandardCharsets.UTF_8)) {
-            for (var file : files.entrySet()) {
-                zip.putNextEntry(new ZipEntry(file.getKey()));
-                zip.write(file.getValue().getBytes(StandardCharsets.UTF_8));
-                zip.closeEntry();
+    /** 先完成打包再发响应；请求结束（包括客户端断开）即删除临时文件。 */
+    public static final class SourceArchive implements AutoCloseable {
+        private final Path file;
+        private SourceArchive(Path file) { this.file = file; }
+        public long size() throws IOException { return Files.size(file); }
+        public void writeTo(OutputStream out) throws IOException { Files.copy(file, out); }
+        @Override public void close() throws IOException { Files.deleteIfExists(file); }
+    }
+
+    @FunctionalInterface
+    private interface SourceReader { String read(String name) throws IOException; }
+
+    private SourceArchive archive(Set<String> names, SourceReader reader) throws IOException {
+        Path file = Files.createTempFile("xy-source-", ".zip");
+        boolean ready = false;
+        try {
+            try (var out = Files.newOutputStream(file); var zip = new ZipWriter(out, StandardCharsets.UTF_8)) {
+                for (var name : names) {
+                    var bytes = reader.read(name).getBytes(StandardCharsets.UTF_8);
+                    zip.add(name, new ByteArrayInputStream(bytes));
+                }
             }
+            ready = true;
+            return new SourceArchive(file);
+        } catch (IORuntimeException error) {
+            throw new IOException("源码压缩失败", error);
+        } finally {
+            if (!ready) Files.deleteIfExists(file);
         }
-        return output.toByteArray();
     }
 
     public String readMultiFilePreview(long userId, long appId, long generationId) throws IOException {

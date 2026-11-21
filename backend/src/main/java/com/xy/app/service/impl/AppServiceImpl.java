@@ -251,7 +251,7 @@ public class AppServiceImpl implements AppService {
     }
 
     @Override
-    public byte[] downloadSource(long id, User loginUser) {
+    public GeneratedFileManager.SourceArchive downloadSource(long id, User loginUser) {
         App app = getOwnedApp(id, loginUser);
         long versionId = getSuccessfulVersion(app);
         try {

@@ -28,6 +28,11 @@
 
   <dependencies>
     <dependency>
+      <groupId>cn.hutool</groupId>
+      <artifactId>hutool-core</artifactId>
+      <version>5.8.48</version>
+    </dependency>
+    <dependency>
       <groupId>org.bsc.langgraph4j</groupId>
       <artifactId>langgraph4j-core</artifactId>
       <version>1.6.0</version>

@@ -27,18 +27,18 @@ import dev.langchain4j.model.chat.response.ChatResponse;
 import dev.langchain4j.model.chat.response.StreamingChatResponseHandler;
 import dev.langchain4j.model.output.FinishReason;
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.nio.file.NoSuchFileException;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.IdentityHashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import java.util.concurrent.CancellationException;
-import java.util.concurrent.ExecutionException;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
-import java.util.concurrent.FutureTask;
 
 // 一次 Vue 源码生成的工具循环；任务终态和 SSE 生命周期仍由 GenerationSession 管理。
 final class VueProjectGeneration implements GenerationSession.OutputHandler {
@@ -56,7 +56,9 @@ final class VueProjectGeneration implements GenerationSession.OutputHandler {
     private final OpenversePhotoSearch photoSearch;
     private final Executor executor;
     private final ArtworkProviders artwork;
-    private FutureTask<Optional<OpenversePhotoSearch.Photo>> pendingPhoto;
+    private VueAssetTasks pendingAssets;
+    private VueArchitectureDiagram.Diagram renderedDiagram;
+    private String renderedImage;
     private final long userId, appId, generationId;
     private final GeneratedFileManager files;
     private final ObjectMapper mapper;
@@ -129,7 +131,7 @@ final class VueProjectGeneration implements GenerationSession.OutputHandler {
 
     @Override
     public void stop() {
-        if (pendingPhoto != null) pendingPhoto.cancel(true);
+        if (pendingAssets != null) pendingAssets.stop();
         if (workflow != null) workflow.stop();
     }
 
@@ -244,7 +246,7 @@ final class VueProjectGeneration implements GenerationSession.OutputHandler {
             if (remainingToolRounds-- <= 0) { session.fail(LIMIT_ERROR); return; }
             try {
                 batch = prepareAssets(response.aiMessage().toolExecutionRequests(), offered, session, history);
-            } catch (IOException | RuntimeException error) {
+            } catch (RuntimeException error) {
                 session.fail("Vue 工程素材准备失败，请重试");
             }
         }
@@ -331,80 +333,89 @@ final class VueProjectGeneration implements GenerationSession.OutputHandler {
         static final AssetBatch EMPTY = new AssetBatch(Map.of(), false);
     }
 
+    private record AssetResult(ToolExecutionRequest call, String receipt, VueAssetPrompt assets) {}
+
     private AssetBatch prepareAssets(List<ToolExecutionRequest> calls, List<ToolSpecification> tools,
-            GenerationSession session, StringBuilder history) throws IOException {
-        var planned = new HashSet<>(calls.stream().map(ToolExecutionRequest::name).filter(ASSET_TOOLS::contains).toList());
-        if (planned.isEmpty()) return AssetBatch.EMPTY;
-        planned.retainAll(tools.stream().map(ToolSpecification::name).toList());
-        // 回执绑定本次调用；等待照片不改变模型提出的顺序，同名工具也不会互相覆盖。
-        var receipts = new IdentityHashMap<ToolExecutionRequest, String>();
-        var locals = new VueAssetPrompt();
-        var photoCall = planned.contains("findPhoto")
-                ? calls.stream().filter(call -> call.name().equals("findPhoto")).findFirst().orElseThrow() : null;
-        String theme = photoCall == null ? "" : photoTheme(photoCall.arguments());
-        var lookup = photoCall == null ? null : new FutureTask<>(() -> photoSearch.find(theme));
+            GenerationSession session, StringBuilder history) {
+        // 同类任务保持模型给出的顺序（包括重复调用、改正无效连线），不同种类可以同时准备。
+        var groups = new LinkedHashMap<String, List<ToolExecutionRequest>>();
+        for (var call : calls) if (ASSET_TOOLS.contains(call.name()))
+            groups.computeIfAbsent(call.name(), ignored -> new ArrayList<>()).add(call);
+        if (groups.isEmpty()) return AssetBatch.EMPTY;
+        var permitted = tools.stream().map(ToolSpecification::name).toList();
+        var tasks = new VueAssetTasks(executor);
         synchronized (session) {
             if (!session.isRunning()) return AssetBatch.EMPTY;
-            if (lookup != null) {
-                photoRequested = true;
-                String progress = planned.size() > 1 ? "\n正在并行准备内容配图和本地素材…\n" : "\n正在查找内容配图…\n";
-                history.append(progress);
-                session.onPartialResponse(progress);
+            pendingAssets = tasks;
+            long count = groups.keySet().stream().filter(permitted::contains).count();
+            String progress = count > 1 ? "\n正在并行准备本批素材…\n"
+                    : groups.containsKey("findPhoto") && permitted.contains("findPhoto") ? "\n正在查找内容配图…\n" : "";
+            if (!progress.isEmpty()) { history.append(progress); session.onPartialResponse(progress); }
+        }
+        try {
+            var jobs = groups.values().stream().map(group -> CompletableFuture.supplyAsync(
+                    () -> group.stream().map(call -> prepareAsset(call, permitted.contains(call.name()), session, history)).toList(),
+                    tasks)).toList();
+            tasks.await(jobs);
+            synchronized (session) {
                 if (!session.isRunning()) return AssetBatch.EMPTY;
-                pendingPhoto = lookup;
-                executor.execute(lookup);
+                var byCall = new IdentityHashMap<ToolExecutionRequest, AssetResult>();
+                for (var job : jobs) for (var result : job.join()) byCall.put(result.call(), result);
+                var receipts = new IdentityHashMap<ToolExecutionRequest, String>();
+                for (var call : calls) {
+                    var result = byCall.get(call);
+                    if (result == null) continue;
+                    receipts.put(call, result.receipt());
+                    assetPrompt.addAll(result.assets());
+                }
+                return new AssetBatch(receipts, groups.keySet().stream().anyMatch(permitted::contains));
             }
+        } catch (RuntimeException failure) {
+            tasks.stop();
+            throw failure;
+        } finally {
+            synchronized (session) { pendingAssets = null; }
         }
-        // 云图像模型调用不占会话锁，等待时照片、心跳和停止仍可推进。
-        var remoteLogo = Optional.<String>empty();
-        if (planned.contains("generateLogo") && !logoRequested && artwork.rendersLogo() && session.isRunning()) {
-            var requested = calls.stream().filter(t -> t.name().equals("generateLogo")).findFirst().orElseThrow();
-            remoteLogo = artwork.logoImage(mapper, requested.arguments());
-        }
-        synchronized (session) {
-            for (var call : calls) {
-                if (!session.isRunning()) return AssetBatch.EMPTY;
-                String result = switch (call.name()) {
-                    case "findPhoto" -> "本轮不再搜索照片，请沿用工程已有素材或无图布局。";
-                    case "selectIllustration" -> {
-                        if (!planned.contains(call.name()) || illustrationRequested) yield "本轮不再选择插画，沿用已有素材或继续编写页面。";
-                        illustrationRequested = true;
-                        yield selectIllustration(call.arguments(), session, history, locals);
+    }
+
+    private AssetResult prepareAsset(ToolExecutionRequest call, boolean permitted, GenerationSession session, StringBuilder history) {
+        var assets = new VueAssetPrompt();
+        if (!session.isRunning()) return new AssetResult(call, "任务已结束", assets);
+        try {
+            String receipt = switch (call.name()) {
+                case "findPhoto" -> {
+                    if (!permitted || photoRequested) yield "本轮不再搜索照片，请沿用工程已有素材或无图布局。";
+                    photoRequested = true;
+                    String theme = photoTheme(call.arguments());
+                    Optional<OpenversePhotoSearch.Photo> photo;
+                    try { photo = photoSearch.find(theme); }
+                    catch (RuntimeException unavailable) { photo = Optional.empty(); }
+                    synchronized (session) {
+                        yield session.isRunning() ? savePhoto(theme, photo, session, history, assets) : "任务已结束";
                     }
-                    case "drawArchitecture" -> planned.contains(call.name()) && remainingDiagramAttempts > 0
-                            ? drawArchitecture(call.arguments(), session, history, locals) : "本轮不再绘制架构图，沿用已有图或用文字说明关系。";
-                    case "generateLogo" -> {
-                        if (!planned.contains(call.name()) || logoRequested) yield "本轮不再绘制 Logo，请沿用已有标志或品牌文字。";
-                        logoRequested = true;
-                        yield generateLogo(call.arguments(), remoteLogo, session, history, locals);
+                }
+                case "selectIllustration" -> {
+                    if (!permitted || illustrationRequested) yield "本轮不再选择插画，沿用已有素材或继续编写页面。";
+                    illustrationRequested = true;
+                    synchronized (session) {
+                        yield session.isRunning() ? selectIllustration(call.arguments(), session, history, assets) : "任务已结束";
                     }
-                    default -> null;
-                };
-                if (result != null) receipts.put(call, result);
-            }
-        }
-        // 等待图库时不占用会话锁，停止和心跳照常处理。
-        Optional<OpenversePhotoSearch.Photo> photo = Optional.empty();
-        if (lookup != null) {
-            try {
-                photo = lookup.get();
-            } catch (CancellationException cancelled) {
-                return AssetBatch.EMPTY;
-            } catch (InterruptedException interrupted) {
-                Thread.currentThread().interrupt();
-                throw new IOException("素材准备已中断", interrupted);
-            } catch (ExecutionException unavailable) {
-                // 可选图库不可用，已准备的本地素材仍交给代码模型。
-            }
-        }
-        synchronized (session) {
-            if (!session.isRunning()) return AssetBatch.EMPTY;
-            if (lookup != null) {
-                pendingPhoto = null;
-                receipts.put(photoCall, savePhoto(theme, photo, session, history));
-            }
-            assetPrompt.addAll(locals);
-            return new AssetBatch(receipts, !planned.isEmpty());
+                }
+                case "drawArchitecture" -> permitted && remainingDiagramAttempts > 0
+                        ? drawArchitecture(call.arguments(), session, history, assets) : "本轮不再绘制架构图，沿用已有图或用文字说明关系。";
+                case "generateLogo" -> {
+                    if (!permitted || logoRequested) yield "本轮不再绘制 Logo，请沿用已有标志或品牌文字。";
+                    logoRequested = true;
+                    var raster = artwork.rendersLogo() ? artwork.logoImage(mapper, call.arguments()) : Optional.<String>empty();
+                    synchronized (session) {
+                        yield session.isRunning() ? generateLogo(call.arguments(), raster, session, history, assets) : "任务已结束";
+                    }
+                }
+                default -> throw new IllegalArgumentException("未知素材类型");
+            };
+            return new AssetResult(call, receipt, assets);
+        } catch (IOException error) {
+            throw new UncheckedIOException(error);
         }
     }
 
@@ -415,21 +426,33 @@ final class VueProjectGeneration implements GenerationSession.OutputHandler {
             diagram = VueArchitectureDiagram.parse(mapper, arguments);
         } catch (IllegalArgumentException invalid) {
             String progress = remainingDiagramAttempts > 0 ? "架构图关系无效，可修正一次。" : "架构图关系仍无效，改用文字说明。";
-            history.append('\n').append(progress).append('\n');
-            session.onPartialResponse("\n" + progress + "\n");
+            synchronized (session) {
+                if (!session.isRunning()) return "任务已结束";
+                history.append('\n').append(progress).append('\n');
+                session.onPartialResponse("\n" + progress + "\n");
+            }
             return progress + invalid.getMessage() + "；未生成文件，不要引用不存在的组件。";
         }
-        var component = artwork.rendersMermaid() ? ArtworkProviders.MERMAID_COMPONENT : VueArchitectureDiagram.bundledRenderer();
-        if (artwork.rendersMermaid()) files.writeVueSource(userId, appId, generationId, ArtworkProviders.MERMAID_IMAGE, "{}");
-        files.writeVueSource(userId, appId, generationId, VueArchitectureDiagram.DATA, mapper.writeValueAsString(diagram));
-        files.writeVueSource(userId, appId, generationId, VueArchitectureDiagram.COMPONENT, component);
-        files.markVueArchitecture(userId, appId, generationId);
-        assets.add(VueArchitectureDiagram.COMPONENT, "架构图", diagram.nodes().size() + " 个节点、"
-                + diagram.edges().size() + " 条连线，组件读取 " + VueArchitectureDiagram.DATA + "，用于系统说明");
-        remainingDiagramAttempts = 0;
+        boolean mermaid = artwork.rendersMermaid();
+        var component = mermaid ? ArtworkProviders.MERMAID_COMPONENT : VueArchitectureDiagram.bundledRenderer();
+        var image = mermaid ? artwork.diagramImage(diagram) : null;
         String progress = "已绘制架构图：" + diagram.nodes().size() + " 个节点、" + diagram.edges().size() + " 条连线。";
-        history.append('\n').append(progress).append('\n');
-        session.onPartialResponse("\n" + progress + "\n");
+        synchronized (session) {
+            if (!session.isRunning()) return "任务已结束";
+            if (mermaid) {
+                renderedDiagram = diagram;
+                renderedImage = image;
+                files.writeVueSource(userId, appId, generationId, ArtworkProviders.MERMAID_IMAGE, mapper.writeValueAsString(Map.of("src", image)));
+            }
+            files.writeVueSource(userId, appId, generationId, VueArchitectureDiagram.DATA, mapper.writeValueAsString(diagram));
+            files.writeVueSource(userId, appId, generationId, VueArchitectureDiagram.COMPONENT, component);
+            files.markVueArchitecture(userId, appId, generationId);
+            assets.add(VueArchitectureDiagram.COMPONENT, "架构图", diagram.nodes().size() + " 个节点、"
+                    + diagram.edges().size() + " 条连线，组件读取 " + VueArchitectureDiagram.DATA + "，用于系统说明");
+            remainingDiagramAttempts = 0;
+            history.append('\n').append(progress).append('\n');
+            session.onPartialResponse("\n" + progress + "\n");
+        }
         return progress + "请在 src/App.vue 中 import XyArchitecture from './components/XyArchitecture.vue'，"
                 + "在页面相应位置使用 <XyArchitecture />。组件及关系数据已保存，无须重写。";
     }
@@ -480,11 +503,11 @@ final class VueProjectGeneration implements GenerationSession.OutputHandler {
     }
 
     private String savePhoto(String theme, Optional<OpenversePhotoSearch.Photo> photo,
-            GenerationSession session, StringBuilder history) throws IOException {
+            GenerationSession session, StringBuilder history, VueAssetPrompt assets) throws IOException {
         String result;
         if (photo.isPresent()) {
             files.saveVuePhoto(userId, appId, generationId, mapper.writeValueAsString(photo.get()));
-            assetPrompt.add(GeneratedFileManager.VUE_PHOTO, "内容照片", theme + " 主题，绑定 photo.src 显示；"
+            assets.add(GeneratedFileManager.VUE_PHOTO, "内容照片", theme + " 主题，绑定 photo.src 显示；"
                     + "许可 " + photo.get().license() + "，署名使用 photo.source");
             result = "已保存内容配图：xy-photo.json。在 src/App.vue 通过 import photo from '../xy-photo.json' 引入，"
                     + "绑定 photo.src 展示图片。来源和许可：" + mapper.writeValueAsString(photo.get().attribution());
@@ -536,7 +559,8 @@ final class VueProjectGeneration implements GenerationSession.OutputHandler {
             var sources = files.readVueSources(userId, appId, generationId);
             if (VueComponentReferences.references(sources, ArtworkProviders.MERMAID_IMAGE)) {
                 var diagram = VueArchitectureDiagram.parse(mapper, sources.get(VueArchitectureDiagram.DATA));
-                String src = artwork.diagramImage(diagram);
+                // 代码模型或质检可在同一轮继续改图；关系未变时复用本批结果。
+                String src = diagram.equals(renderedDiagram) ? renderedImage : artwork.diagramImage(diagram);
                 synchronized (session) {
                     if (!session.isRunning()) return false;
                     files.writeVueSource(userId, appId, generationId, ArtworkProviders.MERMAID_IMAGE,

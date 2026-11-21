@@ -23,17 +23,21 @@ final class VueAssetPrompt {
         return "\n已将 " + size() + " 项素材加入生成提示：" + kinds + "。\n";
     }
 
+    String manifest() {
+        if (assets.isEmpty()) return "";
+        var text = new StringBuilder("本轮可用素材（路径相对工程根目录）：\n");
+        assets.forEach((path, asset) -> text.append("- ").append(asset.kind()).append("：")
+                .append(path).append("；").append(asset.use()).append('\n'));
+        return text.append("按用户需求放到相应位置，从使用它的源码文件相对导入。").toString();
+    }
+
     List<ChatMessage> forGeneration(List<ChatMessage> conversation) {
         if (assets.isEmpty()) return List.copyOf(conversation);
         var request = new ArrayList<>(conversation);
         // 首次生成只有一条用户需求。只替换发给代码模型的副本，工具调用和回执保持原来的顺序。
         for (int i = 0; i < request.size(); i++) {
             if (request.get(i) instanceof UserMessage original) {
-                var text = new StringBuilder(original.singleText()).append("\n\n本轮可用素材（路径相对工程根目录）：\n");
-                assets.forEach((path, asset) -> text.append("- ").append(asset.kind()).append("：")
-                        .append(path).append("；").append(asset.use()).append('\n'));
-                text.append("按用户需求放到相应位置，从使用它的源码文件相对导入。");
-                request.set(i, UserMessage.from(text.toString()));
+                request.set(i, UserMessage.from(original.singleText() + "\n\n" + manifest()));
                 break;
             }
         }

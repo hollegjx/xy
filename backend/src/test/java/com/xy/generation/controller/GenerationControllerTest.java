@@ -859,7 +859,10 @@ class GenerationControllerTest {
             StreamingChatResponseHandler handler = call.getArgument(1);
             if (request.toolSpecifications() == null || request.toolSpecifications().isEmpty()) {
                 boolean passed = checks.incrementAndGet() == 2;
-                assertThat(((UserMessage) request.messages().getLast()).singleText()).doesNotContain("上一成功版源码", image);
+                String reviewInput = ((UserMessage) request.messages().getLast()).singleText();
+                String writingManifest = prompts.get(2).substring(prompts.get(2).indexOf("本轮可用素材"));
+                assertThat(reviewInput).containsSubsequence(prompt, writingManifest.strip(), "本次候选源码：")
+                        .doesNotContain("上一成功版源码", image);
                 handler.onCompleteResponse(response(objectMapper.writeValueAsString(Map.of("isValid", passed,
                         "errors", passed ? List.of() : List.of("标题需要修正"), "suggestions", List.of())), FinishReason.STOP));
                 return null;

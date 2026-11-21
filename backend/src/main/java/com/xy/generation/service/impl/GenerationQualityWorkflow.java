@@ -11,6 +11,7 @@ import java.util.Map;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.Consumer;
+import java.util.function.Supplier;
 import org.bsc.langgraph4j.StateGraph;
 import org.bsc.langgraph4j.state.AgentState;
 
@@ -68,13 +69,15 @@ final class GenerationQualityWorkflow {
         this.progress = progress;
     }
 
-    void run() { run(null); }
+    void runWithToolAssets(Supplier<String> manifest) { run(null, manifest); }
 
-    void run(NativeWorkflowAssets assets) {
+    void run(NativeWorkflowAssets assets) { run(assets, () -> ""); }
+
+    private void run(NativeWorkflowAssets assets, Supplier<String> currentManifest) {
         try {
             var graph = new StateGraph<AgentState>(AgentState::new)
                     .addNode("generate", state -> generationNode(Map.of()))
-                    .addNode("check", state -> check(state.<String>value("assetManifest").orElse("")))
+                    .addNode("check", state -> check(state.<String>value("assetManifest").orElseGet(currentManifest)))
                     .addNode("repair", state -> {
                         progress.accept("\n正在修复（最多一次）…\n");
                         String instruction = mode == CodeGenTypeEnum.VUE_PROJECT ? "用文件工具修改当前工程"

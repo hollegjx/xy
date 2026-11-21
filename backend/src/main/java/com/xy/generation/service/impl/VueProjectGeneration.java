@@ -126,7 +126,7 @@ final class VueProjectGeneration implements GenerationSession.OutputHandler {
                     history.append(text);
                     session.onPartialResponse(text);
                 });
-        workflow.run();
+        workflow.runWithToolAssets(assetPrompt::manifest);
     }
 
     @Override

@@ -34,7 +34,7 @@ class UserIdentityRpcTest {
             Path log = directory.resolve("user-service.log");
             var provider = new ProcessBuilder(Path.of(System.getProperty("java.home"), "bin", "java").toString(),
                     "-Djava.net.preferIPv4Stack=true", "-cp", System.getProperty("surefire.test.class.path", System.getProperty("java.class.path")),
-                    UserServiceApplication.class.getName(), "--dubbo.protocol.port=" + port,
+                    UserServiceApplication.class.getName(), "--spring.main.web-application-type=none", "--dubbo.protocol.port=" + port,
                     "--spring.datasource.url=jdbc:h2:tcp://127.0.0.1:" + database.getPort() + "/mem:identities" + options,
                     "--spring.datasource.driver-class-name=org.h2.Driver", "--spring.datasource.username=sa", "--spring.datasource.password=")
                     .directory(directory.toFile()).redirectErrorStream(true).redirectOutput(log.toFile()).start();

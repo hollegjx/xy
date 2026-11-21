@@ -14,7 +14,6 @@
   <description>星云 AI 零代码应用生成平台后端</description>
 
   <properties>
-    <knife4j.version>4.5.0</knife4j.version>
     <langchain4j.version>1.22.0</langchain4j.version>
     <redisson.version>3.50.0</redisson.version>
     <jsoup.version>1.24.1</jsoup.version>

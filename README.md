@@ -28,7 +28,11 @@ IDEA 从 `backend/pom.xml` 导入 Maven 父工程。`backend/modules/` 下的 `c
 
 截图可以与平台分开运行。在已具备封面镜像的机器上，从 `backend/` 执行 `java -jar services/screenshot/target/xy-screenshot-service-0.0.1-SNAPSHOT.jar`，默认只监听 IPv4 回环的 Triple 端口 50052。独立进程执行容器命令的路径用 `--xy.screenshot.docker-executable=...` 指定。平台设置 `xy.cover.enabled: true` 并把 `xy.cover.rpc-url` 填为 `'tri://127.0.0.1:50052'` 即可发送发布快照。地址留空时沿用原本机截图。图片仍由平台按发布版本保存，截图失败不影响作品网址。这一配置直接连接服务，不需要 Nacos。
 
-用户身份查询也可以分开运行。给用户进程准备一份仓库外的私有配置，只填与平台相同的 `spring.datasource`；再从 `backend/` 执行 `java -jar services/user/target/xy-user-service-0.0.1-SNAPSHOT.jar --spring.config.additional-location=file:/绝对路径/user.yml`。该进程默认只在 `127.0.0.1:50051` 监听 Triple。平台的 `xy.user.rpc-url` 填 `'tri://127.0.0.1:50051'` 后，工作台按 Session 中的账号 ID 远程查当前身份；留空时使用原数据库查询。独立进程不接收 Cookie，也不需要模型凭证。登录和注册的 HTTP 路径仍由平台提供。
+用户服务可独立提供账号 HTTP 和身份 RPC。从 `backend/` 执行 `java -jar services/user/target/xy-user-service-0.0.1-SNAPSHOT.jar --spring.config.additional-location=file:/绝对路径/user.yml`；用户服务的私有配置只需要与平台一致的 MySQL、Redis 连接（含库号）及 Session 命名空间，示例为 `xy:session`。两侧使用同一域名、Cookie 名和路径。用户服务不需要模型凭证。
+
+- HTTP 默认监听 `127.0.0.1:8124`，Knife4j 在 `/api/doc.html`。它提供 `/api/users/` 下的注册、登录、退出和当前用户接口，以及管理员新增、列表和改昵称，共七个接口；原平台默认也能独立提供这些接口。
+- 分开部署时，把这些账号请求转到用户服务；**仅 `DELETE /api/users/{id}` 保留在平台**，因为它要下线作品并在一个事务里删除账号和应用。应用等其他请求仍发给平台。同一浏览器在用户服务登录后即可访问平台，退出在两边生效。
+- Triple 默认监听 `127.0.0.1:50051`。平台 `xy.user.rpc-url` 填 `'tri://127.0.0.1:50051'` 后按 Session 中的账号 ID 远程复核身份；留空则沿用本机查询。仅运行身份 RPC 时，可给用户进程追加 `--spring.main.web-application-type=none`。
 
 模块内沿用以下 Java 包：
 

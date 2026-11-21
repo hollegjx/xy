@@ -11,15 +11,27 @@ import java.net.ServerSocket;
 import java.net.Socket;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.concurrent.TimeUnit;
 import javax.imageio.ImageIO;
+import org.apache.dubbo.rpc.RpcException;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import static org.awaitility.Awaitility.await;
 import static org.junit.jupiter.api.Assertions.*;
 
 class ScreenshotRpcTest {
     @Test
     void sendsThePublishedSnapshotAndReturnsImageBytesAcrossTwoJvms(@TempDir Path directory) throws Exception {
+        verifyDelivery(directory, false);
+    }
+
+    @Test
+    void sameClientCanRenderANewPublicationAfterAnOfflineFailure(@TempDir Path directory) throws Exception {
+        verifyDelivery(directory, true);
+    }
+
+    private void verifyDelivery(Path directory, boolean publishWhileOffline) throws Exception {
         var image = directory.resolve("cover.jpg");
         ImageIO.write(new BufferedImage(2, 2, BufferedImage.TYPE_INT_RGB), "jpeg", image.toFile());
         String snapshot = "<!doctype html><p>本次发布的作品</p>";
@@ -29,6 +41,7 @@ class ScreenshotRpcTest {
                 #!/bin/sh
                 set -eu
                 cd "$(dirname "$0")"
+                echo render >> attempts
                 cmp -s - snapshot.html
                 cat cover.jpg
                 """);
@@ -43,7 +56,13 @@ class ScreenshotRpcTest {
                 ScreenshotApplication.class.getName(), "--dubbo.protocol.port=" + port,
                 "--xy.screenshot.docker-executable=" + docker).redirectErrorStream(true).redirectOutput(log.toFile());
         // 应用先启动，截图服务稍后加入；发布不需要等截图进程先上线。
-        try (var client = new DubboScreenshotClient("tri://127.0.0.1:" + port)) {
+        // 仅在恢复用例缩短 Dubbo 自身的重连周期；正常发布仍验证实际的默认地址和配置。
+        String address = "tri://127.0.0.1:" + port
+                + (publishWhileOffline ? "?heartbeat=2000&dubbo.application.least-reconnect-duration=2000" : "");
+        try (var client = new DubboScreenshotClient(address)) {
+            if (publishWhileOffline) {
+                assertThrows(RpcException.class, () -> client.render("<p>离线期间的旧作品</p>"));
+            }
             var provider = command.start();
             try {
                 awaitListener(provider, new InetSocketAddress(loopback, port), log);
@@ -58,7 +77,16 @@ class ScreenshotRpcTest {
                                 "默认截图端口不得监听本机的非回环地址");
                     }
                 }
-                assertArrayEquals(Files.readAllBytes(image), client.render(snapshot));
+                byte[] expected = Files.readAllBytes(image);
+                if (publishWhileOffline) {
+                    await().atMost(Duration.ofSeconds(15)).pollInterval(Duration.ofMillis(300))
+                            .ignoreException(RpcException.class)
+                            .untilAsserted(() -> assertArrayEquals(expected, client.render(snapshot)));
+                } else {
+                    assertArrayEquals(expected, client.render(snapshot));
+                }
+                assertEquals("render", Files.readString(directory.resolve("attempts")).strip(),
+                        "渲染器只应收到一次本次发布，失联时的旧作品不能重放");
             } finally {
                 provider.destroy();
                 if (!provider.waitFor(5, TimeUnit.SECONDS)) provider.destroyForcibly().waitFor();

@@ -1,22 +1,36 @@
 package com.xy.generation.service.impl;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.DeserializationFeature;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.FutureTask;
 import org.jsoup.Jsoup;
 
 /** 模型只看素材位置和替代文字。发送给模型前暂存图像，交付文件时再还原。 */
 final class NativeAssetImages {
     private final ArtworkProviders providers;
     private final Map<String,String> images = new HashMap<>();
-    private Optional<String> logo;
+    private final Map<JsonNode, FutureTask<Optional<String>>> logos = new ConcurrentHashMap<>();
     NativeAssetImages(ArtworkProviders providers) { this.providers = providers; }
 
     Optional<String> logo(ObjectMapper mapper, String design) {
-        if (logo == null) logo = providers.logoImage(mapper, design);
-        return logo.or(() -> VueBrandLogo.renderSvg(mapper, design));
+        JsonNode key;
+        try { key = mapper.reader().with(DeserializationFeature.FAIL_ON_TRAILING_TOKENS).readTree(design); }
+        catch (java.io.IOException | IllegalArgumentException invalid) { return Optional.empty(); }
+        if (key == null || !key.isObject() || key.path("name").asText("").isBlank()) return Optional.empty();
+        // 只在表中登记任务，慢调用在表外运行；同一设计复用，不同设计可同时绘制。
+        var task = logos.computeIfAbsent(key, ignored -> new FutureTask<>(
+                () -> providers.logoImage(mapper, design).or(() -> VueBrandLogo.renderSvg(mapper, design))));
+        task.run();
+        try { return task.get(); }
+        catch (InterruptedException stopped) { Thread.currentThread().interrupt(); return Optional.empty(); }
+        catch (ExecutionException unavailable) { return Optional.empty(); }
     }
 
     String diagram(VueArchitectureDiagram.Diagram diagram) {

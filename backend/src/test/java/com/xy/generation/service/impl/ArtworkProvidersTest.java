@@ -22,6 +22,19 @@ import static org.mockito.Mockito.*;
 
 class ArtworkProvidersTest {
     @Test
+    void differentBrandsKeepTheirOwnCloudLogoAndAnIdenticalDesignIsGeneratedOnlyOnce() {
+        var provider = mock(ArtworkProviders.class);
+        when(provider.logoImage(any(), contains("书屋"))).thenReturn(Optional.of("书屋图"));
+        when(provider.logoImage(any(), contains("乐队"))).thenReturn(Optional.of("乐队图"));
+        var assets = new NativeAssetImages(provider);
+        var json = new ObjectMapper();
+        assertThat(assets.logo(json, "{\"name\":\"书屋\",\"brief\":\"书页\"}")).contains("书屋图");
+        assertThat(assets.logo(json, "{\"name\":\"乐队\",\"brief\":\"音符\"}")).contains("乐队图");
+        assertThat(assets.logo(json, "{ \"brief\":\"书页\", \"name\":\"书屋\" }")).contains("书屋图");
+        verify(provider, times(2)).logoImage(any(), anyString());
+    }
+
+    @Test
     void submitsMermaidAndAnImageBriefAndKeepsDownloadsOffline() throws Exception {
         var bytes = new ByteArrayOutputStream();
         ImageIO.write(new BufferedImage(3, 2, BufferedImage.TYPE_INT_RGB), "png", bytes);

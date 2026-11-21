@@ -14,7 +14,6 @@ import com.xy.common.UserConstant;
 import com.xy.config.DeploymentConfiguration;
 import com.xy.exception.GlobalExceptionHandler;
 import com.xy.manager.GeneratedFileManager;
-import com.xy.manager.AppCoverRenderer;
 import com.xy.user.mapper.UserMapper;
 import com.xy.user.model.entity.User;
 import com.xy.user.model.enums.UserRoleEnum;
@@ -24,6 +23,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -73,7 +73,7 @@ class UserDeleteControllerTest {
         var deployment = new DeploymentConfiguration(directory.resolve("published"), "https://sites.example.test", "http://localhost:5173");
         featuredPages = spy(new FeaturedAppPages(apps, files));
         var appService = new AppServiceImpl(apps, messages, files, deployment,
-                mock(GenerationModeRouter.class), mock(AppCoverRenderer.class), featuredPages);
+                mock(GenerationModeRouter.class), Optional.empty(), featuredPages);
         var service = new UserServiceImpl(users, mock(PasswordEncoder.class), appService,
                 new UserDeletionPersistence(users, apps));
         var factory = new org.springframework.aop.aspectj.annotation.AspectJProxyFactory(service);

@@ -21,12 +21,12 @@ import com.xy.chat.mapper.ChatHistoryMapper;
 import com.xy.chat.model.entity.ChatHistory;
 import com.xy.chat.model.enums.MessageRoleEnum;
 import com.xy.chat.model.enums.MessageStatusEnum;
+import com.xy.client.ScreenshotService;
 import com.xy.common.ErrorCode;
 import com.xy.common.RequireRole;
 import com.xy.config.DeploymentConfiguration;
 import com.xy.exception.BusinessException;
 import com.xy.manager.GeneratedFileManager;
-import com.xy.manager.AppCoverRenderer;
 import com.xy.manager.PromptInputGuard;
 import com.xy.user.model.entity.User;
 import com.xy.user.model.enums.UserRoleEnum;
@@ -34,6 +34,7 @@ import java.io.IOException;
 import java.nio.file.NoSuchFileException;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -48,18 +49,18 @@ public class AppServiceImpl implements AppService {
     private final GeneratedFileManager fileManager;
     private final DeploymentConfiguration deployment;
     private final GenerationModeRouter modeRouter;
-    private final AppCoverRenderer coverRenderer;
+    private final Optional<ScreenshotService> screenshots;
     private final FeaturedAppPages featuredPages;
 
     public AppServiceImpl(AppMapper appMapper, ChatHistoryMapper chatHistoryMapper, GeneratedFileManager fileManager,
-            DeploymentConfiguration deployment, GenerationModeRouter modeRouter, AppCoverRenderer coverRenderer,
+            DeploymentConfiguration deployment, GenerationModeRouter modeRouter, Optional<ScreenshotService> screenshots,
             FeaturedAppPages featuredPages) {
         this.appMapper = appMapper;
         this.chatHistoryMapper = chatHistoryMapper;
         this.fileManager = fileManager;
         this.deployment = deployment;
         this.modeRouter = modeRouter;
-        this.coverRenderer = coverRenderer;
+        this.screenshots = screenshots;
         this.featuredPages = featuredPages;
     }
 
@@ -287,7 +288,7 @@ public class AppServiceImpl implements AppService {
                 throw new BusinessException(ErrorCode.SYSTEM_ERROR, "发布记录保存失败，请重试发布");
             }
             invalidateFeaturedApps();
-            if (coverRenderer.enabled()) capturePublishedCover(app.getUserId(), id, versionId, html);
+            screenshots.ifPresent(service -> capturePublishedCover(service, app.getUserId(), id, versionId, html));
             return new AppDeployVO(deployment.siteUrl(key), Long.toString(versionId), deployedAt);
         } catch (IOException error) {
             log.error("应用 {} 版本 {} 发布文件失败，异常类型 {}", id, versionId, error.getClass().getSimpleName());
@@ -295,11 +296,11 @@ public class AppServiceImpl implements AppService {
         }
     }
 
-    private void capturePublishedCover(long owner, long appId, long version, String snapshot) {
+    private void capturePublishedCover(ScreenshotService service, long owner, long appId, long version, String snapshot) {
         // 地址可复用；后台任务只读本次快照，只写本次版本的封面。
         Thread.startVirtualThread(() -> {
             try {
-                byte[] jpeg = coverRenderer.render(snapshot);
+                byte[] jpeg = service.render(snapshot);
                 if (jpeg != null) {
                     fileManager.saveCover(owner, appId, version, jpeg);
                     invalidateFeaturedApps(); // 刷新截图完成前已缓存的文字卡片

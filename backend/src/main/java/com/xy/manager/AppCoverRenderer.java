@@ -1,29 +1,25 @@
 package com.xy.manager;
 
+import com.xy.client.ScreenshotService;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.util.concurrent.TimeUnit;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
 @Component
-public class AppCoverRenderer {
-    private final boolean enabled;
+@ConditionalOnProperty(name = "xy.cover.enabled", havingValue = "true")
+public class AppCoverRenderer implements ScreenshotService {
     private final String docker;
 
-    public AppCoverRenderer(@Value("${xy.cover.enabled:false}") boolean enabled,
-            @Value("${xy.vue-build.docker-executable:docker}") String docker) {
-        this.enabled = enabled;
+    public AppCoverRenderer(@Value("${xy.vue-build.docker-executable:docker}") String docker) {
         this.docker = docker;
     }
 
-    public boolean enabled() {
-        return enabled;
-    }
-
     /** 只传入发布快照，容器无网络、宿主目录或平台凭证。 */
+    @Override
     public byte[] render(String html) throws IOException {
-        if (!enabled) return null;
         var source = Files.createTempFile("xy-cover-", ".html");
         try {
             Files.writeString(source, html);

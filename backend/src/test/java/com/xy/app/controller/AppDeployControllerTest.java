@@ -11,6 +11,7 @@ import com.xy.config.DeploymentConfiguration;
 import com.xy.exception.BusinessException;
 import com.xy.manager.GeneratedFileManager;
 import com.xy.manager.AppCoverRenderer;
+import com.xy.client.ScreenshotService;
 import com.xy.user.mapper.UserMapper;
 import com.xy.user.model.entity.User;
 import java.io.IOException;
@@ -74,7 +75,7 @@ class AppDeployControllerTest {
     @Autowired
     GeneratedFileManager files;
     @MockitoBean
-    AppCoverRenderer covers;
+    ScreenshotService covers;
     @MockitoSpyBean
     DeploymentConfiguration deployment;
     @MockitoBean
@@ -250,7 +251,6 @@ class AppDeployControllerTest {
 
     @Test
     void refreshesTheFeaturedCoverWithThePublishedSnapshotAndKeepsPublishingIfCaptureFails() throws Exception {
-        when(covers.enabled()).thenReturn(true);
         app.setFeatured(true);
         when(apps.selectListByQuery(any(QueryWrapper.class))).thenReturn(List.of(app));
         for (long id : List.of(801L, 802L, 803L)) {
@@ -283,7 +283,6 @@ class AppDeployControllerTest {
 
     @Test
     void returnsBeforeCaptureAndAnOlderCaptureCannotReplaceTheNewCover() throws Exception {
-        when(covers.enabled()).thenReturn(true);
         app.setFeatured(true);
         when(apps.selectListByQuery(any(QueryWrapper.class))).thenReturn(List.of(app));
         var entered = new CountDownLatch(1);
@@ -319,8 +318,7 @@ class AppDeployControllerTest {
     @Test
     @EnabledIfEnvironmentVariable(named = "XY_TEST_DOCKER_COVER", matches = "true")
     void rendersRepublishedFeaturedWorkInDocker() throws Exception {
-        when(covers.enabled()).thenReturn(true);
-        var renderer = new AppCoverRenderer(true, System.getenv().getOrDefault("XY_TEST_DOCKER_CLI", "docker"));
+        var renderer = new AppCoverRenderer(System.getenv().getOrDefault("XY_TEST_DOCKER_CLI", "docker"));
         when(covers.render(anyString())).thenAnswer(call -> renderer.render(call.getArgument(0)));
         app.setFeatured(true);
         when(apps.selectListByQuery(any(QueryWrapper.class))).thenReturn(List.of(app));

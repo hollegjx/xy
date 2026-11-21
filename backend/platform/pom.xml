@@ -24,6 +24,10 @@
   <dependencies>
     <dependency>
       <groupId>com.xy</groupId>
+      <artifactId>xy-client</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>com.xy</groupId>
       <artifactId>xy-common</artifactId>
     </dependency>
     <dependency>

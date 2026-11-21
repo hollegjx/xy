@@ -9,7 +9,6 @@ import com.xy.app.service.AppService;
 import com.xy.chat.mapper.ChatHistoryMapper;
 import com.xy.config.DeploymentConfiguration;
 import com.xy.config.FeaturedCacheConfiguration;
-import com.xy.manager.AppCoverRenderer;
 import com.xy.manager.GeneratedFileManager;
 import com.xy.user.model.entity.User;
 import java.net.InetAddress;
@@ -76,7 +75,6 @@ class FeaturedRedisCacheTest {
                         "xy.deployment.directory=" + directory, "xy.deployment.public-url=" + PUBLIC_ORIGIN)
                 .withBean(AppMapper.class, () -> mapper).withBean(ChatHistoryMapper.class, () -> mock(ChatHistoryMapper.class))
                 .withBean(GeneratedFileManager.class, () -> mock(GeneratedFileManager.class))
-                .withBean(AppCoverRenderer.class, () -> mock(AppCoverRenderer.class))
                 .withBean(GenerationModeRouter.class, () -> mock(GenerationModeRouter.class));
         redis.start();
     }

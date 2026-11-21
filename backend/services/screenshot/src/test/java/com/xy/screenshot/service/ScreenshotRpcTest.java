@@ -3,8 +3,10 @@ package com.xy.screenshot.service;
 import com.xy.client.dubbo.DubboScreenshotClient;
 import java.awt.image.BufferedImage;
 import java.io.IOException;
+import java.net.Inet4Address;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
+import java.net.NetworkInterface;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.nio.file.Files;
@@ -31,19 +33,31 @@ class ScreenshotRpcTest {
                 cat cover.jpg
                 """);
         assertTrue(docker.toFile().setExecutable(true));
-        var loopback = InetAddress.getByName("::1");
+        var loopback = InetAddress.getByName("127.0.0.1");
         int port;
         try (var socket = new ServerSocket(0, 1, loopback)) { port = socket.getLocalPort(); }
         Path log = directory.resolve("provider.log");
         var command = new ProcessBuilder(Path.of(System.getProperty("java.home"), "bin", "java").toString(),
-                "-cp", System.getProperty("surefire.test.class.path", System.getProperty("java.class.path")),
+                "-Djava.net.preferIPv4Stack=true", "-cp",
+                System.getProperty("surefire.test.class.path", System.getProperty("java.class.path")),
                 ScreenshotApplication.class.getName(), "--dubbo.protocol.port=" + port,
                 "--xy.screenshot.docker-executable=" + docker).redirectErrorStream(true).redirectOutput(log.toFile());
         // 应用先启动，截图服务稍后加入；发布不需要等截图进程先上线。
-        try (var client = new DubboScreenshotClient("tri://[::1]:" + port)) {
+        try (var client = new DubboScreenshotClient("tri://127.0.0.1:" + port)) {
             var provider = command.start();
             try {
                 awaitListener(provider, new InetSocketAddress(loopback, port), log);
+                var localNetworkAddress = NetworkInterface.networkInterfaces()
+                        .flatMap(NetworkInterface::inetAddresses)
+                        .filter(ip -> ip instanceof Inet4Address && !ip.isLoopbackAddress())
+                        .findFirst();
+                if (localNetworkAddress.isPresent()) {
+                    try (var probe = new Socket()) {
+                        assertThrows(IOException.class,
+                                () -> probe.connect(new InetSocketAddress(localNetworkAddress.get(), port), 500),
+                                "默认截图端口不得监听本机的非回环地址");
+                    }
+                }
                 assertArrayEquals(Files.readAllBytes(image), client.render(snapshot));
             } finally {
                 provider.destroy();

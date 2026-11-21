@@ -24,8 +24,8 @@ class ScreenshotConfigurationTest {
     @Test
     void canStartWithRemoteCoversBeforeTheProviderIsAvailable() throws Exception {
         int port;
-        try (var socket = new ServerSocket(0, 1, InetAddress.getByName("::1"))) { port = socket.getLocalPort(); }
-        platform.withPropertyValues("xy.cover.enabled=true", "xy.cover.rpc-url=tri://[::1]:" + port)
+        try (var socket = new ServerSocket(0, 1, InetAddress.getByName("127.0.0.1"))) { port = socket.getLocalPort(); }
+        platform.withPropertyValues("xy.cover.enabled=true", "xy.cover.rpc-url=tri://127.0.0.1:" + port)
                 .run(context -> assertThat(context.getBean(ScreenshotService.class))
                         .isInstanceOf(DubboScreenshotClient.class));
     }

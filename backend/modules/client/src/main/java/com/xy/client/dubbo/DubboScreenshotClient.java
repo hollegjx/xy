@@ -19,7 +19,9 @@ public final class DubboScreenshotClient implements ScreenshotService, AutoClose
         var application = new ApplicationConfig("xy-app");
         application.setQosEnable(false);
         reference.setInterface(ScreenshotService.class);
-        reference.setUrl(address);
+        // Dubbo 会把普通 IPv4 回环主机名替换为网卡地址；映射字面量仍由 JDK 作为 IPv4 回环连接。
+        reference.setUrl(address.replaceFirst("(?i)^tri://(?:127\\.0\\.0\\.1|localhost)(?=[:/?#]|$)",
+                "tri://[::ffff:127.0.0.1]"));
         reference.setScope("remote");
         reference.setTimeout(22_000);
         reference.setRetries(0);

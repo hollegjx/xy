@@ -77,7 +77,7 @@ xy:
       secret-key: ''
     # 先准备本机隔离截图镜像 xy-cover:1；不启用时作品仍可发布。
     enabled: false
-    # 开启封面后，留空沿用本机渲染；连接独立截图服务时填 tri://[::1]:50052。
+    # 开启封面后，留空沿用本机渲染；连接独立截图服务时填 tri://127.0.0.1:50052。
     rpc-url: ''
   deployment:
     directory: ./published

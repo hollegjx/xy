@@ -1,0 +1,11 @@
+# 启用 monitoring profile 后由同机 Prometheus 抓取，不经过平台的 /api 入口。
+management:
+  server:
+    address: 127.0.0.1
+    port: 8102
+  endpoints:
+    web:
+      exposure:
+        include: prometheus
+      discovery:
+        enabled: false

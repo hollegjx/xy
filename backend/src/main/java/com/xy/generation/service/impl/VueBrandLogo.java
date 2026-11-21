@@ -43,18 +43,25 @@ final class VueBrandLogo {
         } catch (JsonProcessingException | IllegalArgumentException invalid) {
             return Optional.empty();
         }
-        if (design == null || !design.path("name").isTextual() || design.get("name").textValue().isBlank()
-                || !design.path("layers").isArray() || design.get("layers").isEmpty()) return Optional.empty();
+        if (design == null || !design.path("name").isTextual() || design.get("name").textValue().isBlank())
+            return Optional.empty();
 
         String name = HtmlUtils.htmlEscape(design.get("name").textValue().strip(), "UTF-8");
-        var source = new StringBuilder("<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 100 100\""
-                + " width=\"64\" height=\"64\" role=\"img\" aria-label=\"").append(name).append("\">\n");
-        for (var layer : design.get("layers")) {
+        return svgLayers(design.path("layers")).map(layers ->
+                "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 100 100\""
+                + " width=\"64\" height=\"64\" role=\"img\" aria-label=\"" + name + "\">\n" + layers + "  </svg>");
+    }
+
+    // 本地 SVG 与云端图像提示共用实际绘制的图层。未知字段不会进入任一成品。
+    static Optional<String> svgLayers(JsonNode layers) {
+        if (!layers.isArray() || layers.isEmpty()) return Optional.empty();
+        var source = new StringBuilder();
+        for (var layer : layers) {
             String element = renderLayer(layer);
             if (element == null) return Optional.empty();
             source.append("    ").append(element).append('\n');
         }
-        return Optional.of(source.append("  </svg>").toString());
+        return Optional.of(source.toString());
     }
 
     private static String renderLayer(JsonNode layer) {

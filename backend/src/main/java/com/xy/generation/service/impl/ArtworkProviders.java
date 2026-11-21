@@ -81,13 +81,14 @@ final class ArtworkProviders {
             if (name.isEmpty()) return Optional.empty();
             // 不发送用户原始需求、历史或工程源码，只提交 Logo 的设计参数。
             String brief = design.path("brief").asText("");
-            var palette = new java.util.LinkedHashSet<String>();
-            for (var layer : design.path("layers")) {
-                String color = layer.path("color").asText("");
-                if (color.matches("#[0-9A-Fa-f]{6}")) palette.add(color);
+            String prompt = "设计一个方形品牌标志。品牌：" + name + "。视觉简述：" + brief;
+            var layers = design.path("layers");
+            if (!layers.isMissingNode() && !layers.isArray()) return Optional.empty();
+            if (!layers.isEmpty()) {
+                var shapes = VueBrandLogo.svgLayers(layers);
+                if (shapes.isEmpty()) return Optional.empty();
+                prompt += "。按以下图案绘制，使用 100×100 画布，从底到顶保留各层的形状、坐标与颜色：\n" + shapes.get();
             }
-            String prompt = "设计一个方形品牌标志。品牌：" + name + "。视觉简述：" + brief
-                    + "。色板：" + String.join("、", palette);
             var image = logoModel.get().generate(prompt).content();
             byte[] bytes;
             if (image.base64Data() != null && image.base64Data().length() <= 4L * MAX_IMAGE_BYTES / 3 + 4) {

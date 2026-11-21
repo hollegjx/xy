@@ -22,6 +22,35 @@ import static org.mockito.Mockito.*;
 
 class ArtworkProvidersTest {
     @Test
+    void cloudLogoReceivesTheActualShapesInPaintOrderWithoutPageDetails() throws Exception {
+        var png = new ByteArrayOutputStream();
+        ImageIO.write(new BufferedImage(2, 2, BufferedImage.TYPE_INT_RGB), "png", png);
+        var model = mock(ImageModel.class);
+        var prompts = new java.util.ArrayList<String>();
+        when(model.generate(anyString())).thenAnswer(call -> {
+            prompts.add(call.getArgument(0));
+            return Response.from(Image.builder().base64Data(Base64.getEncoder().encodeToString(png.toByteArray())).build());
+        });
+        var provider = new ArtworkProviders(Optional.of(model), "");
+        var json = new ObjectMapper();
+        String circle = "{\"shape\":\"circle\",\"coordinates\":[50,50,18],\"color\":\"#112288\",\"note\":\"内部备注\"}";
+        String triangle = "{\"shape\":\"polygon\",\"coordinates\":[5,95,50,5,95,95],\"color\":\"#112288\"}";
+        String line = "{\"shape\":\"line\",\"coordinates\":[10,20,80,90],\"color\":\"#225533\"}";
+        for (String layers : List.of(circle, triangle, triangle + "," + line, line + "," + triangle)) {
+            String design = "{\"name\":\"棱镜\",\"purpose\":\"未公开的页头用途\",\"layers\":[" + layers + "]}";
+            assertThat(provider.logoImage(json, design)).isPresent();
+        }
+        String invalid = "{\"name\":\"棱镜\",\"layers\":[" + circle.replace("[50,50,18]", "[50,50,0]") + "]}";
+        assertThat(provider.logoImage(json, invalid)).isEmpty();
+        assertThat(prompts).hasSize(4).allSatisfy(p -> assertThat(p).contains("棱镜", "#112288")
+                .doesNotContain("未公开", "内部备注", "purpose", "note"));
+        assertThat(prompts.get(0)).contains("<circle", "cx=\"50\"", "cy=\"50\"", "r=\"18\"").doesNotContain("<polygon");
+        assertThat(prompts.get(1)).contains("<polygon", "5,95 50,5 95,95").doesNotContain("<circle");
+        assertThat(prompts.get(2)).containsSubsequence("<polygon", "<polyline", "10,20 80,90", "#225533");
+        assertThat(prompts.get(3)).containsSubsequence("<polyline", "<polygon");
+    }
+
+    @Test
     void differentBrandsKeepTheirOwnCloudLogoAndAnIdenticalDesignIsGeneratedOnlyOnce() {
         var provider = mock(ArtworkProviders.class);
         when(provider.logoImage(any(), contains("书屋"))).thenReturn(Optional.of("书屋图"));

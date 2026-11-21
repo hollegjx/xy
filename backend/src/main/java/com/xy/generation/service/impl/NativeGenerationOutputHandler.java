@@ -100,10 +100,14 @@ final class NativeGenerationOutputHandler implements GenerationSession.OutputHan
     private void stream(List<ChatMessage> messages, GenerationSession session, StreamingChatResponseHandler target) {
         var subscriber = new BaseSubscriber<NativeCodeStream.Chunk>() {
             @Override protected void hookOnNext(NativeCodeStream.Chunk chunk) {
-                if (chunk.finalResponse() == null) target.onPartialResponse(chunk.delta());
-                else target.onCompleteResponse(chunk.finalResponse());
+                if (chunk.delta() != null) target.onPartialResponse(chunk.delta());
+                if (chunk.finalResponse() != null) target.onCompleteResponse(chunk.finalResponse());
             }
-            @Override protected void hookOnError(Throwable error) { target.onError(error); }
+            @Override protected void hookOnError(Throwable error) {
+                if (error instanceof dev.langchain4j.guardrail.OutputGuardrailException)
+                    session.fail("模型重试后仍未提供完整的网站源码，请调整需求后重试");
+                else target.onError(error);
+            }
         };
         if (stream.update(subscriber)) writer.generate(messages, session).subscribe(subscriber);
     }

@@ -32,7 +32,7 @@ class GenerationServiceImplTest {
         Executor executor = mock(Executor.class);
         var unavailable = new StaticListableBeanFactory().getBeanProvider(StreamingChatModel.class);
         GenerationServiceImpl service = new GenerationServiceImpl(apps, persistence, files,
-                new GenerationModels(unavailable, unavailable), executor,
+                new GenerationModels(unavailable, unavailable, false), executor,
                 mock(ScheduledExecutorService.class),
                 new ClassPathResource("prompts/single-html.txt"), new ClassPathResource("prompts/multi-file.txt"),
                 new ObjectMapper(), mock(GenerationMemory.class), mock(ArtworkProviders.class), mock(VueProjectBuildManager.class), mock(OpenversePhotoSearch.class), 180, 40);

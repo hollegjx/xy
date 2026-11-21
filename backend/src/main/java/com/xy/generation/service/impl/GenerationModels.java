@@ -7,6 +7,7 @@ import dev.langchain4j.model.chat.StreamingChatModel;
 import java.time.Duration;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 @Component
@@ -15,20 +16,24 @@ final class GenerationModels {
     record Client(StreamingChatModel model, NativeCodeStream writer) {}
     private final ObjectProvider<StreamingChatModel> models;
     private final ObjectProvider<StreamingChatModel> vueModels;
+    private final boolean nativeOutputGuardrail;
     private final Cache<Key, Client> clients = Caffeine.newBuilder().maximumSize(1000)
             .expireAfterAccess(Duration.ofMinutes(30)).build();
 
     GenerationModels(ObjectProvider<StreamingChatModel> models,
-            @Qualifier("vueStreamingChatModel") ObjectProvider<StreamingChatModel> vueModels) {
+            @Qualifier("vueStreamingChatModel") ObjectProvider<StreamingChatModel> vueModels,
+            @Value("${xy.ai.native-output-guardrail:false}") boolean nativeOutputGuardrail) {
         this.models = models;
         this.vueModels = vueModels;
+        this.nativeOutputGuardrail = nativeOutputGuardrail;
     }
 
     Client forApp(long owner, long app, CodeGenTypeEnum mode) {
         return clients.get(new Key(owner, app, mode), key -> {
             var model = mode == CodeGenTypeEnum.VUE_PROJECT ? vueModels.getIfAvailable(models::getIfAvailable)
                     : models.getIfAvailable();
-            return model == null ? null : new Client(model, mode == CodeGenTypeEnum.VUE_PROJECT ? null : new NativeCodeStream(model));
+            return model == null ? null : new Client(model, mode == CodeGenTypeEnum.VUE_PROJECT ? null
+                    : new NativeCodeStream(model, nativeOutputGuardrail));
         });
     }
 }

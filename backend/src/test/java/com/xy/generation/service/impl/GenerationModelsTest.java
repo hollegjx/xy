@@ -19,7 +19,7 @@ class GenerationModelsTest {
         ObjectProvider<StreamingChatModel> vue = mock(ObjectProvider.class);
         var reasoningModel = mock(StreamingChatModel.class);
         when(vue.getIfAvailable(any())).thenReturn(reasoningModel);
-        var models = new GenerationModels(provider, vue);
+        var models = new GenerationModels(provider, vue, false);
         var first = models.forApp(7, 55, CodeGenTypeEnum.HTML);
         assertThat(models.forApp(7, 55, CodeGenTypeEnum.HTML)).isSameAs(first);
         var second = models.forApp(8, 56, CodeGenTypeEnum.HTML);

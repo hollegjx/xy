@@ -13,11 +13,14 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Scope;
+import org.springframework.beans.factory.config.ConfigurableBeanFactory;
 
 @Configuration
 public class AiModelConfiguration {
 
     @Bean
+    @Scope(ConfigurableBeanFactory.SCOPE_PROTOTYPE)
     @ConditionalOnProperty(prefix = "xy.ai", name = "enabled", havingValue = "true")
     public ChatModel modeRoutingModel(@Value("${xy.ai.base-url}") String baseUrl,
             @Value("${xy.ai.api-key}") String apiKey, @Value("${xy.ai.model-name}") String modelName,
@@ -29,6 +32,7 @@ public class AiModelConfiguration {
     }
 
     @Bean
+    @Scope(ConfigurableBeanFactory.SCOPE_PROTOTYPE)
     @ConditionalOnProperty(prefix = "xy.ai", name = "enabled", havingValue = "true")
     public StreamingChatModel streamingChatModel(
             @Value("${xy.ai.base-url}") String baseUrl,

@@ -18,7 +18,6 @@ import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.UserMessage;
-import dev.langchain4j.model.chat.StreamingChatModel;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
@@ -26,7 +25,6 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
 import java.util.concurrent.ScheduledExecutorService;
-import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.Resource;
@@ -43,7 +41,7 @@ public class GenerationServiceImpl implements GenerationService {
     private final GeneratedFileManager fileManager;
     private final VueProjectBuildManager vueBuilder;
     private final OpenversePhotoSearch photoSearch;
-    private final ObjectProvider<StreamingChatModel> modelProvider;
+    private final GenerationModels models;
     private final Executor executor;
     private final ScheduledExecutorService heartbeatScheduler;
     private final Map<String, String> systemPrompts;
@@ -54,7 +52,7 @@ public class GenerationServiceImpl implements GenerationService {
     private final Map<Long, GenerationSession> runningSessions = new ConcurrentHashMap<>();
 
     public GenerationServiceImpl(AppService appService, GenerationPersistence persistence,
-            GeneratedFileManager fileManager, ObjectProvider<StreamingChatModel> modelProvider,
+            GeneratedFileManager fileManager, GenerationModels models,
             @Qualifier("generationExecutor") Executor executor,
             @Qualifier("generationHeartbeatScheduler") ScheduledExecutorService heartbeatScheduler,
             @Value("classpath:prompts/single-html.txt") Resource htmlPrompt,
@@ -65,7 +63,7 @@ public class GenerationServiceImpl implements GenerationService {
         this.memory = memory;
         this.persistence = persistence;
         this.fileManager = fileManager;
-        this.modelProvider = modelProvider;
+        this.models = models;
         this.executor = executor;
         this.heartbeatScheduler = heartbeatScheduler;
         this.systemPrompts = Map.of(CodeGenTypeEnum.HTML.getValue(), htmlPrompt.getContentAsString(StandardCharsets.UTF_8),
@@ -90,8 +88,8 @@ public class GenerationServiceImpl implements GenerationService {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "当前生成仅支持 html、multi_file 或 vue_project 模式");
         }
         boolean qualityCheck = Boolean.TRUE.equals(request.qualityCheck());
-        StreamingChatModel model = modelProvider.getIfAvailable();
-        if (model == null) {
+        var client = models.forApp(loginUser.getId(), appId, CodeGenTypeEnum.fromValue(app.codeGenType()));
+        if (client == null) {
             throw new BusinessException(ErrorCode.SERVICE_UNAVAILABLE, "请先配置并启用模型服务");
         }
         persistence.recoverInterruptedGenerations();
@@ -106,7 +104,7 @@ public class GenerationServiceImpl implements GenerationService {
                     ? new VueProjectGeneration(loginUser.getId(), appId, generationId, fileManager, objectMapper,
                             vueTemplate, vueBuilder, qualityCheck, photoSearch, executor)
                     : new NativeGenerationOutputHandler(
-                            loginUser.getId(), appId, generationId, app.codeGenType(), fileManager, objectMapper, qualityCheck, photoSearch, new NativeCodeStream(model));
+                            loginUser.getId(), appId, generationId, app.codeGenType(), fileManager, objectMapper, qualityCheck, photoSearch, client.writer());
             return new GenerationSession(appId, loginUser.getId(), generationId,
                     emitter, persistence, outputHandler, () -> runningSessions.remove(appId), heartbeatScheduler);
         });
@@ -123,7 +121,7 @@ public class GenerationServiceImpl implements GenerationService {
                     }
                     if (!session.isRunning()) return;
                     try {
-                        session.generate(model, messages);
+                        session.generate(client.model(), messages);
                     } catch (RuntimeException error) {
                         session.onError(error);
                     }

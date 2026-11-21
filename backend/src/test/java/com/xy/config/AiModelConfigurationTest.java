@@ -62,6 +62,7 @@ class AiModelConfigurationTest {
                             "xy.ai.timeout-seconds=5", "xy.ai.base-url=http://127.0.0.1:" + gateway.getAddress().getPort() + "/v1");
             if (routingModel != null) context = context.withPropertyValues("xy.ai.routing-model-name=" + routingModel);
             context.run(beans -> {
+                assertThat(beans.getBean(StreamingChatModel.class)).isNotSameAs(beans.getBean(StreamingChatModel.class));
                 assertThat(beans.getBean(ChatModel.class).chat("选择生成模式")).isEqualTo("html");
                 var route = classification.get(1, TimeUnit.SECONDS);
                 assertThat(route.path("model").asText()).isEqualTo(

@@ -31,7 +31,7 @@ class GenerationServiceImplTest {
         GeneratedFileManager files = mock(GeneratedFileManager.class);
         Executor executor = mock(Executor.class);
         GenerationServiceImpl service = new GenerationServiceImpl(apps, persistence, files,
-                new StaticListableBeanFactory().getBeanProvider(StreamingChatModel.class), executor,
+                new GenerationModels(new StaticListableBeanFactory().getBeanProvider(StreamingChatModel.class)), executor,
                 mock(ScheduledExecutorService.class),
                 new ClassPathResource("prompts/single-html.txt"), new ClassPathResource("prompts/multi-file.txt"),
                 new ObjectMapper(), mock(GenerationMemory.class), mock(VueProjectBuildManager.class), mock(OpenversePhotoSearch.class), 180);

@@ -286,20 +286,28 @@ public class AppServiceImpl implements AppService {
             if (appMapper.updateDeployment(id, app.getUserId(), key, versionId, deployedAt) != 1) {
                 throw new BusinessException(ErrorCode.SYSTEM_ERROR, "发布记录保存失败，请重试发布");
             }
-            try {
-                byte[] jpeg = coverRenderer.render(html);
-                if (jpeg != null) fileManager.saveCover(app.getUserId(), id, versionId, jpeg);
-            } catch (IOException error) {
-                log.warn("应用 {} 版本 {} 已发布，封面未生成：{}", id, versionId, error.getClass().getSimpleName());
-            } finally {
-                // 发布记录已提交；本次截图无论有无结果，下一次读取都要使用新的发布版本。
-                invalidateFeaturedApps();
-            }
+            invalidateFeaturedApps();
+            if (coverRenderer.enabled()) capturePublishedCover(app.getUserId(), id, versionId, html);
             return new AppDeployVO(deployment.siteUrl(key), Long.toString(versionId), deployedAt);
         } catch (IOException error) {
             log.error("应用 {} 版本 {} 发布文件失败，异常类型 {}", id, versionId, error.getClass().getSimpleName());
             throw new BusinessException(ErrorCode.SYSTEM_ERROR, "发布文件失败，请检查发布目录");
         }
+    }
+
+    private void capturePublishedCover(long owner, long appId, long version, String snapshot) {
+        // 地址可复用；后台任务只读本次快照，只写本次版本的封面。
+        Thread.startVirtualThread(() -> {
+            try {
+                byte[] jpeg = coverRenderer.render(snapshot);
+                if (jpeg != null) {
+                    fileManager.saveCover(owner, appId, version, jpeg);
+                    invalidateFeaturedApps(); // 刷新截图完成前已缓存的文字卡片
+                }
+            } catch (IOException | RuntimeException error) {
+                log.warn("应用 {} 版本 {} 已发布，封面未生成：{}", appId, version, error.getClass().getSimpleName());
+            }
+        });
     }
 
     private String preparePublicationHtml(App app, long versionId) throws IOException {

@@ -22,6 +22,8 @@ import java.nio.file.Path;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
@@ -40,6 +42,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.awaitility.Awaitility.await;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -247,6 +250,7 @@ class AppDeployControllerTest {
 
     @Test
     void refreshesTheFeaturedCoverWithThePublishedSnapshotAndKeepsPublishingIfCaptureFails() throws Exception {
+        when(covers.enabled()).thenReturn(true);
         app.setFeatured(true);
         when(apps.selectListByQuery(any(QueryWrapper.class))).thenReturn(List.of(app));
         for (long id : List.of(801L, 802L, 803L)) {
@@ -259,12 +263,12 @@ class AppDeployControllerTest {
             mockMvc.perform(deploy().session(session())).andExpect(status().isOk());
             assertThat(Files.readString(publishedIndex())).isEqualTo(html);
             var url = "/api/apps/55/covers/" + id;
-            var list = mockMvc.perform(get("/api/apps/featured").contextPath("/api")).andExpect(status().isOk());
             if (id == 803) {
-                list.andExpect(jsonPath("$.data[0].coverUrl").isEmpty());
+                mockMvc.perform(get("/api/apps/featured").contextPath("/api")).andExpect(jsonPath("$.data[0].coverUrl").isEmpty());
                 mockMvc.perform(get(url).contextPath("/api")).andExpect(status().isNotFound());
             } else {
-                list.andExpect(jsonPath("$.data[0].coverUrl").value(url));
+                await().untilAsserted(() -> mockMvc.perform(get("/api/apps/featured").contextPath("/api"))
+                        .andExpect(jsonPath("$.data[0].coverUrl").value(url)));
                 var response = mockMvc.perform(get(url).contextPath("/api")).andExpect(status().isOk())
                         .andReturn().getResponse();
                 assertThat(response.getContentType()).isEqualTo("image/jpeg");
@@ -278,8 +282,44 @@ class AppDeployControllerTest {
     }
 
     @Test
+    void returnsBeforeCaptureAndAnOlderCaptureCannotReplaceTheNewCover() throws Exception {
+        when(covers.enabled()).thenReturn(true);
+        app.setFeatured(true);
+        when(apps.selectListByQuery(any(QueryWrapper.class))).thenReturn(List.of(app));
+        var entered = new CountDownLatch(1);
+        var release = new CountDownLatch(1);
+        useVersion(811);
+        saveVersion("旧快照");
+        when(covers.render(files.readHtml(42, 55, 811))).thenAnswer(call -> {
+            entered.countDown();
+            if (!release.await(5, TimeUnit.SECONDS)) throw new IOException("发布没有在截图完成前返回");
+            return new byte[]{1};
+        });
+        try {
+            mockMvc.perform(deploy().session(session())).andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data.publishedVersion").value("811"));
+            assertThat(entered.await(2, TimeUnit.SECONDS)).isTrue();
+            mockMvc.perform(get("/api/apps/featured").contextPath("/api"))
+                    .andExpect(jsonPath("$.data[0].coverUrl").isEmpty());
+            useVersion(812);
+            saveVersion("新快照");
+            when(covers.render(files.readHtml(42, 55, 812))).thenReturn(new byte[]{2});
+            mockMvc.perform(deploy().session(session())).andExpect(status().isOk());
+            await().until(() -> files.hasCover(42, 55, 812));
+        } finally {
+            release.countDown();
+        }
+        await().until(() -> files.hasCover(42, 55, 811));
+        mockMvc.perform(get("/api/apps/55/covers/811").contextPath("/api")).andExpect(status().isNotFound());
+        mockMvc.perform(get("/api/apps/featured").contextPath("/api"))
+                .andExpect(jsonPath("$.data[0].coverUrl").value("/api/apps/55/covers/812"));
+        assertThat(files.readCover(42, 55, 812)).containsExactly(2);
+    }
+
+    @Test
     @EnabledIfEnvironmentVariable(named = "XY_TEST_DOCKER_COVER", matches = "true")
     void rendersRepublishedFeaturedWorkInDocker() throws Exception {
+        when(covers.enabled()).thenReturn(true);
         var renderer = new AppCoverRenderer(true, System.getenv().getOrDefault("XY_TEST_DOCKER_CLI", "docker"));
         when(covers.render(anyString())).thenAnswer(call -> renderer.render(call.getArgument(0)));
         app.setFeatured(true);
@@ -291,8 +331,8 @@ class AppDeployControllerTest {
             saveVersion("<script>document.body.style.background='" + css + "'</script>");
             mockMvc.perform(deploy().session(session())).andExpect(status().isOk());
             String url = "/api/apps/55/covers/" + id;
-            mockMvc.perform(get("/api/apps/featured").contextPath("/api"))
-                    .andExpect(jsonPath("$.data[0].coverUrl").value(url));
+            await().atMost(25, TimeUnit.SECONDS).untilAsserted(() -> mockMvc.perform(get("/api/apps/featured").contextPath("/api"))
+                    .andExpect(jsonPath("$.data[0].coverUrl").value(url)));
             var response = mockMvc.perform(get(url).contextPath("/api")).andExpect(status().isOk())
                     .andReturn().getResponse();
             assertThat(response.getContentType()).isEqualTo("image/jpeg");

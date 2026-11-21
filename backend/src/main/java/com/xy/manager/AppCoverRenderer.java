@@ -17,6 +17,10 @@ public class AppCoverRenderer {
         this.docker = docker;
     }
 
+    public boolean enabled() {
+        return enabled;
+    }
+
     /** 只传入发布快照，容器无网络、宿主目录或平台凭证。 */
     public byte[] render(String html) throws IOException {
         if (!enabled) return null;

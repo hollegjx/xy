@@ -1614,6 +1614,26 @@ class GenerationControllerTest {
         verify(persistence, never()).complete(eq(55L), eq(42L), eq(generationId), any());
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = {"../xy-photo-2.json", "/xy-photo-2"})
+    void doesNotReplaceTheLastDownloadWhenAnEditImportsAPhotoThatWasNeverSaved(String imported) throws Exception {
+        String original = "<template>原来的菜单</template>";
+        long previous = preparePreviousVueProject(app(42L, "vue_project"), original);
+        var candidate = "<script setup>import menu from '" + imported + "'</script><template><img :src='menu.src'></template>";
+        doAnswer(invocation -> {
+            ChatRequest request = invocation.getArgument(0);
+            var handler = invocation.<StreamingChatResponseHandler>getArgument(1);
+            if (request.messages().getLast() instanceof ToolExecutionResultMessage) handler.onCompleteResponse(response("完成", FinishReason.STOP));
+            else handler.onCompleteResponse(ChatResponse.builder().finishReason(FinishReason.TOOL_EXECUTION)
+                    .aiMessage(AiMessage.from(writeFile("src/App.vue", candidate))).build());
+            return null;
+        }).when(model).chat(nonDraftRequest(), any(StreamingChatResponseHandler.class));
+        String events = finish(mockMvc.perform(generate().session(session())).andReturn());
+        assertThat(events).contains("event:failed", "xy-photo-2.json").doesNotContain("event:completed");
+        verify(persistence, never()).complete(eq(55L), eq(42L), eq(generationId), any());
+        assertThat(unzipSources(fileManager.readVueSourceZip(42, 55, previous))).containsEntry("src/App.vue", original);
+    }
+
     private ToolExecutionRequest replaceCardFragment(String oldText, String newText) throws Exception {
         return ToolExecutionRequest.builder().id("edit-card").name("replaceFragment")
                 .arguments(objectMapper.writeValueAsString(Map.of("relativePath", "src/Card.vue",

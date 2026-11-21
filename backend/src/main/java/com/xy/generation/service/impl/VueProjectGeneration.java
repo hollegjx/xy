@@ -560,6 +560,8 @@ final class VueProjectGeneration implements GenerationSession.OutputHandler {
     private String candidateError() {
         try {
             var sources = files.readVueSources(userId, appId, generationId);
+            String photoError = VueComponentReferences.missingPhotoError(sources, Set.copyOf(files.listVuePhotos(userId, appId, generationId)));
+            if (photoError != null) return photoError;
             String graphError = VueArchitectureDiagram.findError(mapper, sources, files.hasVueArchitecture(userId, appId, generationId));
             if (graphError != null) return graphError;
             String logoError = logos.missingReference(sources);

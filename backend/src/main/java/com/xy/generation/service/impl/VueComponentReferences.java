@@ -1,10 +1,12 @@
 package com.xy.generation.service.impl;
 
+import com.xy.manager.GeneratedFileManager;
 import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.Predicate;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import org.jsoup.nodes.Element;
@@ -31,12 +33,22 @@ final class VueComponentReferences {
         var missing = new HashSet<>(deleted);
         missing.removeAll(sources.keySet()); // 同一轮也可以恢复同一路径。
         if (missing.isEmpty()) return null;
-        var ref = firstReference(sources, missing);
+        var ref = firstReference(sources, missing::contains);
         return ref == null ? null : ref.importer() + " 仍引用已删除组件 " + ref.target() + "，请清理引用后重试";
     }
 
     static boolean references(Map<String, String> sources, String target) {
-        return firstReference(sources, referencePaths(sources, target)) != null;
+        return firstReference(sources, referencePaths(sources, target)::contains) != null;
+    }
+
+    static String missingPhotoError(Map<String, String> sources, Set<String> saved) {
+        var ref = firstReference(sources, path -> {
+            String name = path.endsWith(".json") ? path : path + ".json";
+            return GeneratedFileManager.isVuePhoto(name) && !saved.contains(name);
+        });
+        if (ref == null) return null;
+        String name = ref.target().endsWith(".json") ? ref.target() : ref.target() + ".json";
+        return ref.importer() + " 引用了未取得的照片 " + name + "，请使用已有照片或文字";
     }
 
     /** 旧版工具使用默认导入；区分图本身的数据和同一组件另外导入的标题等数据。 */
@@ -49,7 +61,7 @@ final class VueComponentReferences {
         String third = "", second = "", previous = "";
         for (String token; (token = nextToken(script, tokens, previous)) != null; ) {
             if (third.equals("import") && previous.equals("from") && (token.startsWith("'") || token.startsWith("\""))
-                    && token.length() >= 2 && resolve(importer, token.substring(1, token.length() - 1), paths) != null) {
+                    && token.length() >= 2 && resolve(importer, token.substring(1, token.length() - 1), paths::contains) != null) {
                 bindings.add(second);
             }
             if (previous.equals(".") && fields.contains(token)) {
@@ -73,7 +85,7 @@ final class VueComponentReferences {
 
     private record Reference(String importer, String target) {}
 
-    private static Reference firstReference(Map<String, String> sources, Set<String> targets) {
+    private static Reference firstReference(Map<String, String> sources, Predicate<String> targets) {
         for (var file : sources.entrySet()) {
             String path = file.getKey();
             String target = null;
@@ -105,7 +117,7 @@ final class VueComponentReferences {
         return Parser.xmlParser().tagSet(tags).parseInput(source, "");
     }
 
-    private static String templateTarget(String path, Element template, Set<String> targets) {
+    private static String templateTarget(String path, Element template, Predicate<String> targets) {
         for (var element : template.getAllElements()) {
             if (element.closest("[v-pre]") != null) continue;
             for (var attribute : element.attributes()) {
@@ -127,7 +139,7 @@ final class VueComponentReferences {
         return null;
     }
 
-    private static String importedTarget(String path, String script, Set<String> targets) {
+    private static String importedTarget(String path, String script, Predicate<String> targets) {
         String previous = "", beforePrevious = "", pending = null;
         var tokens = JS_TOKEN.matcher(script);
         for (String token; (token = nextToken(script, tokens, previous)) != null; ) {
@@ -165,16 +177,16 @@ final class VueComponentReferences {
         return null;
     }
 
-    private static String resolve(String importer, String specifier, Set<String> targets) {
+    private static String resolve(String importer, String specifier, Predicate<String> targets) {
         String name = specifier.split("[?#]", 2)[0];
         if (name.indexOf('\0') >= 0) return null;
         Path resolved;
-        if (name.startsWith("/src/")) resolved = Path.of(name.substring(1));
+        if (name.startsWith("/") && !name.startsWith("//")) resolved = Path.of(name.substring(1));
         else if (name.startsWith("@/")) resolved = Path.of("src/" + name.substring(2));
         else if (name.startsWith("./") || name.startsWith("../")) resolved = Path.of(importer).resolveSibling(name);
         else return null;
         String target = resolved.normalize().toString().replace('\\', '/');
-        return targets.contains(target) ? target : null;
+        return targets.test(target) ? target : null;
     }
 
     private VueComponentReferences() {}

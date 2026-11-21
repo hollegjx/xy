@@ -20,13 +20,18 @@ import java.nio.file.Path;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
 import org.springframework.boot.autoconfigure.data.redis.RedisAutoConfiguration;
 import org.springframework.boot.autoconfigure.session.SessionAutoConfiguration;
 import org.springframework.boot.test.context.runner.WebApplicationContextRunner;
+import org.springframework.data.redis.connection.RedisConnectionFactory;
+import org.springframework.data.redis.connection.jedis.JedisConnectionFactory;
 import org.springframework.http.MediaType;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
+import redis.clients.jedis.Jedis;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -43,6 +48,10 @@ class SharedLoginSessionTest {
                     RedisAutoConfiguration.class, SessionAutoConfiguration.class))
                     .withPropertyValues("spring.data.redis.port=" + redis.ports().getFirst(), "spring.session.redis.namespace=xy:session");
             nodes.run(a -> nodes.run(b -> {
+                for (var node : List.of(a, b)) {
+                    assertThat(node.getBean(RedisConnectionFactory.class)).isInstanceOfSatisfying(
+                            JedisConnectionFactory.class, factory -> assertThat(factory.getClientConfiguration().isUsePooling()).isTrue());
+                }
                 var first = MockMvcBuilders.standaloneSetup(new UserController(members())).setControllerAdvice(new GlobalExceptionHandler())
                         .addFilters(a.getBean("springSessionRepositoryFilter", Filter.class)).build();
                 var second = MockMvcBuilders.standaloneSetup(new UserController(members())).setControllerAdvice(new GlobalExceptionHandler())
@@ -61,8 +70,9 @@ class SharedLoginSessionTest {
         }
     }
 
-    @Test
-    void redisOutageBlocksPrivateGenerationButKeepsPublicFeaturedPagesReadable(@TempDir Path dir) throws Exception {
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void redisOutageBlocksPrivateGenerationButKeepsPublicFeaturedPagesReadable(boolean readTimeout, @TempDir Path dir) throws Exception {
         var redis = GenerationTestRedis.start(dir);
         try {
             var users = members();
@@ -85,7 +95,14 @@ class SharedLoginSessionTest {
                                         .content("{\"userAccount\":\"member\",\"userPassword\":\"test-password\"}"))
                                 .andExpect(status().isOk()).andReturn().getResponse().getCookie("SESSION");
                         assertThat(cookie).isNotNull();
-                        redis.stop();
+                        if (readTimeout) {
+                            // 只暂停本用例的 Redis：已连接的 Jedis 读超时和端口关闭都应得到同一条 503 响应。
+                            try (var control = new Jedis("127.0.0.1", redis.ports().getFirst())) {
+                                control.clientPause(4000);
+                            }
+                        } else {
+                            redis.stop();
+                        }
                         mvc.perform(post("/apps/55/generations").cookie(cookie).contentType(MediaType.APPLICATION_JSON)
                                         .accept(MediaType.TEXT_EVENT_STREAM).content("{\"prompt\":\"做一个网站\"}"))
                                 .andExpect(status().isServiceUnavailable()).andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))

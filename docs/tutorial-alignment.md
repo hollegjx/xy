@@ -21,6 +21,8 @@
 
 **插画服务的限制。** [unDraw 当前许可](https://undraw.co/license)要求集成、自动检索或抓取事先获得同意；本项目未提供此授权。未复用教程里的私有前端接口，没有把三幅本地插画记作已完成 unDraw 搜索。
 
+**第 14 章的 Redis 驱动。** 本地正文中，用户服务、应用服务的依赖都排除了 Lettuce，使用 Jedis 连接池。XY 原来用了 Spring Session 和 Spring Cache，但驱动仍是 Lettuce；现在这两项和 Redis 对话记忆均使用 Spring Data Redis 的 Jedis 连接池，分布式限流仍使用独立的 Redisson。两个 Spring 实例的共享登录测试会检查实际连接工厂和池化状态。
+
 **验证位置。** `SharedLoginSessionTest` 和 `GenerationMemoryRedisTest` 使用真实临时 Redis；`AiModelConfigurationTest` 走本地 HTTP 模型替身；`GenerationControllerTest` 覆盖输出、停止、工具和状态；`VueArtworkDeliveryTest` 对比两次源码交付的关系图；`ArtworkProvidersTest` 检查 Mermaid 请求、PNG 交付与 Logo 调用；`CosCoverStorageTest` 验证 SDK 请求及已有封面的兼容读取。外部 COS、真实付费模型、自托管 Kroki 和 gc 的线上配置不由这些测试证明。
 
 前端从接口文档重复生成 5 个客户端文件，内容一致。另外把后端产出的 Mermaid 文本交给本地 Chromium 中的 Mermaid 11.12.2，实际绘出了 3 个节点、2 条连线及中文标签。

@@ -13,4 +13,6 @@ docker run -d --name xy-redis --restart unless-stopped --network host \
 
 运行 `docker exec xy-redis redis-cli -h 127.0.0.1 ping` 应返回 `PONG`。确认 `ss -ltn 'sport = :6379'` 仅显示 `127.0.0.1:6379`，再切换后端。默认连接 `127.0.0.1:6379`、库 0；若使用外部或已有带认证实例，按其运维要求填写后端私有 `spring.data.redis` 配置。
 
-旧版的登录态只在进程内，首次升级后需要重新登录。回退应用不需要删除 Redis 容器或数据卷。
+如果从仅在进程内保存 Session 的版本升级，用户需要重新登录一次。
+
+如果旧版已经用 Lettuce 把 Session 存入 Redis，只换成 Jedis 连接池不需要重新登录。保留原 Redis 实例、库号、`spring.session.redis.namespace` 和会话序列化设置；若私有配置显式指定了 `spring.data.redis.client-type: lettuce`，改为 `jedis`。已验证旧版写入的会话可在新版读取并退出，退出后旧版也不能再用该会话；反方向同样成立。切换驱动和回退都不需要删除 Redis 数据。

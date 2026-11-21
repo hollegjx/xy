@@ -20,6 +20,7 @@
     <module>modules/user-data</module>
     <module>modules/screenshot-renderer</module>
     <module>services/screenshot</module>
+    <module>services/user</module>
     <module>platform</module>
   </modules>
   <properties>

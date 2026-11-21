@@ -170,6 +170,7 @@ final class VueComponentReferences {
         if (name.indexOf('\0') >= 0) return null;
         Path resolved;
         if (name.startsWith("/src/")) resolved = Path.of(name.substring(1));
+        else if (name.startsWith("@/")) resolved = Path.of("src/" + name.substring(2));
         else if (name.startsWith("./") || name.startsWith("../")) resolved = Path.of(importer).resolveSibling(name);
         else return null;
         String target = resolved.normalize().toString().replace('\\', '/');

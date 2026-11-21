@@ -1232,6 +1232,7 @@ class GenerationControllerTest {
     @ParameterizedTest
     @ValueSource(strings = {
             "<script setup>import Card from './Card.vue'</script><template><Card/></template>",
+            "<script setup>import Card from '@/Card.vue'</script><template><Card/></template>",
             "<template><button @click=\"import('./Card.vue')\">打开</button></template>",
             "<template><form><textarea /><component :is=\"() => import('./Card.vue')\" /></form></template>",
             "<script setup>const hasApostrophe = /'/;\nimport Card from './Card.vue'</script><template><Card/></template>"

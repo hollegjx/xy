@@ -122,7 +122,7 @@ macOS 先安装并启动 Docker Desktop；Linux 使用已有 Docker Engine。在
 docker build -t xy-vue-builder:local -f backend/vue-builder/Dockerfile backend
 ```
 
-镜像构建只安装固定模板中的依赖；`backend/.dockerignore` 仅允许模板和构建工具进入上下文。在本地 `application.yml` 已有的 `xy` 节点下追加：
+镜像构建只安装固定模板中的依赖；`backend/.dockerignore` 仅允许模板和构建工具进入上下文。升级到支持 Vue Router 4 的生成模板时，需重新执行上面的构建命令更新已有镜像。单页不需要路由文件；多页作品可以用哈希地址直接打开详情，下载源码也带相同依赖。在本地 `application.yml` 已有的 `xy` 节点下追加：
 
 ```yaml
 vue-build:

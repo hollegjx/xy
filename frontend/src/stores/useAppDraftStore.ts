@@ -2,26 +2,32 @@ import { reactive, ref } from 'vue'
 import { defineStore } from 'pinia'
 import type { AppAddRequest } from '@/types/api'
 
+interface FirstGeneration {
+  appId: string
+  qualityCheck: boolean
+}
+
 export const useAppDraftStore = defineStore('appDraft', () => {
   // 创建前可能跨越登录、注册页面；草稿只留在本标签页内存中。
-  const draft = reactive<AppAddRequest>({ initPrompt: '', codeGenType: 'multi_file' })
-  const pendingAppId = ref<string | null>(null)
-
-  function clear(): void {
-    draft.initPrompt = ''
-    draft.codeGenType = 'multi_file'
-  }
+  const draft = reactive<AppAddRequest & { qualityCheck: boolean }>({
+    initPrompt: '',
+    codeGenType: 'multi_file',
+    qualityCheck: false,
+  })
+  const pending = ref<FirstGeneration | null>(null)
 
   function prepareFirstGeneration(appId: string): void {
-    // 只把本次创建带入工作台；刷新、回退或重新进入都不能重复触发生成。
-    pendingAppId.value = appId
+    pending.value = { appId, qualityCheck: draft.qualityCheck }
+    draft.initPrompt = ''
+    draft.codeGenType = 'multi_file'
+    draft.qualityCheck = false
   }
 
-  function consumeFirstGeneration(appId: string): boolean {
-    const shouldGenerate = pendingAppId.value === appId
-    pendingAppId.value = null
-    return shouldGenerate
+  function consumeFirstGeneration(appId: string): FirstGeneration | null {
+    const first = pending.value
+    pending.value = null
+    return first?.appId === appId ? first : null
   }
 
-  return { draft, pendingAppId, clear, prepareFirstGeneration, consumeFirstGeneration }
+  return { draft, pending, prepareFirstGeneration, consumeFirstGeneration }
 })

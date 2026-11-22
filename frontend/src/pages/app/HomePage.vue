@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router'
 import {
   Alert as AAlert,
   Button as AButton,
+  Checkbox as ACheckbox,
   Form as AForm,
   FormItem as AFormItem,
   RadioButton as ARadioButton,
@@ -50,9 +51,8 @@ async function submit(): Promise<void> {
   busy.value = true
   error.value = ''
   try {
-    const id = await createApp({ ...form })
+    const id = await createApp({ initPrompt: form.initPrompt, codeGenType: form.codeGenType })
     if (!active) return
-    draftStore.clear()
     draftStore.prepareFirstGeneration(id)
     await router.push({ name: 'app-workbench', params: { id } })
   } catch (cause) {
@@ -126,6 +126,14 @@ onBeforeUnmount(() => {
               ? '正在根据需求选择生成模式，请稍候。'
               : creationModes[form.codeGenType ?? 'multi_file'].hint
           }}
+        </p>
+      </AFormItem>
+      <AFormItem name="qualityCheck">
+        <ACheckbox v-model:checked="form.qualityCheck" aria-describedby="first-quality-hint">
+          AI 质检与修复
+        </ACheckbox>
+        <p id="first-quality-hint" class="mode-help">
+          首次生成前先准备所需素材，完成后检查页面，有问题会尝试修复一次。
         </p>
       </AFormItem>
       <AButton

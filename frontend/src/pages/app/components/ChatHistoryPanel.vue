@@ -28,6 +28,7 @@ const props = defineProps<{
   initPrompt: string
   codeGenType: CodeGenType
   autoGenerate?: boolean
+  initialQualityCheck?: boolean
   selection?: string
 }>()
 const emit = defineEmits<{ completed: [generationId: string] }>()
@@ -38,7 +39,7 @@ const error = ref('')
 const loadingMore = ref(false)
 const moreError = ref('')
 const form = reactive({ prompt: '' })
-const qualityCheck = ref(false)
+const qualityCheck = ref(props.initialQualityCheck ?? false)
 const generating = ref(false)
 const stopping = ref(false)
 const generationError = ref('')

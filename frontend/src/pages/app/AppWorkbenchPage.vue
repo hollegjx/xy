@@ -39,6 +39,7 @@ function selectElement(description: string): void {
   if (description) panel.value = 'prompt'
 }
 const autoGenerate = ref(false)
+const initialQualityCheck = ref(false)
 const previewVersion = ref<string | null>(null)
 const downloading = ref(false)
 const downloadError = ref('')
@@ -48,10 +49,10 @@ const copying = ref(false)
 const copyError = ref('')
 let revision = 0
 
-async function load(): Promise<void> {
+async function load(startFirstGeneration = false): Promise<void> {
   const currentRevision = ++revision
   const id = String(route.params.id)
-  autoGenerate.value = draftStore.consumeFirstGeneration(id)
+  autoGenerate.value = startFirstGeneration
   previewVersion.value = null
   selection.value = ''
   app.value = null
@@ -178,7 +179,15 @@ async function copyLink(): Promise<void> {
   }
 }
 
-watch(() => route.params.id, load, { immediate: true })
+watch(
+  () => route.params.id,
+  (id) => {
+    const first = draftStore.consumeFirstGeneration(String(id))
+    initialQualityCheck.value = first?.qualityCheck ?? false
+    void load(first !== null)
+  },
+  { immediate: true },
+)
 onBeforeUnmount(() => {
   revision += 1
 })
@@ -230,7 +239,7 @@ onBeforeUnmount(() => {
       show-icon
       role="alert"
     >
-      <template #action><AButton @click="load">重试</AButton></template>
+      <template #action><AButton @click="load()">重试</AButton></template>
     </AAlert>
     <template v-else-if="app">
       <AAlert
@@ -349,6 +358,7 @@ onBeforeUnmount(() => {
             :init-prompt="app.initPrompt"
             :code-gen-type="app.codeGenType"
             :auto-generate="autoGenerate"
+            :initial-quality-check="initialQualityCheck"
             :selection="selection"
             @completed="previewVersion = $event"
           />

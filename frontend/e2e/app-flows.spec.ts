@@ -35,6 +35,7 @@ for (const [codeGenType, modeLabel] of [
   test(`${codeGenType}：登录保留需求，创建后自动生成并预览，刷新和重新进入不重复生成`, async ({
     page,
   }) => {
+    const useWorkflow = codeGenType === 'vue_project' || codeGenType === 'auto'
     let signedIn = false
     let creates = 0
     let reads = 0
@@ -128,7 +129,11 @@ for (const [codeGenType, modeLabel] of [
           })
         } else if (path === `/api/apps/${app.id}/generations`) {
           expect(request.method()).toBe('POST')
-          expect(request.postDataJSON()).toEqual({ prompt: app.initPrompt })
+          expect(request.postDataJSON()).toEqual(
+            useWorkflow
+              ? { prompt: app.initPrompt, qualityCheck: true }
+              : { prompt: app.initPrompt },
+          )
           generations += 1
           records = [
             {
@@ -185,6 +190,9 @@ for (const [codeGenType, modeLabel] of [
     await expect(page.getByText('请描述你想创建的应用', { exact: true })).toBeVisible()
     await page.getByLabel('应用需求', { exact: true }).fill(app.initPrompt)
     await page.getByText(modeLabel, { exact: true }).click()
+    const quality = page.getByRole('checkbox', { name: 'AI 质检与修复' })
+    await expect(quality).not.toBeChecked()
+    if (useWorkflow) await quality.check()
     await page.getByRole('button', { name: '创建应用', exact: true }).click()
     await expect(page).toHaveURL('/user/login?redirect=/')
     expect(creates).toBe(0)
@@ -194,6 +202,7 @@ for (const [codeGenType, modeLabel] of [
     await expect(page).toHaveURL('/')
     await expect(page.getByLabel('应用需求', { exact: true })).toHaveValue(app.initPrompt)
     await expect(page.getByRole('radio', { name: modeLabel, exact: true })).toBeChecked()
+    await expect(quality).toBeChecked({ checked: useWorkflow })
     await page.getByRole('button', { name: '创建应用', exact: true }).click()
     await expect(page).toHaveURL(`/apps/${app.id}`)
     await expect(page.getByRole('heading', { name: app.appName, exact: true })).toBeVisible()
@@ -203,6 +212,7 @@ for (const [codeGenType, modeLabel] of [
     ).toBeVisible()
     const frame = page.frameLocator('iframe[title="应用网站预览"]')
     await expect(frame.getByRole('heading', { name: '摄影作品集' })).toBeVisible()
+    await expect(quality).toBeChecked({ checked: useWorkflow })
     if (codeGenType === 'vue_project') {
       await page.getByRole('button', { name: '发布应用' }).click()
       await expect(page.getByRole('link', { name: '查看作品' })).toHaveAttribute(
@@ -264,12 +274,14 @@ for (const [codeGenType, modeLabel] of [
     await page.reload()
     await expect(page.getByRole('heading', { name: app.appName, exact: true })).toBeVisible()
     await expect(history.getByText('已完成', { exact: true })).toBeVisible()
+    await expect(quality).not.toBeChecked()
     expect(creates).toBe(1)
     expect(reads).toBe(2)
     await expect(frame.getByRole('heading', { name: '摄影作品集' })).toBeVisible()
     expect(generations).toBe(1)
     await page.getByRole('link', { name: '返回首页', exact: true }).click()
     await expect(page.getByLabel('应用需求', { exact: true })).toHaveValue('')
+    await expect(quality).not.toBeChecked()
     await page.goBack()
     await expect(history.getByText('已完成', { exact: true })).toBeVisible()
     await expect(frame.getByRole('heading', { name: '摄影作品集' })).toBeVisible()
@@ -342,9 +354,12 @@ test('单 HTML 创建失败保留输入，重试期间阻止重复提交，详�
   await page.goto('/')
   await page.getByLabel('应用需求', { exact: true }).fill(app.initPrompt)
   await page.getByText('单 HTML', { exact: true }).click()
+  const quality = page.getByRole('checkbox', { name: 'AI 质检与修复' })
+  await quality.check()
   await expect(page.getByRole('radio', { name: '单 HTML', exact: true })).toBeChecked()
   await page.getByRole('button', { name: '创建应用', exact: true }).click()
   await expect(page.getByRole('alert')).toContainText('服务暂时不可用')
+  await expect(quality).toBeChecked()
   await expect(page.getByLabel('应用需求', { exact: true })).toHaveValue(app.initPrompt)
   await page.getByRole('button', { name: '重试', exact: true }).click()
   try {
@@ -360,6 +375,7 @@ test('单 HTML 创建失败保留输入，重试期间阻止重复提交，详�
   await expect(page.getByText('单 HTML', { exact: true })).toBeVisible()
   await expect(page.getByText('还没有可预览的网站', { exact: true })).toBeVisible()
   await expect(page.getByRole('button', { name: '开始生成', exact: true })).toBeEnabled()
+  await expect(quality).toBeChecked()
 })
 
 test('首页与工作台在输入被拒后保留需求，修改后可以继续生成', async ({ page }) => {

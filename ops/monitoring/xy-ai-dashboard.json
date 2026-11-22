@@ -3,14 +3,14 @@
   "title": "XY · AI 调用监控",
   "tags": ["xy","ai"],
   "schemaVersion": 39,
-  "version": 2,
+  "version": 3,
   "editable": true,
   "timezone": "browser",
   "time": {"from":"now-1h","to":"now"},
   "refresh": "15s",
   "templating": {"list": [
     {"name":"ds","label":"Prometheus","type":"datasource","query":"prometheus","refresh":1,"current":{},"options":[]},
-    {"name":"group","label":"调用趋势分组","type":"custom","query":"model,user_id,app_id","current":{"text":"model","value":"model"},"options":[{"text":"model","value":"model","selected":true},{"text":"user_id","value":"user_id","selected":false},{"text":"app_id","value":"app_id","selected":false}],"multi":false,"includeAll":false},
+    {"name":"group","label":"调用与 Token 分组","type":"custom","query":"模型 : model,用户 : user_id,应用 : app_id,全部 : job","current":{"text":"模型","value":"model"},"options":[{"text":"模型","value":"model","selected":true},{"text":"用户","value":"user_id","selected":false},{"text":"应用","value":"app_id","selected":false},{"text":"全部","value":"job","selected":false}],"multi":false,"includeAll":false},
     {"name":"window","label":"滚动窗口","type":"custom","query":"1m,5m,15m,1h,24h","current":{"text":"5m","value":"5m"},"options":[{"text":"1m","value":"1m","selected":false},{"text":"5m","value":"5m","selected":true},{"text":"15m","value":"15m","selected":false},{"text":"1h","value":"1h","selected":false},{"text":"24h","value":"24h","selected":false}],"multi":false,"includeAll":false}
   ]},
   "panels": [
@@ -83,13 +83,13 @@
       "id": 6,
       "type": "timeseries",
       "title": "输入、输出与总 Token",
-      "description": "三条线分别对应两端抓取之间新增的已报告用量，total 已包含输入和输出。缺少可靠基线时留空。",
+      "description": "按所选模型、用户或应用分别显示输入、输出和总用量；选“全部”可查看平台合计。total 已含输入和输出，缺少可靠基线时留空。",
       "gridPos": {"x":12,"y":4,"w":12,"h":8},
       "datasource": {"type":"prometheus","uid":"$ds"},
       "fieldConfig": {"defaults":{"unit":"short"},"overrides":[]},
       "options": {"legend":{"displayMode":"list","placement":"bottom","showLegend":true},"tooltip":{"mode":"multi","sort":"desc"}},
       "targets": [
-        {"refId":"A","expr":"(sum by (type) ((xy_ai_tokens_total{job=\"xy-backend\"} - xy_ai_tokens_total{job=\"xy-backend\"} offset ${window:raw}) or xy_ai_tokens_total{job=\"xy-backend\"})) unless on() ((present_over_time(up{job=\"xy-backend\"}[${window:raw}]) or up{job=\"xy-backend\"} offset ${window:raw}) unless on(job,instance) ((process_start_time_seconds{job=\"xy-backend\"} == process_start_time_seconds{job=\"xy-backend\"} offset ${window:raw}) and on(job,instance) (up{job=\"xy-backend\"} == 1) and on(job,instance) (up{job=\"xy-backend\"} offset ${window:raw} == 1)))","legendFormat":"{{type}}","instant":false,"range":true}
+        {"refId":"A","expr":"(sum by (${group:raw}, type) ((xy_ai_tokens_total{job=\"xy-backend\"} - xy_ai_tokens_total{job=\"xy-backend\"} offset ${window:raw}) or xy_ai_tokens_total{job=\"xy-backend\"})) unless on() ((present_over_time(up{job=\"xy-backend\"}[${window:raw}]) or up{job=\"xy-backend\"} offset ${window:raw}) unless on(job,instance) ((process_start_time_seconds{job=\"xy-backend\"} == process_start_time_seconds{job=\"xy-backend\"} offset ${window:raw}) and on(job,instance) (up{job=\"xy-backend\"} == 1) and on(job,instance) (up{job=\"xy-backend\"} offset ${window:raw} == 1)))","instant":false,"range":true}
       ]
     },
     {

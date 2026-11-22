@@ -35,6 +35,11 @@ jobs:
         run: |
           docker compose -p "$XY_TEST_METRICS" -f ops/monitoring/compose.yaml up -d
           docker compose -p "$XY_TEST_APP" -f ops/compose/compose.yaml -f ops/monitoring/test-app.yaml up -d --build
+      - name: Check dashboard queries with the same Prometheus version
+        run: |
+          prometheus_id="$(docker compose -p "$XY_TEST_METRICS" -f ops/monitoring/compose.yaml ps -q prometheus)"
+          docker cp "$prometheus_id:/bin/promtool" "$RUNNER_TEMP/xy-promtool"
+          python3 ops/monitoring/test_dashboard.py "$RUNNER_TEMP/xy-promtool"
       - name: Read model usage in Chrome
         run: |
           npm ci --prefix frontend --ignore-scripts --no-audit --no-fund

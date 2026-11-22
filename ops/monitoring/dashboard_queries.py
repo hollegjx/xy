@@ -27,7 +27,7 @@ def window_queries():
     outcomes = delta("xy_ai_outcomes_total", "model")
     panels = {
         5: [delta("xy_ai_calls_total", "${group:raw}")],
-        6: [delta("xy_ai_tokens_total", "type")],
+        6: [delta("xy_ai_tokens_total", "${group:raw}, type")],
         7: [f"{duration} / ({count} > 0)"],
         8: [f"histogram_quantile({q}, {buckets})" for q in (0.5, 0.9, 0.95, 0.99)],
         13: [delta("xy_ai_outcomes_total", "model, reason", ',status="error"')],

@@ -55,7 +55,7 @@ def test_dashboard(promtool):
     check(5, [('model="m"', 15), ('model="r"', 5)])
     check(5, [('user_id="11"', 15), ('user_id="22"', 5)], group="user_id")
     check(5, [('app_id="101"', 15), ('app_id="none"', 5)], group="app_id")
-    check(6, [('type="input"', 30), ('type="output"', 15), ('type="total"', 45)])
+    check(6, [('model="m",type="input"', 30), ('model="m",type="output"', 15), ('model="m",type="total"', 45)])
     check(7, [('model="m"', 2), ('model="r"', 1)])
     for index, value in enumerate([1.5, 2.7, 2.85, 2.97]):
         check(8, [('model="m"', value)], index)
@@ -82,7 +82,7 @@ def test_dashboard(promtool):
     for le in ["2", "+Inf"]:
         series("xy_ai_model_latency_seconds_bucket", late, instance="xy-1", model="m", client="native", status="error", le=le)
     check(5, [('user_id="11"', 6), ('user_id="22"', 1)], group="user_id")
-    check(6, [('type="total"', 9)])
+    check(6, [('model="m",type="total"', 9)])
     check(7, [('model="m"', 2)])
     check(8, [('model="m"', 1)])
     check(13, [('model="m",reason="Timeout"', 1)])
@@ -90,6 +90,18 @@ def test_dashboard(promtool):
     check(14, [('model="m"', 0)], at="90s")  # 这次失败已离开窗口，后面还有三次成功。
     check(5, [], at="30s")  # 刚接入监控，没有窗口起点；累计卡仍能读到 4 次。
     check(2, [("", 4)], at="30s")
+
+    # 同一人使用两个应用、同一模型供多人使用：每种分组都应保留各自的 Token，且总额不变。
+    series, check = scenario("1m", "5m")
+    series("up", "1+0x5")
+    series("process_start_time_seconds", "311+0x5")
+    usage = [("m", "11", "101", 2), ("r", "11", "102", 3), ("m", "22", "202", 4)]
+    for model, user, app, amount in usage:
+        series("xy_ai_tokens_total", f"0+{amount}x5", model=model, user_id=user, app_id=app, type="total")
+    for dimension, totals in [
+            ("model", {"m": 30, "r": 15}), ("user_id", {"11": 25, "22": 20}),
+            ("app_id", {"101": 10, "102": 15, "202": 20}), ("job", {"xy-backend": 45})]:
+        check(6, [(f'{dimension}="{key}",type="total"', value) for key, value in totals.items()], group=dimension)
 
     # 有其他健康实例也不能用它的局部数据冒充全组失败率。
     for availability, starts in [("1+0x6", "311 311 311 319 319 319 319"),

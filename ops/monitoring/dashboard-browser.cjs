@@ -49,6 +49,30 @@ async function run() {
       await expect(content.getByText(value, { exact: true })).toBeVisible({ timeout: 90000 })
     }
     console.log('Grafana 实际看板：抓取正常、模型调用 2、失败 1、Token 12')
+
+    // 打开按应用分组的看板，读取 Grafana 真正交给图表的数据；滚动窗口需要一轮历史。
+    const tokenPanel = page.getByRole('region', { name: '输入、输出与总 Token', exact: true })
+    await Promise.all([
+      page.waitForResponse(async (response) => {
+        if (!response.ok() || !response.request().postData()?.includes('xy_ai_tokens_total')) return false
+        const body = await response.json().catch(() => null)
+        const types = new Set()
+        for (const result of Object.values(body?.results || {})) {
+          for (const frame of result.frames || []) {
+            frame.schema.fields.forEach((field, index) => {
+              if (field.labels?.app_id === String(id) && frame.data.values[index]?.some(Number.isFinite)) {
+                types.add(field.labels.type)
+              }
+            })
+          }
+        }
+        return ['input', 'output', 'total'].every((type) => types.has(type))
+      }, { timeout: 150000 }),
+      page.goto('/d/xy-ai-observability/xy?var-group=app_id&var-window=1m')
+        .then(() => tokenPanel.scrollIntoViewIfNeeded()),
+    ])
+    await expect(tokenPanel.getByText(/\binput\b/).first()).toBeVisible()
+    console.log('Grafana 按应用显示本次生成的输入、输出与总 Token')
   } finally {
     await guest.close()
     await browser.close()

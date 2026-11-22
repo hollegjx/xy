@@ -109,8 +109,12 @@ export interface AppPageVO {
 }
 
 export interface AppAdminQueryRequest {
+  id?: string
   appName?: string
   userId?: string
+  codeGenType?: CodeGenType
+  deployKey?: string
+  featured?: boolean
   current: number
   pageSize: number
 }

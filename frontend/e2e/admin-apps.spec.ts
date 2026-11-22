@@ -32,6 +32,7 @@ test('管理员管理应用并设置精选，访客从首页浏览公开作品�
   let currentUser: UserVO | null = null
   let listRequests = 0
   let detailRequests = 0
+  let metadataQuery: Record<string, string> = {}
   let updateRequests = 0
   let deleteRequests = 0
   const featuredChanges: boolean[] = []
@@ -105,8 +106,19 @@ test('管理员管理应用并设置精选，访客从首页浏览公开作品�
         const name = url.searchParams.get('appName') ?? ''
         const owner = url.searchParams.get('userId')
         if (owner) expect(owner).toBe(member.id)
+        const id = url.searchParams.get('id')
+        const mode = url.searchParams.get('codeGenType')
+        const featured = url.searchParams.get('featured')
+        const key = url.searchParams.get('deployKey')
+        if (id) metadataQuery = Object.fromEntries(url.searchParams)
         const matching = apps.filter(
-          (app) => app.appName.includes(name) && (!owner || app.userId === owner),
+          (app) =>
+            app.appName.includes(name) &&
+            (!owner || app.userId === owner) &&
+            (!id || app.id === id) &&
+            (!mode || app.codeGenType === mode) &&
+            (featured === null || String(app.featured) === featured) &&
+            (!key || app.deployment?.deployUrl?.endsWith('/' + key + '/')),
         )
         await route.fulfill({
           json: {
@@ -190,6 +202,26 @@ test('管理员管理应用并设置精选，访客从首页浏览公开作品�
   await page.keyboard.press('Escape')
   await expect(detail).toBeHidden()
   expect(detailRequests).toBe(2)
+  await panel.getByRole('button', { name: '更多筛选' }).click()
+  await panel.getByLabel('应用 ID', { exact: true }).fill(deletedAppId)
+  await panel.getByLabel('发布标识', { exact: true }).fill(' photography ')
+  await panel.getByLabel('生成模式', { exact: true }).click()
+  await page.getByTitle('单 HTML', { exact: true }).click()
+  await panel.getByLabel('精选状态', { exact: true }).click()
+  await page.getByTitle('未精选', { exact: true }).click()
+  await panel.getByRole('button', { name: '查询', exact: true }).click()
+  await expect(panel.getByText('共 1 个应用')).toBeVisible()
+  expect(metadataQuery).toMatchObject({
+    id: deletedAppId,
+    codeGenType: 'html',
+    featured: 'false',
+    deployKey: 'photography',
+    current: '1',
+  })
+  await panel.getByRole('button', { name: '重置', exact: true }).click()
+  await expect(panel.getByText('共 12 个应用')).toBeVisible()
+  await expect(panel.getByLabel('应用 ID', { exact: true })).toHaveValue('')
+  await panel.getByRole('button', { name: '收起筛选' }).click()
   const popupPromise = page.waitForEvent('popup')
   await publishedRow.getByRole('link', { name: '查看作品', exact: true }).click()
   const popup = await popupPromise

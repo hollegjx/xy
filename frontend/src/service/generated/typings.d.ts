@@ -304,10 +304,18 @@ declare namespace XYApi {
   }
 
   type listAppsForAdminParams = {
+    /** 应用 ID，精确匹配 */
+    id?: string
     /** 应用名称，模糊匹配；留空不筛选 */
     appName?: string
     /** 创建者 ID，必须大于 0；省略时查询所有创建者 */
     userId?: string
+    /** 实际生成模式，留空不筛选 */
+    codeGenType?: 'html' | 'multi_file' | 'vue_project'
+    /** 发布标识，精确匹配公开作品地址的最后一段 */
+    deployKey?: string
+    /** 是否精选；省略时查询两种状态 */
+    featured?: boolean
     /** 页码，从 1 开始 */
     current?: number
     /** 每页条数，默认 10 */

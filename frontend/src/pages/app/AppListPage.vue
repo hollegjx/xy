@@ -7,6 +7,7 @@ import {
   Input as AInput,
   Pagination as APagination,
   Popconfirm as APopconfirm,
+  Select as ASelect,
   Skeleton as ASkeleton,
   Table as ATable,
   Tag as ATag,
@@ -18,13 +19,22 @@ import AppRenameModal from '@/pages/app/components/AppRenameModal.vue'
 import { ApiError, errorMessage } from '@/request'
 import { deleteAppForAdmin, listAppsForAdmin, updateAppFeatured } from '@/service/api/app'
 import { useLoginUserStore } from '@/stores/useLoginUserStore'
-import type { AppAdminVO } from '@/types/api'
+import type { AppAdminQueryRequest, AppAdminVO, CodeGenType } from '@/types/api'
 import { generationModes } from './generationModes'
 
 const loginUserStore = useLoginUserStore()
 const rows = ref<AppAdminVO[]>([])
-const filters = reactive({ appName: '', userId: '' })
-const appliedFilters = ref({ appName: '', userId: '' })
+const blankFilters = () => ({
+  appName: '',
+  userId: '',
+  id: '',
+  deployKey: '',
+  codeGenType: undefined as CodeGenType | undefined,
+  featured: undefined as 'yes' | 'no' | undefined,
+})
+const filters = reactive(blankFilters())
+const appliedFilters = ref<Omit<AppAdminQueryRequest, 'current' | 'pageSize'>>({})
+const moreFilters = ref(false)
 const current = ref(1)
 const total = ref(0)
 const loading = ref(false)
@@ -40,8 +50,17 @@ const featuredError = ref('')
 const failedFeaturedChange = ref<{ app: AppAdminVO; featured: boolean } | null>(null)
 const busy = computed(() => loading.value || deletingId.value !== '' || featuringId.value !== '')
 const hasFilters = computed(() =>
-  Boolean(appliedFilters.value.appName || appliedFilters.value.userId),
+  Object.values(appliedFilters.value).some((value) => value !== undefined),
 )
+const draftHasFilters = computed(() => Object.values(filters).some(Boolean))
+const modeOptions = Object.entries(generationModes).map(([value, mode]) => ({
+  value,
+  label: mode.label,
+}))
+const featuredOptions = [
+  { value: 'yes', label: '已精选' },
+  { value: 'no', label: '未精选' },
+]
 const pageSize = 10
 const columns = [
   { title: '应用', dataIndex: 'appName', key: 'appName', width: 220 },
@@ -60,8 +79,7 @@ async function load(): Promise<void> {
   error.value = ''
   deleteOpenId.value = ''
   const params = {
-    appName: appliedFilters.value.appName,
-    userId: appliedFilters.value.userId || undefined,
+    ...appliedFilters.value,
     current: current.value,
     pageSize,
   }
@@ -93,15 +111,21 @@ function search(): void {
   failedDeleteApp.value = null
   featuredError.value = ''
   failedFeaturedChange.value = null
-  appliedFilters.value = { appName: filters.appName.trim(), userId: filters.userId.trim() }
+  appliedFilters.value = {
+    appName: filters.appName.trim() || undefined,
+    userId: filters.userId.trim() || undefined,
+    id: filters.id.trim() || undefined,
+    deployKey: filters.deployKey.trim() || undefined,
+    codeGenType: filters.codeGenType,
+    featured: filters.featured === undefined ? undefined : filters.featured === 'yes',
+  }
   current.value = 1
   void load()
 }
 
 function reset(): void {
   if (busy.value) return
-  filters.appName = ''
-  filters.userId = ''
+  Object.assign(filters, blankFilters())
   search()
 }
 
@@ -208,7 +232,10 @@ onBeforeUnmount(() => {
 
 <template>
   <section class="app-list" aria-label="应用管理">
-    <PageHeading title="应用管理" description="按名称和创建者管理应用。已发布应用可设为精选。" />
+    <PageHeading
+      title="应用管理"
+      description="查找应用，点击名称查看详情。已发布应用可设为精选。"
+    />
     <form class="search-form" aria-label="查询应用" @submit.prevent="search">
       <label class="name-filter">
         应用名称
@@ -232,6 +259,59 @@ onBeforeUnmount(() => {
         />
       </label>
       <AButton
+        type="link"
+        :aria-expanded="moreFilters"
+        aria-controls="app-extra-filters"
+        @click="moreFilters = !moreFilters"
+      >
+        {{ moreFilters ? '收起筛选' : '更多筛选' }}
+      </AButton>
+      <div v-show="moreFilters" id="app-extra-filters" class="extra-filters">
+        <label>
+          应用 ID
+          <AInput
+            v-model:value="filters.id"
+            aria-label="应用 ID"
+            inputmode="numeric"
+            placeholder="输入完整应用 ID"
+            :disabled="busy"
+            allow-clear
+          />
+        </label>
+        <div>
+          <label for="app-filter-mode">生成模式</label>
+          <ASelect
+            id="app-filter-mode"
+            v-model:value="filters.codeGenType"
+            :options="modeOptions"
+            placeholder="全部模式"
+            :disabled="busy"
+            allow-clear
+          />
+        </div>
+        <div>
+          <label for="app-filter-featured">精选状态</label>
+          <ASelect
+            id="app-filter-featured"
+            v-model:value="filters.featured"
+            :options="featuredOptions"
+            placeholder="全部状态"
+            :disabled="busy"
+            allow-clear
+          />
+        </div>
+        <label>
+          发布标识
+          <AInput
+            v-model:value="filters.deployKey"
+            aria-label="发布标识"
+            placeholder="公开作品网址的最后一段"
+            :disabled="busy"
+            allow-clear
+          />
+        </label>
+      </div>
+      <AButton
         type="primary"
         shape="round"
         html-type="submit"
@@ -239,12 +319,7 @@ onBeforeUnmount(() => {
         :disabled="deletingId !== '' || featuringId !== ''"
         >查询</AButton
       >
-      <AButton
-        :disabled="busy || (!filters.appName && !filters.userId && !hasFilters)"
-        @click="reset"
-      >
-        重置
-      </AButton>
+      <AButton :disabled="busy || (!draftHasFilters && !hasFilters)" @click="reset"> 重置 </AButton>
     </form>
     <AAlert
       v-if="deleteError"
@@ -445,7 +520,8 @@ onBeforeUnmount(() => {
   margin-bottom: 24px;
 }
 .name-filter,
-.owner-filter {
+.owner-filter,
+.extra-filters > * {
   display: grid;
   gap: 8px;
 }
@@ -454,6 +530,12 @@ onBeforeUnmount(() => {
 }
 .owner-filter {
   width: min(100%, 240px);
+}
+.extra-filters {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr));
+  gap: 12px;
+  width: 100%;
 }
 .app-summary {
   display: grid;

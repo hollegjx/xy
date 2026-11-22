@@ -66,7 +66,7 @@ export async function updateFeaturedForAdmin(
   })
 }
 
-/** 管理员查询应用 仅管理员可调用，支持名称模糊查询和创建者 ID 精确筛选；省略条件时查询全平台未删除应用，默认第 1 页、每页 10 个，按创建时间和 ID 倒序排列。仅返回应用摘要及已有发布信息，不包含初始需求、对话或源码；不开放他人工作台访问权限。未登录返回 HTTP 401，普通用户返回 HTTP 403，非法分页或创建者 ID 返回 HTTP 400。 GET /apps */
+/** 管理员查询应用 仅管理员可调用；名称模糊查询，应用 ID、创建者 ID、生成模式、发布标识和精选状态精确筛选，可组合。省略条件时查询全平台未删除应用，默认第 1 页、每页 10 个，按创建时间和 ID 倒序排列。仅返回应用摘要及已有发布信息，不包含初始需求、对话或源码；不开放他人工作台访问权限。未登录返回 HTTP 401，普通用户返回 HTTP 403，非法分页或创建者 ID 返回 HTTP 400。 GET /apps */
 export async function listAppsForAdmin(
   // 叠加生成的Param类型 (非body参数swagger默认没有生成对象)
   params: XYApi.listAppsForAdminParams,

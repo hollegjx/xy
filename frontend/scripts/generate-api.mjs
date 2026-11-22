@@ -33,7 +33,7 @@ generateService({
           for (const p of op.parameters ?? []) {
             // 省略可选查询时沿用后端默认值，客户端不把它固化在 URL。
             if (p.in === 'query' && p.schema) delete p.schema.default
-            if (p.in === 'path' || ['userId', 'beforeId'].includes(p.name))
+            if (p.in === 'path' || ['id', 'userId', 'beforeId'].includes(p.name))
               p.schema = { type: 'string' }
           }
         }

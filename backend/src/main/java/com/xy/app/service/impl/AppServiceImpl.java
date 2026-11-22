@@ -103,8 +103,12 @@ public class AppServiceImpl implements AppService {
     @RequireRole(value = UserRoleEnum.ADMIN, message = "仅管理员可查询全平台应用")
     public AppAdminPageVO listAppsForAdmin(AppAdminQueryRequest request, UserActor loginUser) {
         QueryWrapper query = QueryWrapper.create()
+                .eq(App::getId, request.id(), request.id() != null)
                 .like(App::getAppName, request.appName(), !request.appName().isEmpty())
                 .eq(App::getUserId, request.userId(), request.userId() != null)
+                .eq(App::getCodeGenType, request.codeGenType(), request.codeGenType() != null)
+                .eq(App::getDeployKey, request.deployKey(), !request.deployKey().isEmpty())
+                .eq(App::getFeatured, request.featured(), request.featured() != null)
                 .orderBy(App::getCreateTime, false)
                 .orderBy(App::getId, false);
         Page<App> page = appMapper.paginate(request.current(), request.pageSize(), query);

@@ -140,7 +140,7 @@ XY_TEST_DOCKER_COVER=true sh mvnw -Dtest=AppDeployControllerTest#rendersRepublis
 
 在本地 `application.yml` 的 `xy.deployment` 中配置 `directory`（默认 `./published`）、`public-url`（静态站点来源，不含路径）和 `platform-origin`（浏览器访问平台的来源，默认 `http://localhost:5173`）。`public-url` 留空时发布返回 503，其他业务正常使用。
 
-静态服务器需要与后端共享发布目录，且此目录不能与私有 `generated` 目录重叠。已有 Nginx 可参考 [backend/nginx.example.conf](backend/nginx.example.conf)：将示例 `root` 改为发布目录的绝对路径，并保留文件白名单和响应头配置；先验证并启动实际站点，再填写 `public-url`。本机示例使用 `http://127.0.0.1:8102`，平台通过 `localhost` 打开。仅换端口不能隔离 Cookie；线上作品使用与平台隔离的域名，不共享平台会话 Cookie，不代理平台 `/api`。
+静态服务器需要与后端共享发布目录，且此目录不能与私有 `generated` 目录重叠。已有 Nginx 可参考 [backend/nginx.example.conf](backend/nginx.example.conf)：将 `root` 指向发布目录、`include` 指向 [nginx-published.inc](backend/nginx-published.inc) 的绝对路径。先验证并启动实际站点，再填写 `public-url`。本机示例使用 `http://127.0.0.1:8102`，平台通过 `localhost` 打开；也可运行[独立的 Compose 作品站](ops/compose/README.md)。仅换端口不能隔离 Cookie；线上作品使用与平台隔离的域名，不共享平台会话 Cookie，不代理平台 `/api`。
 
 发布文件为 `published/{deployKey}/index.html`。`deployKey` 由服务端首次发布时生成并保存；重新发布只更新此快照，分享地址保持不变。多文件模式复用已有合并逻辑，将 CSS/JS 编码进 HTML，因此发布快照只有一个文件，源码下载仍保留原始三文件。页面保持现有沙箱限制：允许本地样式与脚本交互，不支持联网资源、表单提交或模块导入。静态服务器仅公开快照，不提供目录浏览、对话或源码下载接口。
 

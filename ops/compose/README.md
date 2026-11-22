@@ -22,4 +22,12 @@ docker compose -f ops/compose/compose.yaml -f ops/compose/covers.yaml up -d --bu
 
 应用通过 Nacos 找到截图服务，由 Dubbo 传入本次发布的快照。截图服务通过只在两个容器间共享的 Unix 套接字将 HTML 送入 Chromium，取回 960×540 JPEG。渲染器没有网络、数据库密码、宿主 Docker 套接字或作品目录，每页使用新的 Chromium 进程。停机使用相同的两份配置执行 `down`。
 
-隔离测试命令：`XY_TEST_COMPOSE=1 python3 -Bu ops/compose/test_compose.py -v`。加上 `XY_TEST_COMPOSE_COVERS=1` 时，会在测试库准备一份成功稿，经网关发布、设为精选，再匿名下载封面，解码并核对尺寸及左右两块颜色。测试自己创建随机项目和空卷；不向模型发请求，不访问公网作品站。
+要在本机直接打开发布结果，可使用随仓库提供的 Nginx（作品站另需 Linux Docker Engine 26.0+、Compose 2.26.0+，以支持只挂载命名卷的一个子目录）：
+
+```sh
+docker compose -f ops/compose/compose.yaml -f ops/compose/sites.yaml up -d --build
+```
+
+平台仍用 `http://127.0.0.1:8080`，发布一份已有成功稿的作品后，直接打开接口返回的 `http://127.0.0.2:8182/{发布标识}/`。两个服务分别绑定不同的回环地址。用 `XY_COMPOSE_SITE_PORT` 可同时修改作品端口和返回的网址。Nginx 只读挂载原作品卷的 `published/`，不接入平台容器网络；无需移动之前的快照。作品更新沿用原链接，删除应用后该链接返回 404。要一并截图，命令中再加 `-f ops/compose/covers.yaml`；停机时使用相同的配置组合。这个本机入口不接管公网作品域名。
+
+隔离测试命令：`XY_TEST_COMPOSE=1 XY_TEST_COMPOSE_SITE=1 python3 -Bu ops/compose/test_compose.py -v`。测试在随机空卷准备成功稿，从分享网址匿名读取页面，验证重新发布、普通停机重启及删除。加上 `XY_TEST_COMPOSE_COVERS=1` 还会设为精选、解码真实封面，并核对尺寸及左右两块颜色。测试不访问模型或公网作品站。

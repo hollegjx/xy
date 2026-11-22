@@ -1,0 +1,55 @@
+# Linux 回环的两个独立地址：即使只更换端口，也不能在作品主机打开平台。
+x-site-image: &site-image nginxinc/nginx-unprivileged:stable-alpine@sha256:f5116ed4606f3eb015dd4a8e28cb9b351476dc0ad4bc6e9f93b19cec130cdf03
+services:
+  app:
+    environment:
+      XY_DEPLOYMENT_PUBLICURL: http://127.0.0.2:${XY_COMPOSE_SITE_PORT:-8182}
+
+  # 新卷和已经使用过的 app-data 均沿用原路径，不迁移或遮住已有快照。
+  site-prepare:
+    image: *site-image
+    depends_on: [app]
+    user: '10001:10001'
+    entrypoint: [mkdir, -p, /var/lib/xy/published]
+    network_mode: none
+    read_only: true
+    volumes:
+      - {type: volume, source: app-data, target: /var/lib/xy, volume: {nocopy: true}}
+
+  site:
+    image: *site-image
+    depends_on:
+      site-prepare: {condition: service_completed_successfully}
+    entrypoint: [nginx, -g, 'daemon off;']
+    read_only: true
+    tmpfs: ['/tmp:mode=1777']
+    cap_drop: [ALL]
+    security_opt: ['no-new-privileges:true']
+    networks: [works]
+    ports: ['127.0.0.2:${XY_COMPOSE_SITE_PORT:-8182}:8080']
+    volumes:
+      - type: volume
+        source: app-data
+        target: /srv/works
+        read_only: true
+        volume: {subpath: published, nocopy: true}
+      - ../../backend/nginx-published.inc:/etc/nginx/xy-published.inc:ro
+    configs:
+      - {source: site-vhost, target: /etc/nginx/conf.d/default.conf}
+
+networks:
+  works: {}
+configs:
+  site-vhost:
+    content: |
+      server {
+          listen 8080 default_server;
+          server_name _;
+          return 404;
+      }
+      server {
+          listen 8080;
+          server_name 127.0.0.2;
+          root /srv/works;
+          include /etc/nginx/xy-published.inc;
+      }

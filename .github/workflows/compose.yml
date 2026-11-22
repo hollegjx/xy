@@ -7,6 +7,7 @@ on:
       - 'ops/gateway/nacos_http.py'
       - 'backend/Dockerfile.services*'
       - 'backend/cover-renderer/**'
+      - 'backend/nginx-published.inc'
       - 'backend/services/screenshot/**'
       - 'backend/services/**/src/main/resources/**'
       - 'backend/src/main/resources/application*.properties'
@@ -19,12 +20,19 @@ jobs:
   login-through-gateway:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        covers: ['0', '1']
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - name: Publish and read a real cover through Higress using the isolated Chromium worker
-        env: {XY_TEST_COMPOSE: '1', XY_TEST_COMPOSE_COVERS: '1'}
+      - name: Publish through Higress and visit the returned URL on the separate Nginx site
+        env:
+          XY_TEST_COMPOSE: '1'
+          XY_TEST_COMPOSE_SITE: '1'
+          XY_TEST_COMPOSE_COVERS: ${{ matrix.covers }}
         run: |
           # In this clean CI checkout, prove that an IDE-only profile cannot leak into the service image.
           test ! -e backend/src/main/resources/application.yml

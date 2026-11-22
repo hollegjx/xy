@@ -4,9 +4,16 @@ import json
 import os
 from pathlib import Path
 import secrets
+import socket
 import subprocess
 import time
 import unittest
+
+
+def free_port(host):
+    with socket.socket() as available:
+        available.bind((host, 0))
+        return available.getsockname()[1]
 
 
 @unittest.skipUnless(os.getenv("XY_TEST_COMPOSE") == "1", "需要隔离的 Linux Docker Compose")
@@ -15,6 +22,8 @@ class ComposeTest(unittest.TestCase):
         files = ["-f", str(self.file)]
         if self.covers:
             files += ["-f", str(self.file.with_name("covers.yaml"))]
+        if self.site:
+            files += ["-f", str(self.file.with_name("sites.yaml"))]
         return subprocess.run(["docker", "compose", "-p", self.project, *files, *args],
                               env=self.env, check=True, text=True, timeout=1100,
                               stdout=subprocess.PIPE if output else None).stdout
@@ -52,13 +61,25 @@ class ComposeTest(unittest.TestCase):
         self.project = "xy-smoke-" + secrets.token_hex(6)
         self.file = Path(__file__).with_name("compose.yaml")
         self.covers = os.getenv("XY_TEST_COMPOSE_COVERS") == "1"
+        self.site = os.getenv("XY_TEST_COMPOSE_SITE") == "1"
         self.env = dict(os.environ, XY_COMPOSE_DB_PASSWORD=secrets.token_hex(24),
                         XY_COMPOSE_DB_ROOT_PASSWORD=secrets.token_hex(24), XY_COMPOSE_PORT="0")
-        if self.covers:
+        if self.site:
+            # 让两次 up 沿用同一作品网址，不占用使用者的默认端口。
+            self.site_port = free_port("127.0.0.2")
+            self.env["XY_COMPOSE_PORT"] = str(free_port("127.0.0.1"))
+            self.env["XY_COMPOSE_SITE_PORT"] = str(self.site_port)
+        elif self.covers:
             self.env["XY_COMPOSE_PUBLIC_URL"] = "https://works.invalid"
         self.addCleanup(self.compose, "down", "--volumes", "--remove-orphans")
         try:
             self.compose("config", "--quiet")
+            old_marker = "/var/lib/xy/generated/before-site"
+            if self.site and not self.covers:
+                # 模拟已经生成作品、尚未首次发布的旧卷，此时 published/ 根本不存在。
+                self.compose("run", "--build", "--rm", "--no-deps", "-T", "--entrypoint", "sh", "app", "-ec",
+                             'test ! -e /var/lib/xy/published && mkdir -p /var/lib/xy/generated && echo existing > "$1"',
+                             "sh", old_marker)
             self.compose("up", "-d", "--build")
             self.port = self.gateway_port()
             _, health = self.expect("/health", 200, 0, wait=240)
@@ -79,9 +100,22 @@ class ComposeTest(unittest.TestCase):
             path = "/apps/" + app_id
             _, app = self.expect(path, 200, 0, cookie=cookie)
             self.assertEqual((app["userId"], app["codeGenType"]), (user_id, "html"))
-            if self.covers:
-                from cover_acceptance import verify_published_cover
-                verify_published_cover(self, int(user_id), int(app_id), cookie)
+            if self.site or self.covers:
+                from publication_acceptance import publish_fixture, read_site, verify_site, verify_published_cover
+                if self.site and not self.covers:
+                    self.assertEqual(self.compose("exec", "-T", "app", "cat", old_marker, output=True).strip(), "existing")
+                    self.compose("exec", "-T", "site", "sh", "-ec",
+                                 'test ! -e /srv/works/generated/before-site && test ! -e /run/secrets && test ! -w /srv/works')
+                published = publish_fixture(self, int(user_id), int(app_id), cookie, "First edition")
+                if self.site:
+                    verify_site(self, published)
+                    revised = publish_fixture(self, int(user_id), int(app_id), cookie, "Revised edition")
+                    self.assertEqual(revised.url, published.url)
+                    self.assertNotEqual(revised.version, published.version)
+                    published = revised
+                    verify_site(self, published)
+                if self.covers:
+                    verify_published_cover(self, int(user_id), int(app_id), cookie, published)
             # 如果应用仍在本机查身份，这里会错误地继续返回 200。
             self.compose("stop", "user")
             self.expect(path, 503, 50300, cookie=cookie, wait=90)
@@ -98,10 +132,16 @@ class ComposeTest(unittest.TestCase):
             _, saved = self.expect(path, 200, 0, cookie=cookie, wait=240)
             self.assertEqual((saved["id"], saved["userId"]), (app_id, user_id))
             self.assertEqual(self.compose("exec", "-T", "app", "cat", marker, output=True).strip(), app_id)
+            if self.site:
+                verify_site(self, published)
             self.expect("/users/me", 200, 0, cookie=cookie, wait=120)
             self.expect("/users/logout", 200, 0, method="POST", cookie=cookie)
             for private in ("/users/me", path):
                 self.expect(private, 401, 40100, cookie=cookie)
+            if self.site:
+                session, _ = self.expect("/users/login", 200, 0, method="POST", body=account)
+                self.expect(path, 200, 0, method="DELETE", cookie=session.split(";", 1)[0])
+                self.assertEqual(read_site(self, published.url)[0], 404)
         except Exception:
             self.compose("ps", "--all")
             # 此测试只使用随机密码的空库，仍不输出应用原始日志、配置或 Cookie。

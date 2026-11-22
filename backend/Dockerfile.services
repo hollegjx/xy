@@ -1,4 +1,6 @@
 FROM eclipse-temurin:21-jdk-noble@sha256:a09e64f4976df9c4f2029c6abe64fc26f069a342ec9a7f147dce7b1933ebda16 AS package
+# mvnw 固定校验 ZIP；没有 unzip 会自动改下 tar.gz，摘要不再匹配。
+RUN apt-get update && apt-get install -y --no-install-recommends unzip && rm -rf /var/lib/apt/lists/*
 WORKDIR /src
 COPY . .
 RUN --mount=type=cache,target=/root/.m2,sharing=locked sh mvnw -B -ntp -Dmaven.test.skip=true package

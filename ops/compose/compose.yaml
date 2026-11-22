@@ -69,6 +69,7 @@ services:
     <<: *backend
     environment:
       <<: *database-client
+      XY_DEPLOYMENT_PLATFORMORIGIN: http://127.0.0.1:${XY_COMPOSE_PORT:-8080}
       XY_DEPLOYMENT_PUBLICURL: ${XY_COMPOSE_PUBLIC_URL:-}
     build: {context: ../../backend, dockerfile: Dockerfile.services, target: app}
     volumes: ['app-data:/var/lib/xy']

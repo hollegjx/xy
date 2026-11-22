@@ -143,7 +143,8 @@ class GenerationControllerTest {
 
     private static boolean nativeDraft(ChatRequest request) {
         return request != null && !assetPlan(request) && (request.toolSpecifications() == null || request.toolSpecifications().isEmpty())
-                && request.messages().getFirst() instanceof SystemMessage system && !system.text().contains("本次生成类型：");
+                && request.messages().getFirst() instanceof SystemMessage system
+                && !system.text().contains("本次生成类型：") && !system.text().contains("只修正所列架构图");
     }
 
     private static ChatRequest draftRequest() { return argThat(GenerationControllerTest::nativeDraft); }
@@ -424,8 +425,10 @@ class GenerationControllerTest {
         verifyNoInteractions(builder, photoSearch);
     }
 
-    @Test
-    void cancellingDuringNativePlanningStopsItsModelAndIgnoresLatePlans() throws Exception {
+    @ParameterizedTest
+    @ValueSource(strings = {"html", "vue_project"})
+    void cancellingDuringPlanningStopsItsModelAndIgnoresLatePlans(String mode) throws Exception {
+        when(appMapper.selectOneById(55L)).thenReturn(app(42L, mode));
         var underway = new CompletableFuture<StreamingChatResponseHandler>();
         var handle = mock(StreamingHandle.class);
         doAnswer(call -> {
@@ -444,6 +447,7 @@ class GenerationControllerTest {
                 .doesNotContain("photos", "开始生成页面", "event:completed");
         verifyNoInteractions(photoSearch);
         verify(model, never()).chat(draftRequest(), any());
+        verify(model, never()).chat(nonDraftRequest(), any());
         assertThat(htmlPath()).doesNotExist();
     }
 
@@ -475,19 +479,23 @@ class GenerationControllerTest {
         verifyNoInteractions(photoSearch);
     }
 
-    @Test
-    void cancellingDuringNativePhotoLookupKeepsHeartbeatsAndIgnoresTheLatePhoto() throws Exception {
+    @ParameterizedTest
+    @ValueSource(strings = {"html", "vue_project"})
+    void cancellingDuringPlannedPhotoLookupKeepsHeartbeatsAndIgnoresTheLatePhoto(String mode) throws Exception {
+        when(appMapper.selectOneById(55L)).thenReturn(app(42L, mode));
         var searching = new CountDownLatch(1);
         var release = new CountDownLatch(1);
         var callbackFinished = new CountDownLatch(1);
         planReturns("{\"photos\":[{\"theme\":\"coffee\"}]}");
-        when(photoSearch.findMany("coffee", 1)).thenAnswer(call -> {
+        org.mockito.stubbing.Answer<List<OpenversePhotoSearch.Photo>> delayed = call -> {
             searching.countDown();
             try { if (!release.await(5, TimeUnit.SECONDS)) throw new AssertionError("图库一直未释放"); }
             catch (InterruptedException stopped) { Thread.currentThread().interrupt(); }
             finally { callbackFinished.countDown(); }
             return List.of(new OpenversePhotoSearch.Photo("data:image/jpeg;base64,late", "source", "CC0"));
-        });
+        };
+        if (mode.equals("html")) when(photoSearch.findMany("coffee", 1)).thenAnswer(delayed);
+        else when(photoSearch.findMany("coffee", 1, java.util.Set.of())).thenAnswer(delayed);
 
         var result = mockMvc.perform(generate().session(session())
                 .content("{\"prompt\":\"摄影作品集\",\"qualityCheck\":true}")).andReturn();
@@ -835,8 +843,9 @@ class GenerationControllerTest {
 
     @ParameterizedTest
     @ValueSource(booleans = {true, false})
-    void codeModelReceivesTheOriginalRequestAndOnlySavedAssetsBeforeWriting(boolean qualityCheck) throws Exception {
-        when(appMapper.selectOneById(55L)).thenReturn(app(42L, "vue_project"));
+    void codeModelReceivesTheOriginalRequestAndOnlySavedAssetsBeforeWriting(boolean qualityCheck, @TempDir Path downloads) throws Exception {
+        var app = app(42L, "vue_project");
+        when(appMapper.selectOneById(55L)).thenReturn(app);
         String prompt = "做星云书店：咖啡区照片、阅读插画、系统架构和品牌 Logo。";
         when(persistence.start(55L, 42L, prompt)).thenReturn(generationId);
         var bytes = new java.io.ByteArrayOutputStream();
@@ -855,21 +864,29 @@ class GenerationControllerTest {
         var prompts = new java.util.ArrayList<String>();
         var checks = new AtomicInteger();
         String fixedPage = page.replace("星云书店</header>", "星云书店精选</header>");
+        int firstWithAllAssets = qualityCheck ? 0 : 2;
+        if (qualityCheck) planReturns("""
+                {"photos":[{"theme":"coffee","purpose":"咖啡区"}],"illustrations":[{"theme":"reading","purpose":"荐书"}],
+                 "architectures":[{"purpose":"系统介绍","design":{"nodes":["书店","书目"],"edges":[{"from":"书店","to":"书目"}]}}],
+                 "logos":[{"purpose":"页头","design":{"name":"星云","layers":[{"shape":"circle","color":"#24516B","coordinates":[50,50,35]}]}}]}""");
         doAnswer(call -> {
             ChatRequest request = call.getArgument(0);
             StreamingChatResponseHandler handler = call.getArgument(1);
             if (request.toolSpecifications() == null || request.toolSpecifications().isEmpty()) {
                 boolean passed = checks.incrementAndGet() == 2;
                 String reviewInput = ((UserMessage) request.messages().getLast()).singleText();
-                String writingManifest = prompts.get(2).substring(prompts.get(2).indexOf("本轮可用素材"));
+                String writing = prompts.get(firstWithAllAssets);
+                String writingManifest = writing.substring(writing.indexOf("本轮可用素材"));
                 assertThat(reviewInput).containsSubsequence(prompt, writingManifest.strip(), "本次候选源码：")
                         .doesNotContain("上一成功版源码", image);
                 handler.onCompleteResponse(response(objectMapper.writeValueAsString(Map.of("isValid", passed,
                         "errors", passed ? List.of() : List.of("标题需要修正"), "suggestions", List.of())), FinishReason.STOP));
                 return null;
             }
+            if (qualityCheck) assertThat(request.toolSpecifications()).extracting("name")
+                    .doesNotContain("findPhoto", "selectIllustration", "drawArchitecture", "generateLogo");
             prompts.add(((UserMessage) request.messages().get(1)).singleText());
-            var calls = switch (prompts.size()) {
+            var calls = switch (prompts.size() + (qualityCheck ? 2 : 0)) {
                 case 1 -> List.of(assetTool("findPhoto", "{\"theme\":\"coffee\"}"),
                         assetTool("selectIllustration", "{\"theme\":\"reading\"}"));
                 case 2 -> List.of(writeFile("src/Premature.vue", "<template>尚未看到素材</template>"),
@@ -886,18 +903,34 @@ class GenerationControllerTest {
 
         String events = finish(mockMvc.perform(generate().session(session())
                 .content(objectMapper.writeValueAsString(Map.of("prompt", prompt, "qualityCheck", qualityCheck)))).andReturn());
-        assertThat(events).containsSubsequence("2 项素材加入生成提示：内容照片、主题插画", "4 项素材加入生成提示：内容照片、主题插画、架构图、品牌 Logo",
+        assertThat(events).containsSubsequence("4 项素材加入生成提示：内容照片、主题插画、架构图、品牌 Logo",
                 "已写入：src/App.vue", "event:completed").doesNotContain("已写入：src/Premature.vue", "event:failed", image);
-        assertThat(prompts).hasSize(qualityCheck ? 6 : 4);
-        assertThat(prompts.getFirst()).isEqualTo(prompt);
-        assertThat(prompts.get(1)).startsWith(prompt).contains("xy-photo.json", "CC0", "XyIllustration.vue", "学习阅读")
-                .doesNotContain("XyArchitecture.vue", "XyLogo.vue", image);
-        assertThat(prompts.get(2)).startsWith(prompt).containsOnlyOnce("本轮可用素材").containsOnlyOnce("XyIllustration.vue")
-                .contains("xy-photo.json", "src/components/XyArchitecture.vue", "2 个节点、1 条连线", "src/components/XyLogo.vue")
+        assertThat(prompts).hasSize(4);
+        verify(model, times(qualityCheck ? 1 : 0)).chat(planRequest(), any(StreamingChatResponseHandler.class));
+        if (qualityCheck) {
+            assertThat(events).containsSubsequence("正在规划页面素材", "4 项素材加入生成提示", "开始生成页面", "已写入：src/App.vue", "正在修复")
+                    .containsOnlyOnce("已生成品牌 Logo");
+            assertThat(prompts.getFirst()).contains("咖啡区", "荐书", "系统介绍", "页头");
+        } else {
+            assertThat(events).containsSubsequence("2 项素材加入生成提示", "4 项素材加入生成提示");
+            assertThat(prompts.getFirst()).isEqualTo(prompt);
+            assertThat(prompts.get(1)).startsWith(prompt).contains("xy-photo.json", "CC0", "XyIllustration.vue", "学习阅读")
+                    .doesNotContain("XyArchitecture.vue", "XyLogo.vue", image);
+        }
+        assertThat(prompts.get(firstWithAllAssets)).startsWith(prompt).containsOnlyOnce("本轮可用素材").containsOnlyOnce("XyIllustration.vue")
+                .contains("xy-photo.json", "CC0", "src/components/XyArchitecture.vue", "2 个节点、1 条连线", "src/components/XyLogo.vue")
                 .doesNotContain(image);
-        assertThat(prompts.subList(3, prompts.size())).containsOnly(prompts.get(2));
-        if (qualityCheck) assertThat(events).contains("正在修复").containsOnlyOnce("已生成品牌 Logo");
-        var zip = unzipSources(fileManager.readVueSourceZip(42, 55, generationId));
+        assertThat(prompts.subList(firstWithAllAssets + 1, prompts.size())).containsOnly(prompts.get(firstWithAllAssets));
+        verify(photoSearch).findMany(eq("coffee"), eq(1), anySet());
+        verify(persistence).complete(eq(55L), eq(42L), eq(generationId), any());
+        app.setGeneratedVersion(generationId);
+        var version = new ChatHistory();
+        version.setAppId(55L); version.setUserId(42L); version.setMessageRole("assistant"); version.setStatus("completed");
+        when(chatHistoryMapper.selectOneById(generationId)).thenReturn(version);
+        var archive = mockMvc.perform(get("/api/apps/55/source").contextPath("/api").session(session()))
+                .andExpect(status().isOk()).andExpect(content().contentType("application/zip")).andReturn().getResponse().getContentAsByteArray();
+        Files.write(downloads.resolve(qualityCheck ? "planned.zip" : "tools.zip"), archive);
+        var zip = unzipSources(archive);
         assertThat(zip).containsEntry("src/App.vue", qualityCheck ? fixedPage : page).doesNotContainKey("src/Premature.vue")
                 .containsKeys("xy-photo.json", "src/components/XyIllustration.vue", "src/components/XyArchitecture.vue", "src/components/XyLogo.vue");
         verify(persistence).start(55L, 42L, prompt);
@@ -905,6 +938,43 @@ class GenerationControllerTest {
 
     private static ToolExecutionRequest assetTool(String name, String json) {
         return ToolExecutionRequest.builder().name(name).id(name).arguments(json).build();
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void correctsOnlyBrokenPlannedDiagramsOnceBeforeWriting(boolean corrected) throws Exception {
+        when(appMapper.selectOneById(55L)).thenReturn(app(42L, "vue_project"));
+        planReturns("""
+                {"photos":[{"theme":"private name"}],"illustrations":[{"theme":"reading","purpose":"荐书"}],
+                 "architectures":[{"purpose":"借书","design":{"nodes":["网站","网关"],"edges":[{"from":"网站","to":"接口"}]}}]}""");
+        var corrections = new AtomicInteger();
+        doAnswer(call -> {
+            ChatRequest request = call.getArgument(0);
+            var handler = call.<StreamingChatResponseHandler>getArgument(1);
+            String system = ((SystemMessage) request.messages().getFirst()).text();
+            if (system.contains("只修正所列架构图")) {
+                assertThat(((UserMessage) request.messages().getLast()).singleText()).contains("借书", "接口").doesNotContain("private name", "荐书");
+                corrections.incrementAndGet();
+                handler.onCompleteResponse(response(corrected ? """
+                        {"diagrams":[{"index":0,"design":{"nodes":["网站","网关"],"edges":[{"from":"网站","to":"网关"}]}}]}""" : "{}", FinishReason.STOP));
+            } else if (request.toolSpecifications() == null || request.toolSpecifications().isEmpty()) {
+                handler.onCompleteResponse(response("{\"isValid\":true,\"errors\":[],\"suggestions\":[]}", FinishReason.STOP));
+            } else if (request.messages().getLast() instanceof UserMessage user) {
+                assertThat(user.singleText()).contains("荐书", "XyIllustration.vue").doesNotContain("private name");
+                assertThat(user.singleText().contains("XyArchitecture.vue")).isEqualTo(corrected);
+                handler.onCompleteResponse(ChatResponse.builder().finishReason(FinishReason.TOOL_EXECUTION)
+                        .aiMessage(AiMessage.from(writeFile("src/App.vue", "<template>借书</template>"))).build());
+            } else handler.onCompleteResponse(response("完成", FinishReason.STOP));
+            return null;
+        }).when(model).chat(nonDraftRequest(), any(StreamingChatResponseHandler.class));
+        var events = finish(mockMvc.perform(generate().session(session())
+                .content("{\"prompt\":\"摄影作品集\",\"qualityCheck\":true}")).andReturn());
+        assertThat(events).containsSubsequence("正在修正架构图关系", corrected ? "已绘制架构图" : "改用文字说明", "已写入：src/App.vue", "event:completed");
+        assertThat(corrections).hasValue(1);
+        var zip = unzipSources(fileManager.readVueSourceZip(42, 55, generationId));
+        assertThat(zip).containsKey("src/components/XyIllustration.vue");
+        assertThat(zip.containsKey("src/components/XyArchitecture.vue")).isEqualTo(corrected);
+        verifyNoInteractions(photoSearch);
     }
 
     @ParameterizedTest
@@ -1095,6 +1165,7 @@ class GenerationControllerTest {
         assertThat(Files.readString(build.resolve("xy-photo-2.json"))).isEqualTo(secondPhoto);
         assertThat(fileManager.readVueProject(42, 55, previous)).containsEntry("src/App.vue", original);
         verifyNoInteractions(photoSearch);
+        verify(model, never()).chat(planRequest(), any());
     }
 
     @ParameterizedTest
@@ -1138,8 +1209,9 @@ class GenerationControllerTest {
         verifyNoInteractions(photoSearch);
     }
 
-    @Test
-    void vueIllustrationsKeepTheirOwnThemesAndShareAComponentAcrossUses() throws Exception {
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void vueIllustrationsKeepTheirOwnThemesAndShareAComponentAcrossUses(boolean workflow) throws Exception {
         when(appMapper.selectOneById(55L)).thenReturn(app(42L, "vue_project"));
         String page = """
                 <script setup>
@@ -1150,6 +1222,9 @@ class GenerationControllerTest {
                 <template><main><Reading/><Team/><Stats/><footer><Reading/></footer></main></template>""";
         var rounds = new AtomicInteger();
         var manifests = new java.util.ArrayList<String>();
+        if (workflow) planReturns("""
+                {"illustrations":[{"theme":"unknown","purpose":"无此主题"},{"theme":"reading","purpose":"开场阅读"},
+                    {"theme":"analytics","purpose":"经营统计"},{"theme":"reading","purpose":"页尾荐书"},{"theme":"teamwork","purpose":"员工简介"}]}""");
         doAnswer(call -> {
             ChatRequest request = call.getArgument(0);
             var handler = call.<StreamingChatResponseHandler>getArgument(1);
@@ -1160,7 +1235,7 @@ class GenerationControllerTest {
                 return null;
             }
             String prompt = ((UserMessage) request.messages().get(1)).singleText();
-            var calls = switch (rounds.incrementAndGet()) {
+            var calls = switch (rounds.incrementAndGet() + (workflow ? 2 : 0)) {
                 case 1 -> List.of(illustration("bad", "unknown", "无此主题"), illustration("book", "reading", "开场阅读"),
                         illustration("chart", "analytics", "经营统计"));
                 case 2 -> {
@@ -1182,7 +1257,7 @@ class GenerationControllerTest {
             return null;
         }).when(model).chat(nonDraftRequest(), any(StreamingChatResponseHandler.class));
         String events = finish(mockMvc.perform(generate().session(session())
-                .content("{\"prompt\":\"摄影作品集\",\"qualityCheck\":true}")).andReturn());
+                .content(objectMapper.writeValueAsString(Map.of("prompt", "摄影作品集", "qualityCheck", workflow)))).andReturn());
         assertThat(events).contains("event:completed").doesNotContain("event:failed");
         var zip = unzipSources(fileManager.readVueSourceZip(42, 55, generationId));
         assertThat(zip).containsEntry("src/App.vue", page);

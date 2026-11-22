@@ -43,6 +43,10 @@ final class VueDiagramAssets {
     }
 
     Use prepare(String arguments, Executor workers) {
+        return prepare(arguments, workers, true);
+    }
+
+    Use prepare(String arguments, Executor workers, boolean canRetry) {
         String purpose = "";
         Task task = new Task("", null);
         Diagram diagram;
@@ -52,10 +56,11 @@ final class VueDiagramAssets {
             task = new Task(purpose, purpose.isEmpty() && input != null ? input.get("nodes") : null);
             diagram = VueArchitectureDiagram.parse(input);
         } catch (IOException | IllegalArgumentException invalid) {
+            String why = invalid instanceof IllegalArgumentException ? invalid.getMessage() : "需要节点和连线的 JSON 对象";
+            if (!canRetry) return new Use(purpose, null, "架构图关系无效，改用文字说明。" + why + "。");
             var previous = retries.get(task);
             var retry = previous == null ? new Retry(new Slot(next++), 1) : new Retry(previous.slot(), 2);
             retries.put(task, retry);
-            String why = invalid instanceof IllegalArgumentException ? invalid.getMessage() : "需要节点和连线的 JSON 对象";
             return new Use(purpose, null, (retry.attempts() == 1 ? "架构图关系无效，可修正一次。" : "架构图关系仍无效，改用文字说明。") + why + "。");
         }
         var retry = retries.get(task);

@@ -1,6 +1,7 @@
 package com.xy.generation.service.impl;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.xy.app.model.enums.CodeGenTypeEnum;
 import com.xy.manager.GeneratedFileManager;
 import com.xy.manager.VueProjectBuildManager;
@@ -47,6 +48,8 @@ final class VueProjectGeneration implements GenerationSession.OutputHandler {
             .parameters(JsonObjectSchema.builder().addEnumProperty("theme", OpenversePhotoSearch.themes(), "预设照片主题")
                     .addStringProperty("purpose", "在页面中的用途或位置，仅用于本地素材清单")
                     .required("theme").additionalProperties(false).build()).build();
+    private static final List<ToolSpecification> ASSET_SPECIFICATIONS =
+            List.of(FIND_PHOTO, ThemeIllustrations.TOOL, VueArchitectureDiagram.TOOL, VueBrandLogo.TOOL);
     private final OpenversePhotoSearch photoSearch;
     private final Executor executor;
     private final ArtworkProviders artwork;
@@ -61,6 +64,7 @@ final class VueProjectGeneration implements GenerationSession.OutputHandler {
     private GenerationQualityWorkflow workflow;
     private GeneratedFileManager.VueBuildPaths buildPaths;
     private boolean choosingAssets;
+    private String plannedUserPrompt;
     private final VuePhotos photos = new VuePhotos();
     private final Map<String, String> illustrationFiles = new LinkedHashMap<>();
     private final VueLogoComponents logos = new VueLogoComponents();
@@ -128,7 +132,35 @@ final class VueProjectGeneration implements GenerationSession.OutputHandler {
                     history.append(text);
                     session.onPartialResponse(text);
                 });
-        workflow.runWithToolAssets(assetPrompt::manifest);
+        boolean first = choosingAssets;
+        if (first) plannedUserPrompt = ((UserMessage) conversation.getLast()).singleText();
+        choosingAssets = false; // 工作流已负责选材，写文件及返工时不再请求供应方。
+        workflow.run(first ? plan -> collectPlannedAssets(plan, session, history) : null, assetPrompt::manifest);
+    }
+
+    private String collectPlannedAssets(WorkflowAssetPlan plan, GenerationSession session, StringBuilder history) {
+        var calls = new ArrayList<ToolExecutionRequest>();
+        for (var item : plan.photos()) {
+            if (item.theme() != null && OpenversePhotoSearch.themes().contains(item.theme()))
+                addAsset(calls, "findPhoto", item, item.purpose());
+        }
+        for (var item : plan.illustrations()) addAsset(calls, "selectIllustration", item, item.purpose());
+        for (var item : plan.architectures()) addAsset(calls, "drawArchitecture", item.design(), item.purpose());
+        for (var item : plan.logos()) addAsset(calls, "generateLogo", item.design(), item.purpose());
+        prepareAssets(calls, ASSET_SPECIFICATIONS, session, history);
+        if (session.isRunning() && assetPrompt.size() > 0) {
+            String notice = assetPrompt.progress();
+            history.append(notice);
+            session.onPartialResponse(notice);
+        }
+        return assetPrompt.manifest();
+    }
+
+    private void addAsset(List<ToolExecutionRequest> calls, String tool, Object design, String purpose) {
+        if (design == null) return;
+        ObjectNode args = mapper.valueToTree(design);
+        if (purpose != null) args.put("purpose", purpose);
+        calls.add(ToolExecutionRequest.builder().id("plan-" + calls.size()).name(tool).arguments(args.toString()).build());
     }
 
     @Override
@@ -209,7 +241,7 @@ final class VueProjectGeneration implements GenerationSession.OutputHandler {
         Map<ToolSpecification, ToolExecutor> registry() {
             var registry = new java.util.LinkedHashMap<ToolSpecification, ToolExecutor>();
             for (var spec : VueSourceTools.SPECIFICATIONS) registry.put(spec, (call, id) -> execute(call));
-            for (var spec : List.of(FIND_PHOTO, ThemeIllustrations.TOOL, VueArchitectureDiagram.TOOL, VueBrandLogo.TOOL))
+            for (var spec : ASSET_SPECIFICATIONS)
                 registry.put(spec, (call, id) -> session.isRunning() ? batch.receipts().get(call) : "任务已结束");
             return registry;
         }
@@ -221,14 +253,9 @@ final class VueProjectGeneration implements GenerationSession.OutputHandler {
                 previousAssetCount = assetPrompt.size();
                 announced.clear();
                 var tools = new ArrayList<>(VueSourceTools.SPECIFICATIONS);
-                if (choosingAssets && !changedSource) {
-                    tools.add(FIND_PHOTO);
-                    tools.add(ThemeIllustrations.TOOL);
-                    tools.add(VueArchitectureDiagram.TOOL);
-                    tools.add(VueBrandLogo.TOOL);
-                }
+                if (choosingAssets && !changedSource) tools.addAll(ASSET_SPECIFICATIONS);
                 offered = tools;
-                return ChatRequest.builder().messages(assetPrompt.forGeneration(request.messages())).toolSpecifications(tools).build();
+                return ChatRequest.builder().messages(assetPrompt.forGeneration(request.messages(), plannedUserPrompt)).toolSpecifications(tools).build();
             }
         }
 
@@ -391,7 +418,7 @@ final class VueProjectGeneration implements GenerationSession.OutputHandler {
 
     private CompletableFuture<List<AssetResult>> prepareDiagrams(List<ToolExecutionRequest> calls, WorkflowAssetTasks tasks,
             GenerationSession session, StringBuilder history) {
-        var uses = calls.stream().map(call -> diagrams.prepare(call.arguments(), tasks)).toList();
+        var uses = calls.stream().map(call -> diagrams.prepare(call.arguments(), tasks, choosingAssets)).toList();
         return CompletableFuture.allOf(uses.stream().map(VueDiagramAssets.Use::ready).toArray(CompletableFuture<?>[]::new))
                 .thenApply(done -> {
                     synchronized (session) {

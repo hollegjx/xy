@@ -11,6 +11,7 @@ import java.util.Map;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.Consumer;
+import java.util.function.Function;
 import java.util.function.Supplier;
 import org.bsc.langgraph4j.StateGraph;
 import org.bsc.langgraph4j.state.AgentState;
@@ -69,15 +70,14 @@ final class GenerationQualityWorkflow {
         this.progress = progress;
     }
 
-    void runWithToolAssets(Supplier<String> manifest) { run(null, manifest); }
+    void run(NativeWorkflowAssets assets) { run(assets == null ? null : plan -> assets.collect(plan, session), null); }
 
-    void run(NativeWorkflowAssets assets) { run(assets, () -> ""); }
-
-    private void run(NativeWorkflowAssets assets, Supplier<String> currentManifest) {
+    void run(Function<WorkflowAssetPlan, String> collect, Supplier<String> vueManifest) {
         try {
             var graph = new StateGraph<AgentState>(AgentState::new)
                     .addNode("generate", state -> generationNode(Map.of()))
-                    .addNode("check", state -> check(state.<String>value("assetManifest").orElseGet(currentManifest)))
+                    .addNode("check", state -> check(vueManifest == null
+                            ? state.<String>value("assetManifest").orElse("") : vueManifest.get()))
                     .addNode("repair", state -> {
                         progress.accept("\n正在修复（最多一次）…\n");
                         String instruction = mode == CodeGenTypeEnum.VUE_PROJECT ? "用文件工具修改当前工程"
@@ -111,13 +111,17 @@ final class GenerationQualityWorkflow {
                             Map.of("build", "build", "deliver", "deliver"))
                     .addEdge("build", "deliver")
                     .addEdge("repair", "check").addEdge("deliver", END).addEdge("fail", END);
-            if (assets == null) graph.addEdge(START, "generate");
-            else graph.addNode("planAssets", state -> planAssets(assets))
+            if (collect == null) graph.addEdge(START, "generate");
+            else graph.addNode("planAssets", state -> planAssets())
                     .addNode("collectAssets", node_async(state -> Map.of("assetManifest",
-                            assets.collect(state.<String>value("assetPlan").orElseThrow(), session))))
+                            collect.apply(mapper.readValue(state.<String>value("assetPlan").orElseThrow(), WorkflowAssetPlan.class)))))
                     .addNode("enhancePrompt", node_async(state -> {
                         if (session.isRunning()) {
-                            NativeWorkflowAssets.enhance(conversation, state.<String>value("assetManifest").orElseThrow());
+                            String manifest = state.<String>value("assetManifest").orElseThrow();
+                            if (!manifest.isEmpty()) {
+                                var user = (UserMessage) conversation.getLast();
+                                conversation.set(conversation.size() - 1, UserMessage.from(user.singleText() + "\n\n" + manifest));
+                            }
                             progress.accept("\n素材准备结束，开始生成页面。\n");
                         }
                         return Map.of();
@@ -130,17 +134,17 @@ final class GenerationQualityWorkflow {
         }
     }
 
-    private CompletableFuture<Map<String, Object>> planAssets(NativeWorkflowAssets assets) {
+    private CompletableFuture<Map<String, Object>> planAssets() {
         var node = beginNode();
         if (node.isDone()) return node;
         var prompt = ((UserMessage) conversation.getLast()).singleText();
-        CompletableFuture<String> planned;
-        try { planned = assets.plan(model, session, node, prompt); }
+        CompletableFuture<WorkflowAssetPlan> planned;
+        try { planned = WorkflowAssetPlan.request(model, session, node, prompt, mapper, mode == CodeGenTypeEnum.VUE_PROJECT); }
         catch (RuntimeException error) { planned = CompletableFuture.failedFuture(error); }
         planned.whenComplete((plan, error) -> {
             if (node.isDone()) return;
             if (error != null) progress.accept("\n未取得素材计划，继续生成文字布局。\n");
-            node.complete(Map.of("assetPlan", error == null ? plan : "{}"));
+            node.complete(Map.of("assetPlan", error == null ? mapper.valueToTree(plan).toString() : "{}"));
         });
         return node;
     }

@@ -36,13 +36,15 @@ final class VueAssetPrompt {
         return text.append("按用户需求放到相应位置，从使用它的源码文件相对导入。").toString();
     }
 
-    List<ChatMessage> forGeneration(List<ChatMessage> conversation) {
-        if (assets.isEmpty()) return List.copyOf(conversation);
+    List<ChatMessage> forGeneration(List<ChatMessage> conversation, String plannedUserPrompt) {
+        if (assets.isEmpty() && plannedUserPrompt == null) return List.copyOf(conversation);
         var request = new ArrayList<>(conversation);
-        // 首次生成只有一条用户需求。只替换发给代码模型的副本，工具调用和回执保持原来的顺序。
+        // 工作流已增强首次提示；返工删除素材时，从用户原话更新清单，避免重复附加或留下旧路径。
         for (int i = 0; i < request.size(); i++) {
             if (request.get(i) instanceof UserMessage original) {
-                request.set(i, UserMessage.from(original.singleText() + "\n\n" + manifest()));
+                String base = plannedUserPrompt == null ? original.singleText() : plannedUserPrompt;
+                String enhanced = assets.isEmpty() ? base : base + "\n\n" + manifest();
+                if (!enhanced.equals(original.singleText())) request.set(i, UserMessage.from(enhanced));
                 break;
             }
         }

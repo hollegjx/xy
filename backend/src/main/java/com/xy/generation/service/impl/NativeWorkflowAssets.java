@@ -1,22 +1,12 @@
 package com.xy.generation.service.impl;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import dev.langchain4j.data.message.ChatMessage;
-import dev.langchain4j.data.message.UserMessage;
-import dev.langchain4j.model.chat.StreamingChatModel;
-import dev.langchain4j.model.output.FinishReason;
-import dev.langchain4j.service.AiServices;
-import dev.langchain4j.service.Result;
-import dev.langchain4j.service.SystemMessage;
-import dev.langchain4j.service.V;
-import java.io.IOException;
+import com.xy.generation.service.impl.WorkflowAssetPlan.Themed;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Optional;
-import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
@@ -25,27 +15,7 @@ import java.util.stream.Collectors;
 
 /** 首次原生工作流的素材只保留在本轮。图状态和模型上下文仅传计划、标记和署名。 */
 final class NativeWorkflowAssets {
-    record Layer(String shape, String color, List<Integer> coordinates) {}
-    record Logo(String name, String brief, List<Layer> layers) {}
-    record Themed(String theme, String purpose) {}
-    record LogoTask(String purpose, Logo design) {}
-    record DiagramTask(String purpose, VueArchitectureDiagram.Diagram design) {}
-    record Plan(List<Themed> photos, List<Themed> illustrations, List<LogoTask> logos, List<DiagramTask> architectures) {}
     private record VectorSlot(String attribute, String marker) {}
-
-    interface Planner {
-        @SystemMessage("""
-                你是 XY 页面素材规划师。按用户需求选素材，不写页面代码。photos、illustrations、logos、architectures 各是任务列表，不需要时填 []。
-                每张图片各占一项，purpose 描述该图在页面的用途或位置。需要同主题的不同照片，可为每张分别列一项。
-                照片 theme 只能是公开主题：{{themes}}。不要在主题里填写姓名、地址或自由搜索词。
-                插画 theme 只可选 reading（学习阅读）、teamwork（团队协作）、analytics（数据分析）。
-                每个 Logo 或架构图任务分别填写 purpose 和 design。Logo 的 design.name 为品牌名，brief 仅写图形意象，不含用户原文或个人信息。
-                layers 用六位十六进制色，坐标 0–100：circle 是 [圆心x,圆心y,半径]，line 和 polygon 分别是至少两对、三对 x,y。
-                架构图的 design.nodes 为不重复的模块名，edges 的 from、to 必须是其中的名称，label 可省略。
-                """)
-        @dev.langchain4j.service.UserMessage("{{prompt}}")
-        CompletableFuture<Result<Plan>> plan(@V("prompt") String prompt, @V("themes") String themes);
-    }
 
     private final ObjectMapper mapper;
     private final NativeContentPhoto photo;
@@ -61,20 +31,8 @@ final class NativeWorkflowAssets {
         this.tasks = new WorkflowAssetTasks(executor);
     }
 
-    CompletableFuture<String> plan(StreamingChatModel model, GenerationSession session, CompletableFuture<?> node, String prompt) {
-        session.onPartialResponse("\n正在规划页面素材…\n");
-        var adapter = WorkflowNodeModel.adapt(model, session, node, Set.of(), ignored -> {});
-        return AiServices.builder(Planner.class).chatModel(adapter).build()
-                .plan(prompt, String.join("、", OpenversePhotoSearch.themes())).thenApply(result -> {
-                    if (result.finishReason() != FinishReason.STOP || result.content() == null)
-                        throw new IllegalArgumentException("素材计划不完整");
-                    return mapper.valueToTree(result.content()).toString();
-                });
-    }
-
-    String collect(String json, GenerationSession session) throws IOException {
+    String collect(WorkflowAssetPlan plan, GenerationSession session) {
         if (!session.isRunning()) return "";
-        var plan = mapper.readValue(json, Plan.class);
         var batch = new Batch();
         collectPhotos(plan.photos(), session, batch);
         collectIllustrations(plan.illustrations(), batch);
@@ -83,7 +41,7 @@ final class NativeWorkflowAssets {
     }
 
     private void collectPhotos(List<Themed> requested, GenerationSession session, Batch batch) {
-        var photos = entries(requested).stream()
+        var photos = requested.stream()
                 .filter(r -> r.theme() != null && OpenversePhotoSearch.themes().contains(r.theme())).toList();
         var counts = photos.stream().collect(Collectors.groupingBy(Themed::theme, Collectors.summingInt(r -> 1)));
         var positions = new HashMap<String, Integer>();
@@ -104,7 +62,7 @@ final class NativeWorkflowAssets {
     }
 
     private void collectIllustrations(List<Themed> requested, Batch batch) {
-        for (var r : entries(requested)) {
+        for (var r : requested) {
             if (r.theme() == null) continue;
             batch.use(prepare(() -> ThemeIllustrations.load(r.theme())), art -> art.ifPresent(a -> {
                 illustrations.put(r.theme(), a);
@@ -113,8 +71,8 @@ final class NativeWorkflowAssets {
         }
     }
 
-    private void collectVectors(Plan plan, Batch batch) {
-        var logos = entries(plan.logos());
+    private void collectVectors(WorkflowAssetPlan plan, Batch batch) {
+        var logos = plan.logos();
         for (int i = 0; i < logos.size(); i++) {
             var task = logos.get(i);
             if (task.design() == null) continue;
@@ -126,7 +84,7 @@ final class NativeWorkflowAssets {
                         + "\">品牌文字</span>", task.purpose());
             }));
         }
-        var diagrams = entries(plan.architectures());
+        var diagrams = plan.architectures();
         var drawings = new HashMap<VueArchitectureDiagram.Diagram, CompletableFuture<Optional<String>>>();
         for (int i = 0; i < diagrams.size(); i++) {
             var task = diagrams.get(i);
@@ -144,10 +102,6 @@ final class NativeWorkflowAssets {
 
     private static VectorSlot slot(String attribute, int index) {
         return new VectorSlot(attribute, index == 0 ? "prepared" : "prepared-" + (index + 1));
-    }
-
-    private static <T> List<T> entries(List<T> items) {
-        return items == null ? List.of() : items.stream().filter(Objects::nonNull).toList();
     }
 
     // 供应方各自运行，清单与交付用的标记只在全部结束后按计划顺序登记。
@@ -175,11 +129,6 @@ final class NativeWorkflowAssets {
             try { return collect.call(); }
             catch (Exception unavailable) { return Optional.empty(); }
         }, tasks);
-    }
-
-    static void enhance(List<ChatMessage> conversation, String manifest) {
-        var user = (UserMessage) conversation.getLast();
-        conversation.set(conversation.size() - 1, UserMessage.from(user.singleText() + "\n\n" + manifest));
     }
 
     Map<String, ThemeIllustrations.Illustration> illustrations() { return illustrations; }

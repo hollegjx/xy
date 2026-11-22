@@ -7,9 +7,14 @@ import com.xy.generation.service.impl.VueArchitectureDiagram.Diagram;
 import com.xy.generation.service.impl.VueArchitectureDiagram.Slot;
 import com.xy.manager.GeneratedFileManager;
 import com.xy.manager.GeneratedFileManager.DiagramRenderer;
+import dev.langchain4j.agent.tool.P;
+import dev.langchain4j.agent.tool.Tool;
+import dev.langchain4j.agent.tool.ToolExecutionRequest;
+import dev.langchain4j.agent.tool.ToolSpecification;
 import java.io.IOException;
 import java.util.HashMap;
 import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
@@ -18,6 +23,7 @@ import java.util.function.Consumer;
 
 /** 按图的实际关系复用绘制结果；每张图保留独立的工程文件和版本来源。 */
 final class VueDiagramAssets {
+    static final ToolSpecification TOOL = VueAssetTool.describe(Draw.class);
     record Drawing(Slot slot, Diagram diagram, CompletableFuture<String> image) {}
     record Use(String purpose, Drawing drawing, String error) {
         CompletableFuture<?> ready() { return drawing == null ? CompletableFuture.completedFuture(null) : drawing.image(); }
@@ -43,18 +49,20 @@ final class VueDiagramAssets {
     }
 
     Use prepare(String arguments, Executor workers) {
-        return prepare(arguments, workers, true);
+        return prepare(ToolExecutionRequest.builder().name(TOOL.name()).arguments(arguments).build(), workers, true);
     }
 
-    Use prepare(String arguments, Executor workers, boolean canRetry) {
+    Use prepare(ToolExecutionRequest call, Executor workers, boolean canRetry) {
         String purpose = "";
         Task task = new Task("", null);
-        Diagram diagram;
         try {
-            JsonNode input = mapper.reader().with(DeserializationFeature.FAIL_ON_TRAILING_TOKENS).readTree(arguments);
+            JsonNode input = mapper.reader().with(DeserializationFeature.FAIL_ON_TRAILING_TOKENS).readTree(call.arguments());
             if (input != null) purpose = input.path("purpose").asText("").strip();
             task = new Task(purpose, purpose.isEmpty() && input != null ? input.get("nodes") : null);
-            diagram = VueArchitectureDiagram.parse(input);
+            // 先检查原始节点及连线：SDK 的类型转换不能把错误端点或数值标签变成合法关系。
+            VueArchitectureDiagram.parse(input);
+            return VueAssetTool.call(new Draw(task, workers), call, Use.class)
+                    .orElseThrow(() -> new IllegalArgumentException("需要合法的节点和连线参数"));
         } catch (IOException | IllegalArgumentException invalid) {
             String why = invalid instanceof IllegalArgumentException ? invalid.getMessage() : "需要节点和连线的 JSON 对象";
             if (!canRetry) return new Use(purpose, null, "架构图关系无效，改用文字说明。" + why + "。");
@@ -63,16 +71,30 @@ final class VueDiagramAssets {
             retries.put(task, retry);
             return new Use(purpose, null, (retry.attempts() == 1 ? "架构图关系无效，可修正一次。" : "架构图关系仍无效，改用文字说明。") + why + "。");
         }
-        var retry = retries.get(task);
-        if (retry != null && retry.attempts() == 2) return new Use(purpose, null, "该用途的架构图已改用文字说明。");
-        retries.remove(task);
-        var drawing = drawings.computeIfAbsent(diagram, key -> {
-            var slot = retry == null ? new Slot(next++) : retry.slot();
-            var image = artwork.rendersMermaid() ? CompletableFuture.supplyAsync(() -> artwork.diagramImage(key), workers)
-                    : CompletableFuture.<String>completedFuture(null);
-            return new Drawing(slot, key, image);
-        });
-        return new Use(purpose, drawing, null);
+    }
+
+    private final class Draw {
+        private final Task task;
+        private final Executor workers;
+
+        Draw(Task task, Executor workers) { this.task = task; this.workers = workers; }
+
+        @Tool("写页面前为每处系统架构或流程图提供节点和有向关系，可同批或分次请求多张图。")
+        public Use drawArchitecture(@P("按阅读顺序列出不重复的模块名") List<String> nodes,
+                @P("有向关系，from 和 to 均使用 nodes 中的名称") List<VueArchitectureDiagram.Edge> edges,
+                @P(value = "本图在页面中的用途或位置；修正无效关系时沿用原用途", required = false) String purpose) {
+            String use = purpose == null ? "" : purpose.strip();
+            var retry = retries.get(task);
+            if (retry != null && retry.attempts() == 2) return new Use(use, null, "该用途的架构图已改用文字说明。");
+            retries.remove(task);
+            var drawing = drawings.computeIfAbsent(new Diagram(List.copyOf(nodes), List.copyOf(edges)), key -> {
+                var slot = retry == null ? new Slot(next++) : retry.slot();
+                var image = artwork.rendersMermaid() ? CompletableFuture.supplyAsync(() -> artwork.diagramImage(key), workers)
+                        : CompletableFuture.<String>completedFuture(null);
+                return new Drawing(slot, key, image);
+            });
+            return new Use(use, drawing, null);
+        }
     }
 
     String save(Use use, VueAssetPrompt manifest, Consumer<String> report) throws IOException {

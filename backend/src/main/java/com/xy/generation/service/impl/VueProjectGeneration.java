@@ -42,7 +42,7 @@ final class VueProjectGeneration implements GenerationSession.OutputHandler {
             "findPhoto", "查找照片", "selectIllustration", "选择插画",
             "drawArchitecture", "绘制架构图", "generateLogo", "生成 Logo");
     private static final List<ToolSpecification> ASSET_SPECIFICATIONS =
-            List.of(VuePhotos.TOOL, ThemeIllustrations.TOOL, VueArchitectureDiagram.TOOL, VueBrandLogo.TOOL);
+            List.of(VuePhotos.TOOL, ThemeIllustrations.TOOL, VueDiagramAssets.TOOL, VueBrandLogo.TOOL);
     private final OpenversePhotoSearch photoSearch;
     private final Executor executor;
     private final ArtworkProviders artwork;
@@ -413,7 +413,7 @@ final class VueProjectGeneration implements GenerationSession.OutputHandler {
 
     private CompletableFuture<List<AssetResult>> prepareDiagrams(List<ToolExecutionRequest> calls, WorkflowAssetTasks tasks,
             GenerationSession session, StringBuilder history) {
-        var uses = calls.stream().map(call -> diagrams.prepare(call.arguments(), tasks, choosingAssets)).toList();
+        var uses = calls.stream().map(call -> diagrams.prepare(call, tasks, choosingAssets)).toList();
         return CompletableFuture.allOf(uses.stream().map(VueDiagramAssets.Use::ready).toArray(CompletableFuture<?>[]::new))
                 .thenApply(done -> {
                     synchronized (session) {

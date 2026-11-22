@@ -4,6 +4,8 @@ import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import dev.langchain4j.agent.tool.ToolSpecification;
 import dev.langchain4j.agent.tool.ToolSpecifications;
 import dev.langchain4j.invocation.InvocationContext;
+import dev.langchain4j.model.chat.request.json.JsonArraySchema;
+import dev.langchain4j.model.chat.request.json.JsonObjectSchema;
 import dev.langchain4j.service.tool.DefaultToolExecutor;
 import dev.langchain4j.service.tool.ToolExecutionResult;
 import java.util.Optional;
@@ -12,7 +14,17 @@ import java.util.Optional;
 final class VueAssetTool {
     static ToolSpecification describe(Class<?> type) {
         var spec = ToolSpecifications.toolSpecificationsFrom(type).getFirst();
-        return spec.toBuilder().parameters(spec.parameters().toBuilder().additionalProperties(false).build()).build();
+        return spec.toBuilder().parameters(closed(spec.parameters())).build();
+    }
+
+    private static JsonObjectSchema closed(JsonObjectSchema object) {
+        var builder = object.toBuilder().additionalProperties(false);
+        object.properties().forEach((name, field) -> {
+            if (field instanceof JsonObjectSchema nested) builder.addProperty(name, closed(nested));
+            else if (field instanceof JsonArraySchema array && array.items() instanceof JsonObjectSchema item)
+                builder.addProperty(name, JsonArraySchema.builder().description(array.description()).items(closed(item)).build());
+        });
+        return builder.build();
     }
 
     static <T> Optional<T> call(Object target, ToolExecutionRequest call, Class<T> resultType) {

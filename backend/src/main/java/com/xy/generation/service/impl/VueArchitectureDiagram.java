@@ -1,13 +1,11 @@
 package com.xy.generation.service.impl;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import dev.langchain4j.agent.tool.ToolSpecification;
-import dev.langchain4j.model.chat.request.json.JsonArraySchema;
-import dev.langchain4j.model.chat.request.json.JsonObjectSchema;
-import dev.langchain4j.model.chat.request.json.JsonStringSchema;
+import dev.langchain4j.model.output.structured.Description;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
@@ -31,19 +29,9 @@ final class VueArchitectureDiagram {
         }
     }
     static final String DATA = new Slot(1).data();
-    static final ToolSpecification TOOL = ToolSpecification.builder().name("drawArchitecture")
-            .description("写页面前为每处系统架构或流程图提供节点和有向关系，可同批或分次请求多张图。")
-            .parameters(JsonObjectSchema.builder()
-                    .addStringProperty("purpose", "本图在页面中的用途或位置；修正无效关系时沿用原用途")
-                    .addProperty("nodes", JsonArraySchema.builder().description("按阅读顺序列出不重复的模块名")
-                            .items(JsonStringSchema.builder().build()).build())
-                    .addProperty("edges", JsonArraySchema.builder().description("有向关系，from 和 to 均使用 nodes 中的名称")
-                            .items(JsonObjectSchema.builder().addStringProperty("from", "起点")
-                                    .addStringProperty("to", "终点").addStringProperty("label", "关系说明（可省略）")
-                                    .required("from", "to").additionalProperties(false).build()).build())
-                    .required("nodes", "edges").additionalProperties(false).build()).build();
-
-    record Edge(String from, String to, String label) {
+    record Edge(@JsonProperty(required = true) @Description("起点") String from,
+            @JsonProperty(required = true) @Description("终点") String to,
+            @JsonProperty(required = false) @Description("关系说明（可省略）") String label) {
         Edge { if (label == null) label = ""; }
     }
     record Diagram(List<String> nodes, List<Edge> edges) {}

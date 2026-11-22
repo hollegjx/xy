@@ -769,6 +769,14 @@ class GenerationControllerTest {
                     var theme = (dev.langchain4j.model.chat.request.json.JsonEnumSchema) params.properties().get("theme");
                     assertThat(theme.enumValues()).containsExactlyInAnyOrderElementsOf(themes.get(tool.name()));
                 }
+                var graph = request.toolSpecifications().stream().filter(t -> t.name().equals("drawArchitecture")).findFirst().orElseThrow().parameters();
+                assertThat(graph.properties()).containsOnlyKeys("nodes", "edges", "purpose");
+                assertThat(graph.required()).containsExactlyInAnyOrder("nodes", "edges");
+                var edges = (dev.langchain4j.model.chat.request.json.JsonArraySchema) graph.properties().get("edges");
+                var edge = (dev.langchain4j.model.chat.request.json.JsonObjectSchema) edges.items();
+                assertThat(edge.properties()).containsOnlyKeys("from", "to", "label");
+                assertThat(edge.required()).containsExactlyInAnyOrder("from", "to");
+                assertThat(edge.additionalProperties()).isFalse();
                 handler.onCompleteResponse(ChatResponse.builder().finishReason(FinishReason.TOOL_EXECUTION)
                         .aiMessage(AiMessage.from(List.of(writeFile("src/App.vue", source),
                                 writeFile("src/components/Card.vue", "<template>作品集</template>")))).build());

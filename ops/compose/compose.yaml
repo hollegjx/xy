@@ -67,6 +67,9 @@ services:
 
   app:
     <<: *backend
+    environment:
+      <<: *database-client
+      XY_DEPLOYMENT_PUBLICURL: ${XY_COMPOSE_PUBLIC_URL:-}
     build: {context: ../../backend, dockerfile: Dockerfile.services, target: app}
     volumes: ['app-data:/var/lib/xy']
     command:

@@ -14,7 +14,7 @@ docker compose -f ops/compose/compose.yaml up -d --build
 
 HTTP 登记进程将两个服务名解析为容器实际 IP，新端口可以连接后再撤旧登记。这一组 Nacos 专供本 Compose 使用。独立网关规则复用 [Higress 配置](../gateway/README.md)。默认关闭真实模型、Vue 构建和封面截图。
 
-需要发布时自动生成封面，先将 `XY_COMPOSE_PUBLIC_URL` 设为自己实际配置的作品站来源；该站须能读取应用卷中的 `published/`，且不与平台使用相同主机名。再执行：
+已有独立作品站时，将 `XY_COMPOSE_PUBLIC_URL` 设为它的来源，基础编排就能发布；站点须能读取应用卷中的 `published/`，且不与平台使用相同主机名。若还需要发布时自动生成封面，再叠加截图服务：
 
 ```sh
 docker compose -f ops/compose/compose.yaml -f ops/compose/covers.yaml up -d --build

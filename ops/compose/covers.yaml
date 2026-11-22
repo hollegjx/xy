@@ -2,7 +2,6 @@ services:
   app:
     environment:
       XY_COVER_ENABLED: 'true'
-      XY_DEPLOYMENT_PUBLICURL: ${XY_COMPOSE_PUBLIC_URL:-}
 
   screenshot:
     build: {context: ../../backend, dockerfile: Dockerfile.services, target: screenshot}

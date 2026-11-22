@@ -18,7 +18,6 @@ import dev.langchain4j.data.message.ToolExecutionResultMessage;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.model.chat.request.ChatRequest;
 import dev.langchain4j.model.chat.request.ChatRequestParameters;
-import dev.langchain4j.model.chat.request.json.JsonObjectSchema;
 import dev.langchain4j.model.chat.response.ChatResponse;
 import dev.langchain4j.model.chat.response.StreamingChatResponseHandler;
 import dev.langchain4j.model.output.FinishReason;
@@ -42,14 +41,8 @@ final class VueProjectGeneration implements GenerationSession.OutputHandler {
             "replaceFragment", "替换代码片段", "deleteComponent", "删除组件",
             "findPhoto", "查找照片", "selectIllustration", "选择插画",
             "drawArchitecture", "绘制架构图", "generateLogo", "生成 Logo");
-    private static final Set<String> ASSET_TOOLS = Set.of("findPhoto", "selectIllustration", "drawArchitecture", "generateLogo");
-    private static final ToolSpecification FIND_PHOTO = ToolSpecification.builder().name("findPhoto")
-            .description("首次创建时，为每个需要真实照片的位置选择预设主题；多处用途可同批调用")
-            .parameters(JsonObjectSchema.builder().addEnumProperty("theme", OpenversePhotoSearch.themes(), "预设照片主题")
-                    .addStringProperty("purpose", "在页面中的用途或位置，仅用于本地素材清单")
-                    .required("theme").additionalProperties(false).build()).build();
     private static final List<ToolSpecification> ASSET_SPECIFICATIONS =
-            List.of(FIND_PHOTO, ThemeIllustrations.TOOL, VueArchitectureDiagram.TOOL, VueBrandLogo.TOOL);
+            List.of(VuePhotos.TOOL, ThemeIllustrations.TOOL, VueArchitectureDiagram.TOOL, VueBrandLogo.TOOL);
     private final OpenversePhotoSearch photoSearch;
     private final Executor executor;
     private final ArtworkProviders artwork;
@@ -346,7 +339,7 @@ final class VueProjectGeneration implements GenerationSession.OutputHandler {
             GenerationSession session, StringBuilder history) {
         // 在模型提出的顺序中分配各用途的路径；不同品牌和不同种类不必互相等待。
         var groups = new LinkedHashMap<String, List<ToolExecutionRequest>>();
-        for (var call : calls) if (ASSET_TOOLS.contains(call.name()))
+        for (var call : calls) if (ASSET_SPECIFICATIONS.stream().anyMatch(tool -> tool.name().equals(call.name())))
             groups.computeIfAbsent(call.name(), ignored -> new ArrayList<>()).add(call);
         if (groups.isEmpty()) return AssetBatch.EMPTY;
         var permitted = tools.stream().map(ToolSpecification::name).toList();
@@ -405,7 +398,7 @@ final class VueProjectGeneration implements GenerationSession.OutputHandler {
                 case "selectIllustration" -> {
                     if (!permitted) yield "本轮不再选择插画，沿用已有素材或继续编写页面。";
                     synchronized (session) {
-                        yield session.isRunning() ? selectIllustration(call.arguments(), session, history, assets) : "任务已结束";
+                        yield session.isRunning() ? selectIllustration(call, session, history, assets) : "任务已结束";
                     }
                 }
                 case "drawArchitecture" -> "本轮不再绘制架构图，沿用已有图或用文字说明关系。";
@@ -478,8 +471,8 @@ final class VueProjectGeneration implements GenerationSession.OutputHandler {
         });
     }
 
-    private String selectIllustration(String arguments, GenerationSession session, StringBuilder history, VueAssetPrompt assets) throws IOException {
-        var selected = ThemeIllustrations.select(mapper, arguments);
+    private String selectIllustration(ToolExecutionRequest call, GenerationSession session, StringBuilder history, VueAssetPrompt assets) throws IOException {
+        var selected = ThemeIllustrations.select(call);
         String progress, result;
         if (selected.isPresent()) {
             var selection = selected.get();

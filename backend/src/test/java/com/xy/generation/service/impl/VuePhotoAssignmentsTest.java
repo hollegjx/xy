@@ -6,6 +6,7 @@ import java.util.ArrayDeque;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 
@@ -13,6 +14,22 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.*;
 
 class VuePhotoAssignmentsTest {
+    @Test
+    void onlyPublicThemesReachTheProviderAndEveryUseKeepsItsOwnLocation() {
+        var search = mock(OpenversePhotoSearch.class);
+        var calls = List.of(
+                ToolExecutionRequest.builder().id("private").name("findPhoto")
+                        .arguments("{\"theme\":\"Alex Doe\",\"purpose\":\"作者介绍\"}").build(),
+                ToolExecutionRequest.builder().id("banner").name("findPhoto")
+                        .arguments("{\"theme\":\"coffee\",\"purpose\":\"Alex Doe 的页首\"}").build(),
+                use("coffee"));
+        var results = new VuePhotos().collect(calls, new ObjectMapper(), search, Runnable::run, () -> true).join();
+        assertThat(results).extracting(c -> c.use().purpose()).containsExactly("作者介绍", "Alex Doe 的页首", "");
+        assertThat(results).extracting(c -> c.use().path()).containsExactly("xy-photo.json", "xy-photo-2.json", "xy-photo-3.json");
+        verify(search).findMany("coffee", 2, Set.of());
+        verifyNoMoreInteractions(search);
+    }
+
     @ParameterizedTest
     @ValueSource(booleans = {true, false})
     void leavesTheOnlyAvailableOriginalForTheThemeWithNoAlternative(boolean coffeeReturnsFirst) {

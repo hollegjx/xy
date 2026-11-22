@@ -11,7 +11,6 @@ import java.util.ArrayList;
 import java.util.Base64;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.regex.Pattern;
@@ -22,10 +21,19 @@ import org.springframework.stereotype.Component;
 
 @Component
 public class OpenversePhotoSearch {
-    private static final Map<String, String> QUERIES = Map.of(
-            "coffee", "latte", "food", "fresh food", "nature", "forest landscape",
-            "architecture", "city architecture", "technology", "computer workspace",
-            "reading", "books", "travel", "mountain landscape", "art", "art supplies");
+    enum Theme {
+        architecture("city architecture"), art("art supplies"), coffee("latte"), food("fresh food"),
+        nature("forest landscape"), reading("books"), technology("computer workspace"), travel("mountain landscape");
+
+        final String query;
+        Theme(String query) { this.query = query; }
+
+        static String queryFor(String theme) {
+            if (theme == null) return null;
+            try { return valueOf(theme).query; }
+            catch (IllegalArgumentException unknown) { return null; }
+        }
+    }
     private static final Pattern LANDING = Pattern.compile("https://www\\.flickr\\.com/photos/[A-Za-z0-9_@%-]+/([0-9]+)/?");
     private static final Pattern IMAGE = Pattern.compile("https://live\\.staticflickr\\.com/([0-9]+)/([0-9]+)_([a-fA-F0-9]+)(?:_[a-z])?\\.jpg");
     private final ObjectMapper mapper;
@@ -40,11 +48,11 @@ public class OpenversePhotoSearch {
         }
     }
 
-    static List<String> themes() { return QUERIES.keySet().stream().sorted().toList(); }
+    static List<String> themes() { return java.util.Arrays.stream(Theme.values()).map(Enum::name).toList(); }
 
     public Optional<Photo> find(String theme) {
         // 出站查询只取服务端预设值，模型和用户的自由文本均不能进入 URL。
-        String query = theme == null ? null : QUERIES.get(theme);
+        String query = Theme.queryFor(theme);
         if (query == null) return Optional.empty();
         try {
             String search = "https://api.openverse.org/v1/images/?q="
@@ -66,7 +74,7 @@ public class OpenversePhotoSearch {
 
     /** 不下载已排除的原作；不同主题可独立发现同一原作，汇总时再按可选范围分配。 */
     public List<Photo> findMany(String theme, int count, Set<String> excludedIds) {
-        String query = theme == null ? null : QUERIES.get(theme);
+        String query = Theme.queryFor(theme);
         if (query == null || count < 1) return List.of();
         int pageSize = Math.min(count, 20);
         var photos = new ArrayList<Photo>();

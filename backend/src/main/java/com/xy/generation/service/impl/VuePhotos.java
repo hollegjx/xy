@@ -6,7 +6,10 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.xy.manager.GeneratedFileManager;
+import dev.langchain4j.agent.tool.P;
+import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.agent.tool.ToolExecutionRequest;
+import dev.langchain4j.agent.tool.ToolSpecification;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -20,11 +23,26 @@ import java.util.function.BooleanSupplier;
 
 /** 一份工程内按模型提出的顺序为照片留位置；同主题合查，不同主题可同时查。 */
 final class VuePhotos {
+    static final ToolSpecification TOOL = VueAssetTool.describe(PhotoSlot.class);
+
+    @FunctionalInterface
+    private interface Lookup { List<OpenversePhotoSearch.Photo> fetch(int count, Set<String> excluded); }
+
+    // 每个工具调用占一个位置。同主题共用它绑定的图库查询，批次数量和已用原作均由工程决定。
+    private record PhotoSlot(ToolExecutionRequest call, String path, OpenversePhotoSearch provider) {
+        @Tool("首次创建时，为每个需要真实照片的位置选择预设主题；多处用途可同批调用")
+        public Use findPhoto(@P("预设照片主题") OpenversePhotoSearch.Theme theme,
+                @P(value = "在页面中的用途或位置，仅用于本地素材清单", required = false) String purpose) {
+            return new Use(call, path, theme == null ? "" : theme.name(), purpose == null ? "" : purpose.strip(),
+                    (count, excluded) -> theme == null ? List.of() : provider.findMany(theme.name(), count, excluded));
+        }
+    }
+
     @JsonIgnoreProperties(ignoreUnknown = true)
     @JsonInclude(JsonInclude.Include.NON_EMPTY)
     record Credit(String source, String license, String theme, String purpose) {}
 
-    record Use(ToolExecutionRequest call, String path, String theme, String purpose) {
+    record Use(ToolExecutionRequest call, String path, String theme, String purpose, Lookup lookup) {
         Credit credit(OpenversePhotoSearch.Photo photo) {
             return new Credit(photo.source(), photo.license(), theme, purpose);
         }
@@ -40,19 +58,19 @@ final class VuePhotos {
     private final Set<String> delivered = new HashSet<>();
     private int positions;
 
-    private List<Use> uses(List<ToolExecutionRequest> calls, ObjectMapper mapper) {
+    private List<Use> uses(List<ToolExecutionRequest> calls, OpenversePhotoSearch search, ObjectMapper mapper) {
         var uses = new ArrayList<Use>();
         for (var call : calls) {
-            String theme = "", purpose = "";
-            try {
-                var args = mapper.readTree(call.arguments());
-                if (args != null && args.isObject()) {
-                    theme = args.path("theme").asText("");
-                    purpose = args.path("purpose").asText("").strip();
-                }
-            } catch (JsonProcessingException | IllegalArgumentException invalid) { /* 本处无图，其他位置仍可用。 */ }
             String path = ++positions == 1 ? GeneratedFileManager.VUE_PHOTO : "xy-photo-" + positions + ".json";
-            uses.add(new Use(call, path, theme, purpose));
+            var slot = new PhotoSlot(call, path, search);
+            uses.add(VueAssetTool.call(slot, call, Use.class).orElseGet(() -> {
+                String purpose = "";
+                try {
+                    var raw = mapper.readTree(call.arguments());
+                    if (raw != null) purpose = raw.path("purpose").asText("");
+                } catch (JsonProcessingException | IllegalArgumentException ignored) { /* 仍为这个位置保留回执。 */ }
+                return slot.findPhoto(null, purpose);
+            }));
         }
         return uses;
     }
@@ -60,14 +78,14 @@ final class VuePhotos {
     private static final class Candidates {
         final Map<String, OpenversePhotoSearch.Photo> photos = new LinkedHashMap<>();
         final Set<String> seen;
-        final String theme;
+        final Lookup lookup;
         boolean exhausted;
-        Candidates(String theme, Set<String> delivered) { this.theme = theme; this.seen = new HashSet<>(delivered); }
+        Candidates(Lookup lookup, Set<String> delivered) { this.lookup = lookup; this.seen = new HashSet<>(delivered); }
 
-        void fetch(int count, OpenversePhotoSearch search) {
+        void fetch(int count) {
             int before = photos.size();
             try {
-                for (var photo : search.findMany(theme, count, Set.copyOf(seen))) {
+                for (var photo : lookup.fetch(count, Set.copyOf(seen))) {
                     String id = photo.workId();
                     if (seen.add(id)) photos.put(id, photo);
                 }
@@ -78,16 +96,17 @@ final class VuePhotos {
 
     CompletableFuture<List<Choice>> collect(List<ToolExecutionRequest> calls, ObjectMapper mapper,
             OpenversePhotoSearch search, Executor workers, BooleanSupplier active) {
-        var uses = uses(calls, mapper);
+        var uses = uses(calls, search, mapper);
         var counts = new LinkedHashMap<String, Integer>();
-        uses.forEach(use -> counts.merge(use.theme(), 1, Integer::sum));
         var pools = new LinkedHashMap<String, Candidates>();
-        var jobs = new ArrayList<CompletableFuture<Void>>();
-        counts.forEach((theme, count) -> {
-            var pool = new Candidates(theme, delivered);
-            pools.put(theme, pool);
-            jobs.add(CompletableFuture.runAsync(() -> { if (active.getAsBoolean()) pool.fetch(count, search); }, workers));
+        uses.forEach(use -> {
+            counts.merge(use.theme(), 1, Integer::sum);
+            pools.computeIfAbsent(use.theme(), ignored -> new Candidates(use.lookup(), delivered));
         });
+        var jobs = new ArrayList<CompletableFuture<Void>>();
+        counts.forEach((theme, count) -> jobs.add(CompletableFuture.runAsync(() -> {
+            if (active.getAsBoolean()) pools.get(theme).fetch(count);
+        }, workers)));
         return CompletableFuture.allOf(jobs.toArray(CompletableFuture<?>[]::new)).thenApplyAsync(unused -> {
             var owners = new LinkedHashMap<String, Use>();
             for (var use : uses) {
@@ -97,7 +116,7 @@ final class VuePhotos {
                     // 只有互相争用同一原作的主题才需要找备选；全部穷尽则仅这个位置回退。
                     var next = reachable.stream().filter(pool -> !pool.exhausted).findFirst();
                     if (next.isEmpty()) break;
-                    next.get().fetch(1, search);
+                    next.get().fetch(1);
                 }
                 if (!active.getAsBoolean()) return List.of();
             }

@@ -759,6 +759,16 @@ class GenerationControllerTest {
                 assertThat(request.toolSpecifications()).extracting("name")
                         .containsExactlyInAnyOrder("listFiles", "readFile", "writeFile", "replaceFragment", "deleteComponent",
                                 "findPhoto", "selectIllustration", "drawArchitecture", "generateLogo");
+                var themes = Map.of("findPhoto", List.of("architecture", "art", "coffee", "food", "nature", "reading", "technology", "travel"),
+                        "selectIllustration", List.of("analytics", "reading", "teamwork"));
+                for (var tool : request.toolSpecifications()) if (themes.containsKey(tool.name())) {
+                    var params = tool.parameters();
+                    assertThat(params.properties()).containsOnlyKeys("theme", "purpose");
+                    assertThat(params.required()).containsExactly("theme");
+                    assertThat(params.additionalProperties()).isFalse();
+                    var theme = (dev.langchain4j.model.chat.request.json.JsonEnumSchema) params.properties().get("theme");
+                    assertThat(theme.enumValues()).containsExactlyInAnyOrderElementsOf(themes.get(tool.name()));
+                }
                 handler.onCompleteResponse(ChatResponse.builder().finishReason(FinishReason.TOOL_EXECUTION)
                         .aiMessage(AiMessage.from(List.of(writeFile("src/App.vue", source),
                                 writeFile("src/components/Card.vue", "<template>作品集</template>")))).build());

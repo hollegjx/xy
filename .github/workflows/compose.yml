@@ -32,6 +32,7 @@ jobs:
         env:
           XY_TEST_COMPOSE: '1'
           XY_TEST_COMPOSE_SITE: '1'
+          XY_TEST_SITE_BROWSER: google-chrome
           XY_TEST_COMPOSE_COVERS: ${{ matrix.covers }}
         run: |
           # In this clean CI checkout, prove that an IDE-only profile cannot leak into the service image.

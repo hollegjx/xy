@@ -3,6 +3,8 @@ import base64
 from dataclasses import dataclass
 import http.client
 import json
+import subprocess
+import tempfile
 import time
 from urllib.parse import urlsplit
 
@@ -27,7 +29,8 @@ def publish_fixture(test, user_id, app_id, cookie, title):
         UPDATE app SET generatedVersion=LAST_INSERT_ID() WHERE id={app_id};
         SELECT LAST_INSERT_ID()"""))
     page = ("<!doctype html><html style='height:100%;background:linear-gradient(to right,#2050c0 50%,#e8a040 50%)'>"
-            f"<head><title>{title}</title></head><body><h1>{title}</h1></body></html>")
+            f"<head><title>{title}</title></head><body><h1>{title}</h1><output id='xy-state'>loading</output>"
+            f"<script>document.getElementById('xy-state').textContent = 'rendered:' + {version};</script></body></html>")
     folder = f"/var/lib/xy/generated/{user_id}/{app_id}/{version}"
     test.compose("exec", "-T", "app", "sh", "-ec",
                  'mkdir -p "$1" && printf %s "$2" > "$1/index.html"', "sh", folder, page)
@@ -62,6 +65,16 @@ def verify_site(test, publication):
     test.assertIsNone(headers.get("Set-Cookie"))
     test.assertEqual(read_site(test, publication.url, suffix="/api/health")[0], 404)
     test.assertEqual(read_site(test, publication.url, host="127.0.0.1")[0], 404)
+
+
+def verify_site_in_browser(test, publication, chrome):
+    with tempfile.TemporaryDirectory(prefix="xy-guest-") as profile:
+        result = subprocess.run([chrome, "--headless", "--disable-gpu", "--no-first-run", "--no-proxy-server",
+                                 "--disable-background-networking", "--user-data-dir=" + profile,
+                                 "--dump-dom", publication.url], capture_output=True, text=True, timeout=35)
+    test.assertEqual(result.returncode, 0, "访客浏览器未能打开分享链接")
+    # 原始 HTML 中只有 loading；此处的版本号由作品内的脚本写进可见 DOM。
+    test.assertIn(f'<output id="xy-state">rendered:{publication.version}</output>', result.stdout)
 
 
 def verify_published_cover(test, user_id, app_id, cookie, publication):

@@ -30,4 +30,4 @@ docker compose -f ops/compose/compose.yaml -f ops/compose/sites.yaml up -d --bui
 
 平台仍用 `http://127.0.0.1:8080`，发布一份已有成功稿的作品后，直接打开接口返回的 `http://127.0.0.2:8182/{发布标识}/`。两个服务分别绑定不同的回环地址。用 `XY_COMPOSE_SITE_PORT` 可同时修改作品端口和返回的网址。Nginx 只读挂载原作品卷的 `published/`，不接入平台容器网络；无需移动之前的快照。作品更新沿用原链接，删除应用后该链接返回 404。要一并截图，命令中再加 `-f ops/compose/covers.yaml`；停机时使用相同的配置组合。这个本机入口不接管公网作品域名。
 
-隔离测试命令：`XY_TEST_COMPOSE=1 XY_TEST_COMPOSE_SITE=1 python3 -Bu ops/compose/test_compose.py -v`。测试在随机空卷准备成功稿，从分享网址匿名读取页面，验证重新发布、普通停机重启及删除。加上 `XY_TEST_COMPOSE_COVERS=1` 还会设为精选、解码真实封面，并核对尺寸及左右两块颜色。测试不访问模型或公网作品站。
+隔离测试命令：`XY_TEST_COMPOSE=1 XY_TEST_COMPOSE_SITE=1 python3 -Bu ops/compose/test_compose.py -v`。测试在随机空卷准备成功稿，从分享网址匿名读取页面，验证重新发布、普通停机重启及删除。CI 还设置 `XY_TEST_SITE_BROWSER=google-chrome`，用全新的访客浏览器打开同一网址，确认作品脚本显示新版本。加上 `XY_TEST_COMPOSE_COVERS=1` 还会设为精选、解码真实封面，并核对尺寸及左右两块颜色。测试不访问模型或公网作品站。

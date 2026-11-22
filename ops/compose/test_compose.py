@@ -134,6 +134,9 @@ class ComposeTest(unittest.TestCase):
             self.assertEqual(self.compose("exec", "-T", "app", "cat", marker, output=True).strip(), app_id)
             if self.site:
                 verify_site(self, published)
+                if chrome := os.getenv("XY_TEST_SITE_BROWSER"):
+                    from publication_acceptance import verify_site_in_browser
+                    verify_site_in_browser(self, published, chrome)
             self.expect("/users/me", 200, 0, cookie=cookie, wait=120)
             self.expect("/users/logout", 200, 0, method="POST", cookie=cookie)
             for private in ("/users/me", path):

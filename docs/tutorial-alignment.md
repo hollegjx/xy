@@ -25,6 +25,8 @@
 
 **第 14 章「接口文档聚合」。** 教程在 Boot 3 下建议用导航跳转到各服务的文档。XY 在已有 Knife4j 入口内导航：[网关模式](../ops/gateway/README.md)列出应用和用户，两份 OpenAPI 仍由各自的 Spring 服务实时生成。用户分流后，登录只列在用户文档，级联删号只列在应用文档；无需旧版聚合 starter 或额外的文档服务。
 
+**第 13 章「环境准备」「Grafana 整合 Prometheus」。** 除了向已有监控服务手工导入，XY 还提供[同机 Linux 编排](../ops/monitoring/compose.yaml)。Prometheus 定期拉取管理端口；Grafana 启动时加载该数据源和同一份业务看板，无须再逐个配置图表。这是独立部署选项，生产接入及云探针另行验收。
+
 **第 14 章「项目部署」。** 本地正文推荐用 Docker Compose 协调微服务及其依赖，没有给出一套可直接使用的清单。XY 的[独立编排](../ops/compose/README.md)包括应用和用户服务，以及真实 MySQL、Redis、Nacos、Higress。可叠加[截图配置](../ops/compose/covers.yaml)：应用发现独立的截图服务，发布快照由无网络的 Chromium 绘制。公网作品站和 gc 切流分别验收。
 
 第 12 章「为生成的网站提供部署访问能力」使用 Nginx 提供静态作品。XY 在[本机作品站编排](../ops/compose/sites.yaml)中保留独立主机名，直接提供后端发布的快照。截图可单独开关，不是打开分享链接的前提。

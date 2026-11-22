@@ -1,0 +1,16 @@
+# 仅给隔离 CI 的 XY 微服务使用；普通监控部署不加载模型替身。
+services:
+  app:
+    environment:
+      SPRING_PROFILES_INCLUDE: monitoring
+      MANAGEMENT_SERVER_ADDRESS: 0.0.0.0
+      XY_AI_ENABLED: 'true'
+      XY_AI_BASEURL: http://model-fixture:8200/v1
+      XY_AI_APIKEY: offline-fixture
+      XY_AI_MODELNAME: monitor-fixture
+    ports: ['127.0.0.1:8103:8103']
+  model-fixture:
+    image: python:3.13-alpine@sha256:9ef1a599f863231c3d91e941389bfdc4a2d6070557243d54df1a4e57015b960e
+    # Compose 叠层的相对路径从第一个文件 ops/compose/compose.yaml 解析。
+    volumes: ['../monitoring/model_fixture.py:/fixture.py:ro']
+    command: [python, -B, /fixture.py]

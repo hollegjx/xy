@@ -6,6 +6,16 @@
 2. 在已有 Prometheus 的配置里加入 [xy-backend 抓取任务](prometheus.yml)。这里的 `127.0.0.1` 指后端宿主机；独立容器的回环地址不是宿主机。Targets 中 `xy-backend` 为 UP，且查询 `up{job="xy-backend"}` 返回 1，才表示抓取成功。管理端口仅供内网抓取，不向公网开放。
 3. 在已有 Grafana 中添加该 Prometheus 为数据源，测试连接。在 **Dashboards → New → Import** 上传 [xy-ai-dashboard.json](xy-ai-dashboard.json)。在看板的「Prometheus」下拉框选择刚才的数据源。模型调用后，等待一次抓取即可查看累计值；选择 1 分钟窗口时，监控至少要有 1 分钟历史才会显示趋势。
 
+同一台 Linux 主机上尚未安装这两个服务时，也可用 [Docker Compose](compose.yaml) 替代第 2、3 步。先完成第 1 步，在 Bash 中输入自选的 Grafana 初始管理员密码：
+
+```bash
+read -rsp 'Grafana 初始密码：' XY_MONITORING_ADMIN_PASSWORD
+export XY_MONITORING_ADMIN_PASSWORD
+docker compose -f ops/monitoring/compose.yaml up -d
+```
+
+在主机上打开 `http://127.0.0.1:3000`，用 `admin` 和刚设置的密码登录，在 **Dashboards → XY → XY · AI 调用监控** 查看。数据源和看板会自动导入；Prometheus 查询入口是 `http://127.0.0.1:9090`。两者都只监听回环。若有端口占用，可在启动前设置 `XY_GRAFANA_PORT` 或 `XY_PROMETHEUS_PORT`。普通 `docker compose -f ops/monitoring/compose.yaml down` 保留采样记录和 Grafana 账号；再次启动使用已有账号，修改初始密码不会重置它。此编排与 XY 发布独立。
+
 | 看什么 | 看板如何统计 |
 | --- | --- |
 | 调用次数 | 发给分类、原生或 Vue 模型的实际调用；生成、工具续写、质检和返工可能对应多次调用。趋势可切换模型、用户或应用，滚动窗口从 1 分钟到 1 天。 |

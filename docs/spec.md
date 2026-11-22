@@ -574,5 +574,6 @@
 - [x] 原生模式可选 SDK 输出护轨：空或过短的模型回复追加指令重试一次，第二次仍不合格则失败；默认关闭以保留逐段输出。
 - [x] 工作台实时与历史 AI 回复支持 Markdown 及代码高亮，用户需求仍以纯文本显示。
 - [x] 第 13 章业务监控：Actuator 抓取、LangChain4j 调用监听、Micrometer Token/耗时/失败指标、Prometheus 配置及 Grafana 看板和查询验证
+- 同机 Linux 可独立启动 Prometheus 和 Grafana，自动加载 XY 的抓取配置、数据源和看板。登录 Grafana 后能看到 XY 模型调用、失败及已报告的 Token；已有手工监控环境继续沿用。
 - [ ] 第 13 章运行环境：在目标环境接入 Prometheus/Grafana 验收看板，按授权接入阿里云 ARMS 系统探针
 - [ ] 架构评估：更多层级缓存及微服务拆分；已有 Redis Session、Caffeine 客户端缓存及可配置的 COS 封面存储

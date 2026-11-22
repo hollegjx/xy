@@ -1,0 +1,51 @@
+name: XY monitoring dashboard
+on:
+  push:
+    paths:
+      - 'ops/monitoring/**'
+      - 'backend/src/main/resources/application-monitoring.yml'
+      - 'backend/src/main/java/com/xy/manager/AiModelMetrics.java'
+      - 'backend/src/main/java/com/xy/config/AiModelConfiguration.java'
+      - '.github/workflows/monitoring.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  dashboard:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      XY_GRAFANA_PORT: '13000'
+      XY_PROMETHEUS_PORT: '19090'
+      XY_COMPOSE_PORT: '18080'
+      XY_TEST_APP: xy-observe-app-${{ github.run_id }}-${{ github.run_attempt }}
+      XY_TEST_METRICS: xy-observe-metrics-${{ github.run_id }}-${{ github.run_attempt }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Prepare isolated test credentials
+        run: |
+          for key in XY_COMPOSE_DB_PASSWORD XY_COMPOSE_DB_ROOT_PASSWORD XY_MONITORING_ADMIN_PASSWORD; do
+            value="$(openssl rand -hex 24)"
+            echo "::add-mask::$value"
+            echo "$key=$value" >> "$GITHUB_ENV"
+          done
+      - name: Start the provisioned Grafana and the real XY services
+        run: |
+          docker compose -p "$XY_TEST_METRICS" -f ops/monitoring/compose.yaml up -d
+          docker compose -p "$XY_TEST_APP" -f ops/compose/compose.yaml -f ops/monitoring/test-app.yaml up -d --build
+      - name: Read model usage in Chrome
+        run: |
+          npm ci --prefix frontend --ignore-scripts --no-audit --no-fund
+          node ops/monitoring/dashboard-browser.cjs
+      - name: Report container state
+        if: failure()
+        run: |
+          docker compose -p "$XY_TEST_METRICS" -f ops/monitoring/compose.yaml ps --all
+          docker compose -p "$XY_TEST_APP" -f ops/compose/compose.yaml -f ops/monitoring/test-app.yaml ps --all
+      - name: Remove this run's containers and volumes
+        if: always()
+        run: |
+          docker compose -p "$XY_TEST_APP" -f ops/compose/compose.yaml -f ops/monitoring/test-app.yaml down --volumes
+          docker compose -p "$XY_TEST_METRICS" -f ops/monitoring/compose.yaml down --volumes

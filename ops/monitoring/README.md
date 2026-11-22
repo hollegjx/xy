@@ -3,7 +3,7 @@
 启用后数据从模型调用进入 LangChain4j 监听器，由 Micrometer 计数。Prometheus 定期抓取后端的管理端口；Grafana 只查询 Prometheus，不访问 XY 的 MySQL、模型网关或业务接口。
 
 1. 为 XY 后端启用 Spring Profile `monitoring`（可和已有 profile 一起启用）。先在后端所在主机访问 `http://127.0.0.1:8103/actuator/prometheus`，能看到 `jvm_memory_used_bytes`。业务端口不变，本机 Nginx 作品站仍可使用 8102。已按旧示例抓取 8102 的实例，升级时将 Prometheus 的目标同步改为 8103；若自行指定 `management.server.port`，则以该端口为准。如启动命令用 `spring.config.location` **替换**了默认配置目录，须让它同时加载 classpath，或在私有配置中用 `spring.config.import: "classpath:/application-monitoring.yml"` 导入管理端口设置。
-2. 在已有 Prometheus 的配置里加入 [xy-backend 抓取任务](prometheus.yml)。这里的 `127.0.0.1` 指后端宿主机；独立容器的回环地址不是宿主机。Targets 中 `xy-backend` 为 UP，且查询 `up{job="xy-backend"}` 返回 1，才表示抓取成功。无需向公网开放 8102。
+2. 在已有 Prometheus 的配置里加入 [xy-backend 抓取任务](prometheus.yml)。这里的 `127.0.0.1` 指后端宿主机；独立容器的回环地址不是宿主机。Targets 中 `xy-backend` 为 UP，且查询 `up{job="xy-backend"}` 返回 1，才表示抓取成功。管理端口仅供内网抓取，不向公网开放。
 3. 在已有 Grafana 中添加该 Prometheus 为数据源，测试连接。在 **Dashboards → New → Import** 上传 [xy-ai-dashboard.json](xy-ai-dashboard.json)。在看板的「Prometheus」下拉框选择刚才的数据源。模型调用后，等待一次抓取即可查看累计值；选择 1 分钟窗口时，监控至少要有 1 分钟历史才会显示趋势。
 
 | 看什么 | 看板如何统计 |

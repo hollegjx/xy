@@ -8,8 +8,9 @@ import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import dev.langchain4j.agent.tool.ToolSpecification;
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -22,9 +23,8 @@ final class VueLogoComponents {
     static final ToolSpecification TOOL = VueAssetTool.describe(LogoTool.class);
     record Drawing(String path, String brand, CompletableFuture<Optional<String>> source) {}
     record Use(Drawing drawing, String purpose) {}
-    private record DrawingKey(VueBrandLogo.DesignKey design, boolean drawable) {}
-
-    private final Map<DrawingKey, Drawing> drawings = new LinkedHashMap<>();
+    private final Map<VueBrandLogo.DesignKey, Drawing> drawings = new HashMap<>();
+    private final List<String> reservedPaths = new ArrayList<>();
     private final Set<String> written = new HashSet<>();
 
     Use prepare(String arguments, ObjectMapper mapper, ArtworkProviders artwork, Executor executor) {
@@ -42,7 +42,8 @@ final class VueLogoComponents {
             var result = VueAssetTool.call(new LogoTool(mapper, artwork, executor), call, Use.class);
             if (result.isPresent()) return result.get();
         }
-        return reserve(request.retain("name", "brief", "layers"), purpose, mapper, artwork, executor, false);
+        // 没有可复用的图，但这个用途已经占了位置。后面的品牌不能用它的文件名。
+        return new Use(new Drawing(nextPath(), "", CompletableFuture.completedFuture(Optional.empty())), purpose);
     }
 
     private final class LogoTool {
@@ -61,29 +62,33 @@ final class VueLogoComponents {
             var design = mapper.createObjectNode().put("name", name);
             if (brief != null) design.put("brief", brief);
             if (layers != null) design.set("layers", mapper.valueToTree(layers));
-            return reserve(design, purpose == null ? "" : purpose.strip(), mapper, artwork, executor, true);
+            return reserve(design, purpose == null ? "" : purpose.strip(), mapper, artwork, executor);
         }
     }
 
-    private Use reserve(ObjectNode design, String purpose, ObjectMapper mapper, ArtworkProviders artwork, Executor executor, boolean drawable) {
-        var drawing = drawings.computeIfAbsent(new DrawingKey(VueBrandLogo.designKey(design), drawable), key -> {
-            String brand = key.design().name();
-            String path = drawings.isEmpty() ? VueBrandLogo.COMPONENT : "src/components/XyLogo" + (drawings.size() + 1) + ".vue";
-            var source = !drawable ? CompletableFuture.completedFuture(Optional.<String>empty()) : CompletableFuture.supplyAsync(() -> {
+    private Use reserve(ObjectNode design, String purpose, ObjectMapper mapper, ArtworkProviders artwork, Executor executor) {
+        var drawing = drawings.computeIfAbsent(VueBrandLogo.designKey(design), key -> {
+            String path = nextPath();
+            var source = CompletableFuture.supplyAsync(() -> {
                 String json = design.toString();
                 var image = artwork.rendersLogo() ? artwork.logoImage(mapper, json) : Optional.<String>empty();
                 return image.map(img -> "<template>" + img + "</template>").or(() -> VueBrandLogo.render(mapper, json));
             }, executor);
-            return new Drawing(path, brand, source);
+            return new Drawing(path, key.name(), source);
         });
         return new Use(drawing, purpose);
+    }
+
+    private String nextPath() {
+        String path = reservedPaths.isEmpty() ? VueBrandLogo.COMPONENT : "src/components/XyLogo" + (reservedPaths.size() + 1) + ".vue";
+        reservedPaths.add(path);
+        return path;
     }
 
     boolean firstWrite(String path) { return written.add(path); }
 
     String missingReference(Map<String, String> sources) {
-        for (var drawing : drawings.values()) {
-            String path = drawing.path();
+        for (String path : reservedPaths) {
             if (!sources.containsKey(path) && VueComponentReferences.references(sources, path))
                 return "页面仍引用不存在的 " + path.substring(path.lastIndexOf('/') + 1) + "，请改用品牌文字或补全组件后重试";
         }

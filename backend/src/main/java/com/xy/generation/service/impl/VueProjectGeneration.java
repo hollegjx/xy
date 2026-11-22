@@ -138,9 +138,7 @@ final class VueProjectGeneration implements GenerationSession.OutputHandler {
                 addAsset(calls, "findPhoto", item, item.purpose());
         }
         for (var item : plan.illustrations()) addAsset(calls, "selectIllustration", item, item.purpose());
-        // 耗尽一次修正仍没有有效关系的图，走既有的「改用文字」提示，不生成空组件。
-        for (var item : plan.architectures())
-            addAsset(calls, "drawArchitecture", item.design() == null ? mapper.createObjectNode() : item.design(), item.purpose());
+        for (var item : plan.architectures()) addAsset(calls, "drawArchitecture", item.design(), item.purpose());
         for (var item : plan.logos()) addAsset(calls, "generateLogo", item.design(), item.purpose());
         prepareAssets(calls, ASSET_SPECIFICATIONS, session, history);
         if (session.isRunning() && assetPrompt.size() > 0) {
@@ -152,8 +150,8 @@ final class VueProjectGeneration implements GenerationSession.OutputHandler {
     }
 
     private void addAsset(List<ToolExecutionRequest> calls, String tool, Object design, String purpose) {
-        if (design == null) return;
-        ObjectNode args = mapper.valueToTree(design);
+        // 预定位置即使没有有效设计也交给素材工具处理，不让其他品牌顶替。
+        ObjectNode args = design == null ? mapper.createObjectNode() : mapper.valueToTree(design);
         if (purpose != null) args.put("purpose", purpose);
         calls.add(ToolExecutionRequest.builder().id("plan-" + calls.size()).name(tool).arguments(args.toString()).build());
     }

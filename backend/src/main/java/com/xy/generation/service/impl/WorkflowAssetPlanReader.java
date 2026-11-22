@@ -64,7 +64,6 @@ final class WorkflowAssetPlanReader {
     private List<WorkflowAssetPlan.LogoTask> logos() {
         var tasks = new ArrayList<WorkflowAssetPlan.LogoTask>();
         for (var item : items(root, "logos")) {
-            if (!item.isObject()) continue;
             var raw = item.path("design");
             WorkflowAssetPlan.Logo design = null;
             if (VueBrandLogo.acceptsDesign(raw)) {

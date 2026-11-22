@@ -1428,6 +1428,46 @@ class GenerationControllerTest {
         }
     }
 
+    @ParameterizedTest
+    @ValueSource(ints = {1, 2, 3})
+    void failedPlannedLogosNeverTakeAnotherBrandsComponent(int referencedSlot) throws Exception {
+        when(appMapper.selectOneById(55L)).thenReturn(app(42L, "vue_project"));
+        planReturns("""
+                {"logos":[{"purpose":"主品牌","design":{"name":"主办方","layers":[{"shape":"circle","color":"#111111","coordinates":[50,50,0]}]}},
+                          {"purpose":"协办方","design":{"name":"协会","layers":[{"shape":"circle","color":"#222222","coordinates":[50,50,"9"]}]}},
+                          {"purpose":"赞助商","design":{"name":"蓝鲸","layers":[{"shape":"circle","color":"#336699","coordinates":[50,50,19]}]}},
+                          {"purpose":"页尾赞助","design":{"name":"蓝鲸","layers":[{"shape":"circle","color":"#336699","coordinates":[50,50,19]}]}}]}
+                """);
+        String component = "XyLogo" + (referencedSlot == 1 ? "" : referencedSlot) + ".vue";
+        String page = "<script setup>\nimport Mark from './components/" + component + "'\n</script>\n"
+                + (referencedSlot == 3 ? "<template><main>主办方 · 协会<footer><Mark/></footer></main></template>"
+                        : "<template><main id='main-brand'><Mark/></main></template>");
+        var writes = new AtomicInteger();
+        doAnswer(call -> {
+            ChatRequest request = call.getArgument(0);
+            var handler = call.<StreamingChatResponseHandler>getArgument(1);
+            if (request.toolSpecifications() == null || request.toolSpecifications().isEmpty())
+                handler.onCompleteResponse(response("{\"isValid\":true,\"errors\":[],\"suggestions\":[]}", FinishReason.STOP));
+            else if (writes.getAndIncrement() == 0)
+                handler.onCompleteResponse(ChatResponse.builder().finishReason(FinishReason.TOOL_EXECUTION)
+                        .aiMessage(AiMessage.from(writeFile("src/App.vue", page))).build());
+            else handler.onCompleteResponse(response("完成", FinishReason.STOP));
+            return null;
+        }).when(model).chat(nonDraftRequest(), any(StreamingChatResponseHandler.class));
+        String events = finish(mockMvc.perform(generate().session(session())
+                .content(objectMapper.writeValueAsString(Map.of("prompt", "摄影作品集", "qualityCheck", true)))).andReturn());
+        if (referencedSlot != 3) {
+            assertThat(events).contains("event:failed", "仍引用不存在的 " + component).doesNotContain("event:completed");
+            verify(persistence, never()).complete(any(Long.class), any(Long.class), any(Long.class), any());
+        } else {
+            assertThat(events).contains("event:completed", "已复用品牌 Logo").doesNotContain("event:failed");
+            var zip = unzipSources(fileManager.readVueSourceZip(42, 55, generationId));
+            assertThat(zip).containsEntry("src/App.vue", page).doesNotContainKeys(
+                    "src/components/XyLogo.vue", "src/components/XyLogo2.vue", "src/components/XyLogo4.vue");
+            assertThat(zip.get("src/components/XyLogo3.vue")).contains("蓝鲸", "#336699");
+        }
+    }
+
     private ToolExecutionRequest brandTool(String id, String brand, String purpose, String color, int radius) throws IOException {
         var design = Map.of("name", brand, "purpose", purpose, "layers",
                 List.of(Map.of("shape", "circle", "coordinates", List.of(50, 50, radius), "color", color)));

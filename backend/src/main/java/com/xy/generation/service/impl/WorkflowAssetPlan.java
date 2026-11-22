@@ -14,8 +14,7 @@ import java.util.concurrent.CompletableFuture;
 
 /** 规划只描述页面需要什么；生成模式决定怎么取得素材、以及页面最终引用哪些文件。 */
 record WorkflowAssetPlan(List<Themed> photos, List<Themed> illustrations, List<LogoTask> logos, List<DiagramTask> architectures) {
-    record Layer(String shape, String color, List<Integer> coordinates) {}
-    record Logo(String name, String brief, List<Layer> layers) {}
+    record Logo(String name, String brief, List<VueBrandLogo.Layer> layers) {}
     record Themed(String theme, String purpose) {}
     record LogoTask(String purpose, Logo design) {}
     record DiagramTask(String purpose, VueArchitectureDiagram.Diagram design) {}

@@ -22,6 +22,26 @@ import static org.mockito.Mockito.*;
 
 class ArtworkProvidersTest {
     @Test
+    void malformedLogoCoordinatesDoNotReachTheProviderOrBlockTheNextDrawing() {
+        var provider = mock(ArtworkProviders.class);
+        when(provider.rendersLogo()).thenReturn(true);
+        when(provider.logoImage(any(), anyString())).thenReturn(Optional.of("<img alt='星云'>"));
+        var vue = new VueLogoComponents();
+        var json = new ObjectMapper();
+        String valid = """
+                {"name":"星云","purpose":"私有页首","layers":[{"shape":"circle","color":"#112288","coordinates":[50,50,10]}]}""";
+        for (var coords : List.of("[50,50,\"10\"]", "[50,50,10.5]")) {
+            var rejected = vue.prepare(valid.replace("[50,50,10]", coords), json, provider, Runnable::run);
+            assertThat(rejected.drawing().source().join()).isEmpty();
+        }
+        verifyNoInteractions(provider);
+        var delivered = vue.prepare(valid, json, provider, Runnable::run);
+        assertThat(delivered.purpose()).isEqualTo("私有页首");
+        assertThat(delivered.drawing().source().join()).get().asString().contains("星云");
+        verify(provider).logoImage(eq(json), argThat(args -> args.contains("[50,50,10]") && !args.contains("私有页首")));
+    }
+
+    @Test
     void equivalentLogoRequestsReuseTheSameDrawingAndVueComponent() {
         var mapper = new ObjectMapper();
         var provider = mock(ArtworkProviders.class);

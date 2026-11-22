@@ -13,6 +13,11 @@ import com.xy.manager.VueProjectBuildManager;
 import com.xy.user.mapper.UserMapper;
 import com.xy.user.model.entity.User;
 import dev.langchain4j.agent.tool.ToolExecutionRequest;
+import dev.langchain4j.agent.tool.ToolSpecification;
+import dev.langchain4j.model.chat.request.json.JsonArraySchema;
+import dev.langchain4j.model.chat.request.json.JsonEnumSchema;
+import dev.langchain4j.model.chat.request.json.JsonIntegerSchema;
+import dev.langchain4j.model.chat.request.json.JsonObjectSchema;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.SystemMessage;
@@ -759,24 +764,7 @@ class GenerationControllerTest {
                 assertThat(request.toolSpecifications()).extracting("name")
                         .containsExactlyInAnyOrder("listFiles", "readFile", "writeFile", "replaceFragment", "deleteComponent",
                                 "findPhoto", "selectIllustration", "drawArchitecture", "generateLogo");
-                var themes = Map.of("findPhoto", List.of("architecture", "art", "coffee", "food", "nature", "reading", "technology", "travel"),
-                        "selectIllustration", List.of("analytics", "reading", "teamwork"));
-                for (var tool : request.toolSpecifications()) if (themes.containsKey(tool.name())) {
-                    var params = tool.parameters();
-                    assertThat(params.properties()).containsOnlyKeys("theme", "purpose");
-                    assertThat(params.required()).containsExactly("theme");
-                    assertThat(params.additionalProperties()).isFalse();
-                    var theme = (dev.langchain4j.model.chat.request.json.JsonEnumSchema) params.properties().get("theme");
-                    assertThat(theme.enumValues()).containsExactlyInAnyOrderElementsOf(themes.get(tool.name()));
-                }
-                var graph = request.toolSpecifications().stream().filter(t -> t.name().equals("drawArchitecture")).findFirst().orElseThrow().parameters();
-                assertThat(graph.properties()).containsOnlyKeys("nodes", "edges", "purpose");
-                assertThat(graph.required()).containsExactlyInAnyOrder("nodes", "edges");
-                var edges = (dev.langchain4j.model.chat.request.json.JsonArraySchema) graph.properties().get("edges");
-                var edge = (dev.langchain4j.model.chat.request.json.JsonObjectSchema) edges.items();
-                assertThat(edge.properties()).containsOnlyKeys("from", "to", "label");
-                assertThat(edge.required()).containsExactlyInAnyOrder("from", "to");
-                assertThat(edge.additionalProperties()).isFalse();
+                assertAssetToolParameters(request.toolSpecifications());
                 handler.onCompleteResponse(ChatResponse.builder().finishReason(FinishReason.TOOL_EXECUTION)
                         .aiMessage(AiMessage.from(List.of(writeFile("src/App.vue", source),
                                 writeFile("src/components/Card.vue", "<template>作品集</template>")))).build());
@@ -812,6 +800,36 @@ class GenerationControllerTest {
         Files.delete(htmlPath().resolveSibling("src/App.vue"));
         mockMvc.perform(get("/api/apps/55/source").contextPath("/api").session(session()))
                 .andExpect(status().isNotFound()).andExpect(content().contentType("application/json"));
+    }
+
+    private static void assertAssetToolParameters(List<ToolSpecification> offered) {
+        var params = new LinkedHashMap<String, JsonObjectSchema>();
+        offered.forEach(tool -> params.put(tool.name(), tool.parameters()));
+        var themes = Map.of("findPhoto", List.of("architecture", "art", "coffee", "food", "nature", "reading", "technology", "travel"),
+                "selectIllustration", List.of("analytics", "reading", "teamwork"));
+        themes.forEach((tool, choices) -> {
+            var themed = params.get(tool);
+            assertThat(themed.properties()).containsOnlyKeys("theme", "purpose");
+            assertThat(themed.required()).containsExactly("theme");
+            assertThat(themed.additionalProperties()).isFalse();
+            assertThat(((JsonEnumSchema) themed.properties().get("theme")).enumValues()).containsExactlyInAnyOrderElementsOf(choices);
+        });
+        var graph = params.get("drawArchitecture");
+        assertThat(graph.properties()).containsOnlyKeys("nodes", "edges", "purpose");
+        assertThat(graph.required()).containsExactlyInAnyOrder("nodes", "edges");
+        var edge = (JsonObjectSchema) ((JsonArraySchema) graph.properties().get("edges")).items();
+        assertThat(edge.properties()).containsOnlyKeys("from", "to", "label");
+        assertThat(edge.required()).containsExactlyInAnyOrder("from", "to");
+        assertThat(edge.additionalProperties()).isFalse();
+
+        var logo = params.get("generateLogo");
+        assertThat(logo.properties()).containsOnlyKeys("name", "layers", "brief", "purpose");
+        assertThat(logo.required()).containsExactlyInAnyOrder("name", "layers");
+        var layer = (JsonObjectSchema) ((JsonArraySchema) logo.properties().get("layers")).items();
+        assertThat(layer.required()).containsExactlyInAnyOrder("shape", "color", "coordinates");
+        assertThat(layer.additionalProperties()).isFalse();
+        assertThat(((JsonEnumSchema) layer.properties().get("shape")).enumValues()).containsExactlyInAnyOrder("circle", "polygon", "line");
+        assertThat(((JsonArraySchema) layer.properties().get("coordinates")).items()).isInstanceOf(JsonIntegerSchema.class);
     }
 
     @Test

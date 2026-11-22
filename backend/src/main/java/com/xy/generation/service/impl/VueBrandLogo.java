@@ -1,14 +1,13 @@
 package com.xy.generation.service.impl;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import dev.langchain4j.agent.tool.ToolSpecification;
-import dev.langchain4j.model.chat.request.json.JsonArraySchema;
-import dev.langchain4j.model.chat.request.json.JsonIntegerSchema;
-import dev.langchain4j.model.chat.request.json.JsonObjectSchema;
+import dev.langchain4j.model.output.structured.Description;
 import java.awt.geom.Area;
 import java.awt.geom.Path2D;
 import java.util.List;
@@ -19,20 +18,13 @@ import org.springframework.web.util.HtmlUtils;
 
 final class VueBrandLogo {
     static final String COMPONENT = "src/components/XyLogo.vue";
-    static final ToolSpecification TOOL = ToolSpecification.builder().name("generateLogo")
-            .description("写源码前为一处品牌标志提供名称、意象和配色。多个品牌可同批分别调用，相同设计在不同位置复用。")
-            .parameters(JsonObjectSchema.builder().addStringProperty("name", "品牌名称，用作图片的无障碍名称")
-                    .addStringProperty("purpose", "标志在页面中的用途或位置，仅用于页面编排")
-                    .addStringProperty("brief", "可选的图形意象或风格，不含用户原始需求或其他个人信息")
-                    .addProperty("layers", JsonArraySchema.builder().description("100×100 透明画布，从底到顶依次绘制")
-                            .items(JsonObjectSchema.builder()
-                                    .addEnumProperty("shape", List.of("polygon", "line", "circle"), "实心多边形、折线或实心圆")
-                                    .addStringProperty("color", "六位十六进制色值，如 #265D72")
-                                    .addProperty("coordinates", JsonArraySchema.builder()
-                                            .description("0–100 整数。多边形沿轮廓给至少三对 x,y，折线至少两对；圆为 [圆心x,圆心y,半径]")
-                                            .items(JsonIntegerSchema.builder().build()).build())
-                                    .required("shape", "color", "coordinates").additionalProperties(false).build()).build())
-                    .required("name", "layers").additionalProperties(false).build()).build();
+    enum Shape { polygon, line, circle }
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record Layer(@JsonProperty(required = true) @Description("实心多边形、折线或实心圆") Shape shape,
+            @JsonProperty(required = true) @Description("六位十六进制色值，如 #265D72") String color,
+            @JsonProperty(required = true) @Description("0–100 整数：多边形至少三对 x,y，折线至少两对；圆为 [圆心x,圆心y,半径]")
+            List<Integer> coordinates) {}
 
     record DesignKey(String name, String brief, JsonNode layers) {}
 

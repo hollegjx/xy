@@ -1,0 +1,40 @@
+services:
+  app:
+    environment:
+      XY_COVER_ENABLED: 'true'
+      XY_DEPLOYMENT_PUBLICURL: ${XY_COMPOSE_PUBLIC_URL:-}
+
+  screenshot:
+    build: {context: ../../backend, dockerfile: Dockerfile.services, target: screenshot}
+    depends_on:
+      nacos: {condition: service_healthy}
+      renderer: {condition: service_healthy}
+    environment: {JAVA_TOOL_OPTIONS: '-XX:ActiveProcessorCount=2 -Xmx256m'}
+    group_add: ['1000']
+    volumes: ['cover-socket:/run/xy-cover:ro']
+    command:
+      - --dubbo.registry.address=nacos://nacos:8848
+      - --dubbo.registry.use-as-config-center=false
+      - --dubbo.protocol.host=
+      - --xy.screenshot.renderer-socket=/run/xy-cover/render.sock
+
+  renderer:
+    build: {context: ../../backend/cover-renderer, target: socket-renderer}
+    network_mode: none
+    read_only: true
+    init: true
+    cap_drop: [ALL]
+    security_opt: ['no-new-privileges:true']
+    mem_limit: 512m
+    cpus: 1
+    pids_limit: 128
+    tmpfs: ['/tmp:size=128m,mode=1777']
+    volumes: ['cover-socket:/run/xy-cover']
+    healthcheck:
+      test: [CMD, test, -S, /run/xy-cover/render.sock]
+      interval: 2s
+      timeout: 2s
+      retries: 15
+
+volumes:
+  cover-socket:

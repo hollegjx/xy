@@ -12,6 +12,14 @@ docker compose -f ops/compose/compose.yaml up -d --build
 
 打开 `http://127.0.0.1:8080/api/doc.html`。切到 `xy-user` 注册、登录，切到 `xy-app` 调创建应用并取回详情。账号请求走用户服务，应用服务读同一 Redis 会话并通过 Nacos 发现用户的 Dubbo 实例。退出后原 Cookie 在两边都失效。若端口被占用可另设 `XY_COMPOSE_PORT`。普通停机使用 `docker compose -f ops/compose/compose.yaml down`，保留数据库、会话及作品卷。
 
-HTTP 登记进程将两个服务名解析为容器实际 IP，新端口可以连接后再撤旧登记。这一组 Nacos 专供本 Compose 使用。独立网关规则复用 [Higress 配置](../gateway/README.md)。此编排默认关闭真实模型、Vue 构建和封面截图；当前范围是两项对外提供 HTTP 的后端，尚不包含独立截图执行环境或公网静态站。
+HTTP 登记进程将两个服务名解析为容器实际 IP，新端口可以连接后再撤旧登记。这一组 Nacos 专供本 Compose 使用。独立网关规则复用 [Higress 配置](../gateway/README.md)。默认关闭真实模型、Vue 构建和封面截图。
 
-隔离测试命令：`XY_TEST_COMPOSE=1 python3 -Bu ops/compose/test_compose.py -v`。测试自己创建随机项目和空卷，使用真实服务、随机端口和密码；结束仅清理自己的项目。
+需要发布时自动生成封面，先将 `XY_COMPOSE_PUBLIC_URL` 设为自己实际配置的作品站来源；该站须能读取应用卷中的 `published/`，且不与平台使用相同主机名。再执行：
+
+```sh
+docker compose -f ops/compose/compose.yaml -f ops/compose/covers.yaml up -d --build
+```
+
+应用通过 Nacos 找到截图服务，由 Dubbo 传入本次发布的快照。截图服务通过只在两个容器间共享的 Unix 套接字将 HTML 送入 Chromium，取回 960×540 JPEG。渲染器没有网络、数据库密码、宿主 Docker 套接字或作品目录，每页使用新的 Chromium 进程。停机使用相同的两份配置执行 `down`。
+
+隔离测试命令：`XY_TEST_COMPOSE=1 python3 -Bu ops/compose/test_compose.py -v`。加上 `XY_TEST_COMPOSE_COVERS=1` 时，会在测试库准备一份成功稿，经网关发布、设为精选，再匿名下载封面，解码并核对尺寸及左右两块颜色。测试自己创建随机项目和空卷；不向模型发请求，不访问公网作品站。

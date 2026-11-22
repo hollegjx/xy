@@ -6,6 +6,8 @@ on:
       - 'ops/gateway/higress/**'
       - 'ops/gateway/nacos_http.py'
       - 'backend/Dockerfile.services*'
+      - 'backend/cover-renderer/**'
+      - 'backend/services/screenshot/**'
       - 'backend/services/**/src/main/resources/**'
       - 'backend/src/main/resources/application*.properties'
       - 'backend/sql/**'
@@ -21,8 +23,8 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - name: Compose with real MySQL, Redis, Nacos, Higress and both backends
-        env: {XY_TEST_COMPOSE: '1'}
+      - name: Publish and read a real cover through Higress using the isolated Chromium worker
+        env: {XY_TEST_COMPOSE: '1', XY_TEST_COMPOSE_COVERS: '1'}
         run: |
           # In this clean CI checkout, prove that an IDE-only profile cannot leak into the service image.
           test ! -e backend/src/main/resources/application.yml

@@ -12,7 +12,10 @@ import unittest
 @unittest.skipUnless(os.getenv("XY_TEST_COMPOSE") == "1", "需要隔离的 Linux Docker Compose")
 class ComposeTest(unittest.TestCase):
     def compose(self, *args, output=False):
-        return subprocess.run(["docker", "compose", "-p", self.project, "-f", str(self.file), *args],
+        files = ["-f", str(self.file)]
+        if self.covers:
+            files += ["-f", str(self.file.with_name("covers.yaml"))]
+        return subprocess.run(["docker", "compose", "-p", self.project, *files, *args],
                               env=self.env, check=True, text=True, timeout=1100,
                               stdout=subprocess.PIPE if output else None).stdout
 
@@ -48,8 +51,11 @@ class ComposeTest(unittest.TestCase):
     def test_login_and_private_app_use_real_services_through_one_gateway(self):
         self.project = "xy-smoke-" + secrets.token_hex(6)
         self.file = Path(__file__).with_name("compose.yaml")
+        self.covers = os.getenv("XY_TEST_COMPOSE_COVERS") == "1"
         self.env = dict(os.environ, XY_COMPOSE_DB_PASSWORD=secrets.token_hex(24),
                         XY_COMPOSE_DB_ROOT_PASSWORD=secrets.token_hex(24), XY_COMPOSE_PORT="0")
+        if self.covers:
+            self.env["XY_COMPOSE_PUBLIC_URL"] = "https://works.invalid"
         self.addCleanup(self.compose, "down", "--volumes", "--remove-orphans")
         try:
             self.compose("config", "--quiet")
@@ -73,6 +79,9 @@ class ComposeTest(unittest.TestCase):
             path = "/apps/" + app_id
             _, app = self.expect(path, 200, 0, cookie=cookie)
             self.assertEqual((app["userId"], app["codeGenType"]), (user_id, "html"))
+            if self.covers:
+                from cover_acceptance import verify_published_cover
+                verify_published_cover(self, int(user_id), int(app_id), cookie)
             # 如果应用仍在本机查身份，这里会错误地继续返回 200。
             self.compose("stop", "user")
             self.expect(path, 503, 50300, cookie=cookie, wait=90)

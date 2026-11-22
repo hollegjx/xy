@@ -16,3 +16,9 @@ COPY --from=package /src/target/xy-backend-*.jar /opt/xy/service.jar
 
 FROM runtime AS user
 COPY --from=package /src/services/user/target/xy-user-service-*.jar /opt/xy/service.jar
+
+FROM runtime AS screenshot
+USER root
+RUN install -d -o 1000 -g 1000 -m 0750 /run/xy-cover
+USER xy
+COPY --from=package /src/services/screenshot/target/xy-screenshot-service-*.jar /opt/xy/service.jar

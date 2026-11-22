@@ -977,6 +977,48 @@ class GenerationControllerTest {
         verifyNoInteractions(photoSearch);
     }
 
+    @Test
+    void keepsGoodAssetsAndGoodCorrectionsWhenSiblingDesignsHaveMalformedFields() throws Exception {
+        when(appMapper.selectOneById(55L)).thenReturn(app(42L, "vue_project"));
+        planReturns("""
+                {"illustrations":[{"theme":"reading","purpose":"欢迎区"}],"logos":[
+                  {"design":{"name":"书屋","layers":[{"shape":"circle","color":"#24516B","coordinates":[50,50,30]}]}},
+                  {"design":{"name":"坏图案","layers":[{"shape":"circle","color":"#24516B","coordinates":[50,50,{"radius":35}]}]}}],
+                 "architectures":[{"purpose":"已有好图","design":{"nodes":["首页","书架"],"edges":[{"from":"首页","to":"书架"}]}},
+                  {"purpose":"借阅","design":{"nodes":["书店","书目"],"edges":["书店 → 书目"],"notes":"内部草稿"}},
+                  {"purpose":"归还","design":{"nodes":["书柜","前台"],"edges":[{"from":"书柜","to":"不存在"}]}}]}""");
+        var corrections = new AtomicInteger();
+        doAnswer(call -> {
+            ChatRequest request = call.getArgument(0);
+            var handler = call.<StreamingChatResponseHandler>getArgument(1);
+            if (((SystemMessage) request.messages().getFirst()).text().contains("只修正所列架构图")) {
+                assertThat(((UserMessage) request.messages().getLast()).singleText())
+                        .contains("借阅", "书店 → 书目", "归还").doesNotContain("已有好图", "欢迎区", "书屋", "内部草稿");
+                corrections.incrementAndGet();
+                handler.onCompleteResponse(response("""
+                        {"diagrams":[{"index":2,"design":{"nodes":["书柜","前台"],"edges":["书柜 → 前台"]}},
+                          {"index":0,"design":{"nodes":["不应","替换"],"edges":[{"from":"不应","to":"替换"}]}},
+                          {"index":1,"design":{"nodes":["书店","书目"],"edges":[{"from":"书店","to":"书目"}]}}]}""", FinishReason.STOP));
+            } else if (request.toolSpecifications() == null || request.toolSpecifications().isEmpty()) {
+                handler.onCompleteResponse(response("{\"isValid\":true,\"errors\":[],\"suggestions\":[]}", FinishReason.STOP));
+            } else if (request.messages().getLast() instanceof UserMessage user) {
+                assertThat(user.singleText()).contains("欢迎区", "已有好图", "借阅", "XyLogo.vue").doesNotContain("坏图案", "XyArchitecture3.vue");
+                handler.onCompleteResponse(ChatResponse.builder().finishReason(FinishReason.TOOL_EXECUTION)
+                        .aiMessage(AiMessage.from(writeFile("src/App.vue", "<template>书屋</template>"))).build());
+            } else handler.onCompleteResponse(response("完成", FinishReason.STOP));
+            return null;
+        }).when(model).chat(nonDraftRequest(), any(StreamingChatResponseHandler.class));
+        var events = finish(mockMvc.perform(generate().session(session())
+                .content("{\"prompt\":\"摄影作品集\",\"qualityCheck\":true}")).andReturn());
+        assertThat(events).contains("改用文字说明", "event:completed");
+        assertThat(corrections).hasValue(1);
+        var zip = unzipSources(fileManager.readVueSourceZip(42, 55, generationId));
+        assertThat(zip).containsKeys("src/components/XyIllustration.vue", "src/components/XyLogo.vue")
+                .doesNotContainKeys("src/components/XyLogo2.vue", "src/components/XyArchitecture3.vue");
+        assertThat(zip.get("src/components/xy-architecture.json")).contains("首页", "书架");
+        assertThat(zip.get("src/components/xy-architecture-2.json")).contains("书店", "书目");
+    }
+
     @ParameterizedTest
     @ValueSource(strings = {"found", "missing", "cancelled"})
     void localIllustrationIsReadyWhilePhotoIsPendingAndCodeWaitsForTheBatch(String outcome) throws Exception {

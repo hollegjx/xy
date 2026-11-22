@@ -19,6 +19,8 @@
 | 13 可观测性 | ARMS 系统探针；Actuator/Micrometer、LangChain4j 监听器、Prometheus 与 Grafana 业务监控 | [AI 调用监听](../backend/src/main/java/com/xy/manager/AiModelMetrics.java)覆盖分类、原生与 Vue，按用户/应用/模型记录次数、耗时、用量与失败。已有[独立抓取端口、Prometheus 配置与 Grafana 看板](../ops/monitoring/README.md)。本机验证了真 SDK 走模型替身、抓取格式和看板查询；未开通 ARMS，也未计作 gc 已运行监控服务。 |
 | 14 微服务改造 | 服务拆分、Nacos、Dubbo、Higress 等 | [Maven 父工程](../backend/pom.xml)已拆出公共代码、用户模型、内部接口和截图渲染库。[截图服务](../backend/services/screenshot)可单独启动；平台既可本机截图，也可用 Dubbo 3.3 的 Triple 协议传递快照、取回 JPEG。[用户服务](../backend/services/user)可独立接收应用发来的账号 ID，用同一套 MyBatis-Flex 查询返回当前角色；账号已删除时返回空。两种服务均用不同 JVM 验证了 Triple 直连。用户服务还提供七个账号 HTTP 接口，与应用平台共用 Redis 会话。删号涉及作品下线和跨表事务，保留在平台。两个提供方可选择向 Nacos 登记 Triple 实例；平台的 `nacos` profile 使用 `@DubboReference` 按应用名订阅，新实例可以更换端口。应用已从独立的 [AI 生成库](../backend/modules/ai) 调用 HTML 和多文件的流式模型及输出护轨，三种模式也从该库取得质检报告。Vue 调用库里的[五个源码工具](../backend/modules/ai/src/main/java/com/xy/generation/service/impl/VueSourceTools.java)，平台绑定本轮草稿并保留素材、版本与工作流编排。已按教程「服务来源配置」提供[单独登记 HTTP 实例的命令](../ops/gateway/README.md)，Nacos 的 xy-http 组只放面向浏览器的地址。[Higress 分流](../ops/gateway/higress/ingresses)按路径和 HTTP 方法把账号请求送用户服务、删号和生成送应用服务；隔离 Docker 测试验证 Nacos 实例切换及 SSE，公网启用单独验收。共享 Session 和模型记忆不意味着运行中生成任务能跨实例接管。 |
 
+第 10 章里每一处素材都有自己的用途。XY 按项读取规划和修正回复：例如借阅流程的连线格式错误，仍能交付欢迎区的插画和品牌 Logo；只有借阅流程送回修正一次。一次回复里同时修了两张图，只采用各自通过校验的结果。
+
 **插画服务的限制。** [unDraw 当前许可](https://undraw.co/license)要求集成、自动检索或抓取事先获得同意；本项目未提供此授权。未复用教程里的私有前端接口，没有把三幅本地插画记作已完成 unDraw 搜索。
 
 **第 14 章的 Redis 驱动。** 本地正文中，用户服务、应用服务的依赖都排除了 Lettuce，使用 Jedis 连接池。XY 原来用了 Spring Session 和 Spring Cache，但驱动仍是 Lettuce；现在这两项和 Redis 对话记忆均使用 Spring Data Redis 的 Jedis 连接池，分布式限流仍使用独立的 Redisson。两个 Spring 实例的共享登录测试会检查实际连接工厂和池化状态。

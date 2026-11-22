@@ -145,7 +145,9 @@ final class VueProjectGeneration implements GenerationSession.OutputHandler {
                 addAsset(calls, "findPhoto", item, item.purpose());
         }
         for (var item : plan.illustrations()) addAsset(calls, "selectIllustration", item, item.purpose());
-        for (var item : plan.architectures()) addAsset(calls, "drawArchitecture", item.design(), item.purpose());
+        // 耗尽一次修正仍没有有效关系的图，走既有的「改用文字」提示，不生成空组件。
+        for (var item : plan.architectures())
+            addAsset(calls, "drawArchitecture", item.design() == null ? mapper.createObjectNode() : item.design(), item.purpose());
         for (var item : plan.logos()) addAsset(calls, "generateLogo", item.design(), item.purpose());
         prepareAssets(calls, ASSET_SPECIFICATIONS, session, history);
         if (session.isRunning() && assetPrompt.size() > 0) {

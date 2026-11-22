@@ -8,6 +8,7 @@ on:
       - 'backend/Dockerfile.services*'
       - 'backend/cover-renderer/**'
       - 'backend/nginx-published.inc'
+      - 'backend/nginx.example.conf'
       - 'backend/services/screenshot/**'
       - 'backend/services/**/src/main/resources/**'
       - 'backend/src/main/resources/application*.properties'

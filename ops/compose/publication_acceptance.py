@@ -3,6 +3,7 @@ import base64
 from dataclasses import dataclass
 import http.client
 import json
+from pathlib import Path
 import subprocess
 import tempfile
 import time
@@ -75,6 +76,22 @@ def verify_site_in_browser(test, publication, chrome):
     test.assertEqual(result.returncode, 0, "访客浏览器未能打开分享链接")
     # 原始 HTML 中只有 loading；此处的版本号由作品内的脚本写进可见 DOM。
     test.assertIn(f'<output id="xy-state">rendered:{publication.version}</output>', result.stdout)
+
+
+def verify_manual_site_example(test, publication):
+    backend = Path(__file__).resolve().parents[2] / "backend"
+    example = (backend / "nginx.example.conf").read_text().replace(
+        "/ABSOLUTE/PATH/TO/xy/backend/published", "/srv/works").replace(
+        "/ABSOLUTE/PATH/TO/xy/backend/nginx-published.inc", "/etc/nginx/xy-published.inc")
+    # 在一次性容器内使用示例原本的 127.0.0.1:8102；不占宿主机端口。
+    test.compose("run", "--rm", "--no-deps", "-T", "--entrypoint", "sh", "site", "-ec", r"""
+        printf '%s\n' "$1" > /tmp/xy-example.conf
+        sed 's|/etc/nginx/conf.d/\*.conf|/tmp/xy-example.conf|' /etc/nginx/nginx.conf > /tmp/xy-nginx.conf
+        nginx -c /tmp/xy-nginx.conf
+        url="http://127.0.0.1:8102$2"
+        test "$(curl -sS -o /dev/null -w '%{http_code}' "$url")" = 200
+        test "$(curl -sS -H 'Host: localhost:8102' -o /dev/null -w '%{http_code}' "$url")" = 404
+        """, "sh", example, urlsplit(publication.url).path)
 
 
 def verify_published_cover(test, user_id, app_id, cookie, publication):

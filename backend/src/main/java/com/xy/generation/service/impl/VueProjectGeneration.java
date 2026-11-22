@@ -194,10 +194,10 @@ final class VueProjectGeneration implements GenerationSession.OutputHandler {
             var writer = AiServices.builder(Writer.class).streamingChatModel(activeModel).chatMemory(memory)
                     .tools(turn.registry()).chatRequestTransformer(turn::request)
                     .maxToolCallingRoundTrips(Math.max(1, remainingToolRounds))
-                    .hallucinatedToolNameStrategy(call -> {
-                        session.fail(VueSourceTools.FILE_ERROR);
-                        return ToolExecutionResultMessage.from(call, VueSourceTools.FILE_ERROR);
-                    }).build();
+                    .hallucinatedToolNameStrategy(call -> ToolExecutionResultMessage.from(call,
+                            "工具名称不存在，未执行。请从本轮可用工具中重新选择：" +
+                                    String.join("、", turn.offered.stream().map(ToolSpecification::name).toList())))
+                    .build();
             var events = session.modelStep(true, call -> {
                 if (call.name() != null && turn.offered.stream().anyMatch(t -> t.name().equals(call.name()))
                         && turn.announced.add(call.index()))

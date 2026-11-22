@@ -824,7 +824,37 @@ class GenerationControllerTest {
     }
 
     @Test
-    void stopsRepeatedToolRoundsBeforeDeliveringOrCallingTheModelAgain() throws Exception {
+    void vueWriterCanCorrectAnUnknownToolOnTheNextRound() throws Exception {
+        when(appMapper.selectOneById(55L)).thenReturn(app(42L, "vue_project"));
+        String source = "<template>纠正工具名称后写入的页面</template>";
+        var rounds = new AtomicInteger();
+        doAnswer(invocation -> {
+            ChatRequest request = invocation.getArgument(0);
+            StreamingChatResponseHandler handler = invocation.getArgument(1);
+            switch (rounds.incrementAndGet()) {
+                case 1 -> handler.onCompleteResponse(ChatResponse.builder().finishReason(FinishReason.TOOL_EXECUTION)
+                        .aiMessage(AiMessage.from(ToolExecutionRequest.builder().id("typo").name("saveFile")
+                                .arguments("{\"relativePath\":\"src/Wrong.vue\",\"content\":\"不应执行\"}").build())).build());
+                case 2 -> {
+                    var feedback = (ToolExecutionResultMessage) request.messages().getLast();
+                    assertThat(feedback.id()).isEqualTo("typo");
+                    assertThat(feedback.text()).contains("未执行", "writeFile").doesNotContain("不应执行");
+                    handler.onCompleteResponse(ChatResponse.builder().finishReason(FinishReason.TOOL_EXECUTION)
+                            .aiMessage(AiMessage.from(writeFile("src/App.vue", source))).build());
+                }
+                default -> handler.onCompleteResponse(response("已写好", FinishReason.STOP));
+            }
+            return null;
+        }).when(model).chat(nonDraftRequest(), any(StreamingChatResponseHandler.class));
+        String events = finish(mockMvc.perform(generate().session(session())).andReturn());
+        assertThat(events).containsSubsequence("已写入：src/App.vue", "event:completed").doesNotContain("event:failed");
+        assertThat(fileManager.readVueProject(42, 55, generationId)).containsEntry("src/App.vue", source)
+                .doesNotContainKey("src/Wrong.vue");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"listFiles", "saveFile"})
+    void stopsRepeatedToolRoundsBeforeDeliveringOrCallingTheModelAgain(String tool) throws Exception {
         when(appMapper.selectOneById(55L)).thenReturn(app(42L, "vue_project"));
         var calls = new AtomicInteger();
         doAnswer(call -> {
@@ -832,7 +862,7 @@ class GenerationControllerTest {
             var handler = call.<StreamingChatResponseHandler>getArgument(1);
             handler.onCompleteResponse(ChatResponse.builder().finishReason(FinishReason.TOOL_EXECUTION)
                     .aiMessage(AiMessage.from(ToolExecutionRequest.builder().id("lookup-" + round)
-                            .name("listFiles").arguments("{}").build())).build());
+                            .name(tool).arguments("{}").build())).build());
             return null;
         }).when(model).chat(nonDraftRequest(), any(StreamingChatResponseHandler.class));
         String events = finish(mockMvc.perform(generate().session(session())).andReturn());

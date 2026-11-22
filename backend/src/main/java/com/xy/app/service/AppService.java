@@ -10,6 +10,7 @@ import com.xy.app.model.dto.AppUpdateRequest;
 import com.xy.app.model.entity.App;
 import com.xy.app.model.vo.AppDeployVO;
 import com.xy.app.model.vo.AppAdminPageVO;
+import com.xy.app.model.vo.AppAdminVO;
 import com.xy.app.model.vo.AppFeaturedSlice;
 import com.xy.app.model.vo.AppPageVO;
 import com.xy.app.model.vo.AppVO;
@@ -24,6 +25,8 @@ public interface AppService {
     AppPageVO listMyApps(AppQueryRequest request, UserActor loginUser);
 
     AppAdminPageVO listAppsForAdmin(AppAdminQueryRequest request, UserActor loginUser);
+
+    AppAdminVO getAppForAdmin(long id, UserActor loginUser);
 
     AppFeaturedSlice listFeaturedApps(int current, int pageSize);
 

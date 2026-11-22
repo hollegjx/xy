@@ -4,6 +4,7 @@ import type {
   AppAddRequest,
   AppAdminPageVO,
   AppAdminQueryRequest,
+  AppAdminVO,
   AppDeployVO,
   AppFeaturedRequest,
   AppFeaturedSlice,
@@ -17,6 +18,8 @@ import type {
 export const createApp = (data: AppAddRequest): Promise<string> =>
   api.createApp(data, data.codeGenType === 'auto' ? { timeout: 60000 } : undefined)
 export const getApp = (id: string): Promise<AppVO> => api.getAppById({ id: encodeURIComponent(id) })
+export const getAppForAdmin = (id: string): Promise<AppAdminVO> =>
+  api.getAppForAdmin({ id: encodeURIComponent(id) })
 export const updateApp = (id: string, data: AppUpdateRequest): Promise<boolean> =>
   api.updateApp({ id: encodeURIComponent(id) }, data)
 export const updateAppForAdmin = (id: string, data: AppUpdateRequest): Promise<boolean> =>

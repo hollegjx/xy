@@ -13,6 +13,7 @@ import {
   message,
 } from 'ant-design-vue'
 import PageHeading from '@/components/PageHeading.vue'
+import AppAdminDetailModal from './components/AppAdminDetailModal.vue'
 import AppRenameModal from '@/pages/app/components/AppRenameModal.vue'
 import { ApiError, errorMessage } from '@/request'
 import { deleteAppForAdmin, listAppsForAdmin, updateAppFeatured } from '@/service/api/app'
@@ -28,6 +29,7 @@ const current = ref(1)
 const total = ref(0)
 const loading = ref(false)
 const error = ref('')
+const detailId = ref('')
 const editingApp = ref<AppAdminVO | null>(null)
 const deleteOpenId = ref('')
 const deletingId = ref('')
@@ -115,6 +117,11 @@ function changePage(page: number): void {
 
 function handleRenamed(): void {
   editingApp.value = null
+  void load()
+}
+
+function refreshAfterMissingDetail(): void {
+  detailId.value = ''
   void load()
 }
 
@@ -299,7 +306,15 @@ onBeforeUnmount(() => {
       >
         <template #bodyCell="{ column, text, record }">
           <div v-if="column.key === 'appName'" class="app-summary">
-            <span class="cell-text">{{ text }}</span>
+            <button
+              type="button"
+              class="app-title cell-text"
+              :aria-label="`查看「${text}」详情`"
+              :disabled="busy || loginUserStore.authAction !== null"
+              @click="detailId = record.id"
+            >
+              {{ text }}
+            </button>
             <span class="muted cell-text">ID：{{ record.id }}</span>
             <span v-if="record.featured"><ATag>精选</ATag></span>
           </div>
@@ -400,6 +415,13 @@ onBeforeUnmount(() => {
         />
       </div>
     </template>
+    <AppAdminDetailModal
+      v-if="detailId"
+      :key="detailId"
+      :app-id="detailId"
+      @close="detailId = ''"
+      @missing="refreshAfterMissingDetail"
+    />
     <AppRenameModal
       v-if="editingApp"
       :open="true"
@@ -439,6 +461,18 @@ onBeforeUnmount(() => {
 }
 .cell-text {
   overflow-wrap: anywhere;
+}
+.app-title {
+  justify-self: start;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  font: inherit;
+  text-align: start;
+  text-decoration: underline;
+  text-underline-offset: 4px;
+  cursor: pointer;
 }
 .row-actions {
   display: flex;

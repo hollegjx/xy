@@ -113,6 +113,16 @@ public class AppServiceImpl implements AppService {
     }
 
     @Override
+    @RequireRole(value = UserRoleEnum.ADMIN, message = "仅管理员可查看应用管理详情")
+    public AppAdminVO getAppForAdmin(long id, UserActor loginUser) {
+        App app = appMapper.selectOneById(id);
+        if (app == null) {
+            throw new BusinessException(ErrorCode.NOT_FOUND_ERROR, "应用不存在");
+        }
+        return getAppAdminVO(app);
+    }
+
+    @Override
     public AppFeaturedSlice listFeaturedApps(int current, int pageSize) {
         if (deployment.publicOrigin().isEmpty()) {
             return new AppFeaturedSlice(List.of(), false);

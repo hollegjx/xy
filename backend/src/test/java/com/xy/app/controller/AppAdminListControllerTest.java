@@ -95,6 +95,39 @@ class AppAdminListControllerTest {
     }
 
     @Test
+    void readsLatestMetadataOfAnotherOwnersAppWithoutGrantingPrivateAccess() throws Exception {
+        long id = 9007199254740993L;
+        App app = app(id, 84L);
+        app.setGeneratedVersion(112L);
+        app.setPublishedVersion(89L);
+        app.setDeployKey("a".repeat(32));
+        when(apps.selectOneById(id)).thenReturn(app);
+
+        mockMvc.perform(get("/api/admin/apps/{id}", id).contextPath("/api").session(session()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.id").value(Long.toString(id)))
+                .andExpect(jsonPath("$.data.userId").value("84"))
+                .andExpect(jsonPath("$.data.deployment.publishedVersion").value("89"))
+                .andExpect(jsonPath("$.data", aMapWithSize(8)))
+                .andExpect(jsonPath("$.data.initPrompt").doesNotExist())
+                .andExpect(jsonPath("$.data.generatedVersion").doesNotExist());
+        mockMvc.perform(get("/api/apps/{id}", id).contextPath("/api").session(session()))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(get("/api/admin/apps/123").contextPath("/api").session(session()))
+                .andExpect(status().isNotFound()).andExpect(jsonPath("$.code").value(40400));
+    }
+
+    @Test
+    void refusesAdminDetailsToGuestsAndOrdinaryOwnersBeforeReadingApps() throws Exception {
+        when(users.selectOneById(42L)).thenReturn(user(UserRoleEnum.USER));
+        mockMvc.perform(get("/api/admin/apps/55").contextPath("/api"))
+                .andExpect(status().isUnauthorized()).andExpect(jsonPath("$.code").value(40100));
+        mockMvc.perform(get("/api/admin/apps/55").contextPath("/api").session(session()))
+                .andExpect(status().isForbidden()).andExpect(jsonPath("$.code").value(40300));
+        verifyNoInteractions(apps);
+    }
+
+    @Test
     void defaultsToAllOwnersAndReturnsAnEmptyListBeyondTheLastPage() throws Exception {
         when(apps.paginate(eq(1), eq(10), any(QueryWrapper.class)))
                 .thenReturn(new Page<>(List.of(app(55L, 42L), app(56L, 84L)), 1, 10, 2));

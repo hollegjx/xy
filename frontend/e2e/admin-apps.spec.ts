@@ -31,6 +31,7 @@ test('管理员管理应用并设置精选，访客从首页浏览公开作品�
   }))
   let currentUser: UserVO | null = null
   let listRequests = 0
+  let detailRequests = 0
   let updateRequests = 0
   let deleteRequests = 0
   const featuredChanges: boolean[] = []
@@ -65,6 +66,20 @@ test('管理员管理应用并设置精选，访客从首页浏览公开作品�
         featuredChanges.push(featured)
         apps.find((app) => app.id === deletedAppId)!.featured = featured
         await route.fulfill({ json: { code: 0, data: true, message: 'ok' } })
+      } else if (url.pathname === `/api/admin/apps/${deletedAppId}` && request.method() === 'GET') {
+        expect(currentUser?.userRole).toBe('admin')
+        detailRequests += 1
+        if (detailRequests === 1) {
+          await route.fulfill({
+            status: 503,
+            json: { code: 50300, data: null, message: '暂时无法查询' },
+          })
+        } else {
+          const app = apps.find((entry) => entry.id === deletedAppId)!
+          await route.fulfill({
+            json: { code: 0, data: { ...app, appName: '摄影作品集 · 最新详情' }, message: 'ok' },
+          })
+        }
       } else if (url.pathname === `/api/admin/apps/${deletedAppId}`) {
         expect(request.method()).toBe('DELETE')
         expect(currentUser?.userRole).toBe('admin')
@@ -162,6 +177,19 @@ test('管理员管理应用并设置精选，访客从首页浏览公开作品�
   await expect(unpublishedRow.getByRole('button', { name: '设为精选', exact: true })).toHaveCount(0)
   await expect(unpublishedRow.getByRole('link')).toHaveCount(0)
   await expect(panel.getByRole('link')).toHaveCount(1)
+  await publishedRow.getByRole('button', { name: '查看「摄影作品集」详情' }).click()
+  const detail = page.getByRole('dialog', { name: '应用详情' })
+  await expect(detail.getByRole('alert')).toContainText('暂时无法查询')
+  await detail.getByRole('button', { name: '重试' }).click()
+  await expect(detail.getByText('摄影作品集 · 最新详情', { exact: true })).toBeVisible()
+  await expect(detail.getByText('101', { exact: true })).toBeVisible()
+  await expect(detail.getByRole('link', { name: '查看作品' })).toHaveAttribute(
+    'href',
+    'https://sites.example.test/photography/',
+  )
+  await page.keyboard.press('Escape')
+  await expect(detail).toBeHidden()
+  expect(detailRequests).toBe(2)
   const popupPromise = page.waitForEvent('popup')
   await publishedRow.getByRole('link', { name: '查看作品', exact: true }).click()
   const popup = await popupPromise

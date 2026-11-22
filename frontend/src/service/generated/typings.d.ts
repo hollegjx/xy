@@ -17,6 +17,15 @@ declare namespace XYApi {
     message?: string
   }
 
+  type ApiResponseAppAdminVO = {
+    /** 业务状态码，0 表示成功 */
+    code?: number
+    /** 响应数据 */
+    data?: AppAdminVO
+    /** 结果说明 */
+    message?: string
+  }
+
   type ApiResponseAppDeployVO = {
     /** 业务状态码，0 表示成功 */
     code?: number
@@ -278,6 +287,11 @@ declare namespace XYApi {
   }
 
   type getAppByIdParams = {
+    /** 应用 ID，必须大于 0 */
+    id: string
+  }
+
+  type getAppForAdminParams = {
     /** 应用 ID，必须大于 0 */
     id: string
   }

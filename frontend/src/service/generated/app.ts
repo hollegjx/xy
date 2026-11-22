@@ -1,5 +1,19 @@
 import request from '@/request'
 
+/** 管理员查看应用详情 按 ID 查询任一未删除应用的名称、创建者 ID、生成模式、精选和发布信息。未登录返回 HTTP 401，普通用户返回 HTTP 403，不存在或已删除返回 HTTP 404。不含初始需求、对话或源码。 GET /admin/apps/${param0} */
+export async function getAppForAdmin(
+  // 叠加生成的Param类型 (非body参数swagger默认没有生成对象)
+  params: XYApi.getAppForAdminParams,
+  options?: import('axios').AxiosRequestConfig,
+) {
+  const { id: param0, ...queryParams } = params
+  return request<XYApi.AppAdminVO>(`/api/admin/apps/${param0}`, {
+    method: 'GET',
+    params: { ...queryParams },
+    ...(options || {}),
+  })
+}
+
 /** 管理员删除应用 仅管理员可删除任一有效应用；先下线公开作品，再逻辑删除应用，成功返回 true；保留私有对话和生成文件。未登录返回 HTTP 401，普通用户返回 HTTP 403，不存在或已删除返回 HTTP 404，非正数 ID 返回 HTTP 400；公开入口移除失败时保留应用并返回错误。 DELETE /admin/apps/${param0} */
 export async function deleteAppForAdmin(
   // 叠加生成的Param类型 (非body参数swagger默认没有生成对象)

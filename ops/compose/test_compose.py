@@ -28,6 +28,9 @@ class ComposeTest(unittest.TestCase):
         finally:
             conn.close()
 
+    def gateway_port(self):
+        return int(self.compose("port", "gateway", "8080", output=True).strip().rsplit(":", 1)[1])
+
     def expect(self, path, status, code, *, method="GET", body=None, cookie=None, wait=0):
         end = time.monotonic() + wait
         while True:
@@ -51,7 +54,7 @@ class ComposeTest(unittest.TestCase):
         try:
             self.compose("config", "--quiet")
             self.compose("up", "-d", "--build")
-            self.port = int(self.compose("port", "gateway", "8080", output=True).strip().rsplit(":", 1)[1])
+            self.port = self.gateway_port()
             _, health = self.expect("/health", 200, 0, wait=240)
             self.assertEqual((health["status"], health["database"]), ("UP", "xy"))
             self.expect("/users/me", 401, 40100, wait=120)
@@ -76,6 +79,16 @@ class ComposeTest(unittest.TestCase):
             self.expect("/health", 200, 0)
             self.compose("start", "user")
             self.expect(path, 200, 0, cookie=cookie, wait=180)
+            self.expect("/users/me", 200, 0, cookie=cookie, wait=120)
+            # 用应用进程的实际用户写作品卷；标记只在本次隔离项目内，不调用模型。
+            marker = "/var/lib/xy/compose-volume-check"
+            self.compose("exec", "-T", "app", "sh", "-ec", 'echo "$1" > "$2"', "sh", app_id, marker)
+            self.compose("down")
+            self.compose("up", "-d", "--no-build")
+            self.port = self.gateway_port()
+            _, saved = self.expect(path, 200, 0, cookie=cookie, wait=240)
+            self.assertEqual((saved["id"], saved["userId"]), (app_id, user_id))
+            self.assertEqual(self.compose("exec", "-T", "app", "cat", marker, output=True).strip(), app_id)
             self.expect("/users/me", 200, 0, cookie=cookie, wait=120)
             self.expect("/users/logout", 200, 0, method="POST", cookie=cookie)
             for private in ("/users/me", path):

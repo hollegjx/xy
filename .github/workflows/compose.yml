@@ -1,0 +1,30 @@
+name: XY microservice Compose
+on:
+  push:
+    paths:
+      - 'ops/compose/**'
+      - 'ops/gateway/higress/**'
+      - 'ops/gateway/nacos_http.py'
+      - 'backend/Dockerfile.services*'
+      - 'backend/services/**/src/main/resources/**'
+      - 'backend/src/main/resources/application*.properties'
+      - 'backend/sql/**'
+      - '.github/workflows/compose.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  login-through-gateway:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Compose with real MySQL, Redis, Nacos, Higress and both backends
+        env: {XY_TEST_COMPOSE: '1'}
+        run: |
+          # In this clean CI checkout, prove that an IDE-only profile cannot leak into the service image.
+          test ! -e backend/src/main/resources/application.yml
+          echo 'spring.config.import: file:/must-not-load-this-ci-sentinel.yml' > backend/src/main/resources/application.yml
+          python3 -Bu ops/compose/test_compose.py -v

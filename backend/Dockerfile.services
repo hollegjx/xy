@@ -1,0 +1,16 @@
+FROM eclipse-temurin:21-jdk-noble@sha256:a09e64f4976df9c4f2029c6abe64fc26f069a342ec9a7f147dce7b1933ebda16 AS package
+WORKDIR /src
+COPY . .
+RUN --mount=type=cache,target=/root/.m2,sharing=locked sh mvnw -B -ntp -Dmaven.test.skip=true package
+
+FROM eclipse-temurin:21-jre-noble@sha256:ac595159aa2209f07a2331efa8a8ce4278b77a7b76a9365a0f173786d5067a9e AS runtime
+RUN useradd --create-home --uid 10001 xy && install -d -o xy -g xy /var/lib/xy
+USER xy
+WORKDIR /home/xy
+ENTRYPOINT ["java", "-jar", "/opt/xy/service.jar"]
+
+FROM runtime AS app
+COPY --from=package /src/target/xy-backend-*.jar /opt/xy/service.jar
+
+FROM runtime AS user
+COPY --from=package /src/services/user/target/xy-user-service-*.jar /opt/xy/service.jar

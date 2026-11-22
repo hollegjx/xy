@@ -1,0 +1,22 @@
+# Only Maven inputs go to this builder. Other Dockerfiles retain their own build contexts.
+**
+!pom.xml
+!mvnw
+!.mvn/wrapper/maven-wrapper.properties
+!platform/pom.xml
+!modules/**
+!services/**
+!src/main/**
+**/target
+**/src/test
+**/application*
+!services/user/src/main/resources/application.properties
+!services/screenshot/src/main/resources/application.properties
+!src/main/resources/application.example.yml
+!src/main/resources/application-nacos.properties
+!src/main/resources/application-gateway-docs.properties
+!src/main/resources/application-monitoring.yml
+**/.env*
+**/*.pem
+**/*.key
+**/*.p12

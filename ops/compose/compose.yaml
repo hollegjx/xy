@@ -1,0 +1,104 @@
+name: xy-microservices
+x-database-client: &database-client
+  SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/xy?allowPublicKeyRetrieval=true&serverTimezone=UTC
+  SPRING_DATASOURCE_USERNAME: xy_service
+  SPRING_DATA_REDIS_HOST: redis
+  JAVA_TOOL_OPTIONS: -XX:ActiveProcessorCount=2 -Xmx384m
+x-backend: &backend
+  depends_on:
+    mysql: {condition: service_healthy}
+    redis: {condition: service_healthy}
+    nacos: {condition: service_healthy}
+  environment: *database-client
+  secrets:
+    - {source: db-password, target: spring.datasource.password}
+
+services:
+  mysql:
+    image: mysql:8.4@sha256:a81d043930e51745522bd5c430961cf8286f0a23f0a9a2a6e0108f7ea71b0902
+    environment:
+      MYSQL_DATABASE: xy
+      MYSQL_USER: xy_service
+      MYSQL_PASSWORD_FILE: /run/secrets/db-password
+      MYSQL_ROOT_PASSWORD_FILE: /run/secrets/db-root-password
+    secrets: [db-password, db-root-password]
+    volumes:
+      - mysql-data:/var/lib/mysql
+      - ../../backend/sql/001_create_database.sql:/docker-entrypoint-initdb.d/001.sql:ro
+      - ../../backend/sql/002_create_user.sql:/docker-entrypoint-initdb.d/002.sql:ro
+      - ../../backend/sql/003_create_app.sql:/docker-entrypoint-initdb.d/003.sql:ro
+      - ../../backend/sql/004_add_generation.sql:/docker-entrypoint-initdb.d/004.sql:ro
+      - ../../backend/sql/005_add_app_deployment.sql:/docker-entrypoint-initdb.d/005.sql:ro
+      - ../../backend/sql/007_add_app_featured.sql:/docker-entrypoint-initdb.d/007.sql:ro
+    healthcheck:
+      test: [CMD-SHELL, 'MYSQL_PWD="$$(cat /run/secrets/db-password)" mysql -h127.0.0.1 -uxy_service xy -e "SELECT featured FROM app LIMIT 0" >/dev/null']
+      interval: 5s
+      timeout: 4s
+      retries: 36
+
+  redis:
+    image: redis:7.4-alpine@sha256:7f7d30b7fdd09467bac58198a1f166dd69789d348d4fe859cccb20e0cf287fbe
+    command: [redis-server, --appendonly, 'yes']
+    volumes: ['redis-data:/data']
+    healthcheck:
+      test: [CMD, redis-cli, ping]
+      interval: 5s
+      timeout: 3s
+      retries: 16
+
+  nacos:
+    image: nacos/nacos-server@sha256:d70b20546fe59aeb86add0754db1dbc3a3067363e18599329c5163d0d8cd9cd8 # 2.3.2
+    environment: {MODE: standalone, JVM_XMS: 128m, JVM_XMX: 384m}
+    healthcheck:
+      test: [CMD-SHELL, "curl -fsS http://127.0.0.1:8848/nacos/v1/console/health/readiness | grep -Eq '^(OK|UP)$$'"]
+      interval: 5s
+      timeout: 4s
+      retries: 36
+
+  user:
+    <<: *backend
+    build: {context: ../../backend, dockerfile: Dockerfile.services, target: user}
+    command:
+      - --spring.config.import=configtree:/run/secrets/
+      - --server.address=0.0.0.0
+      - --dubbo.registry.address=nacos://nacos:8848
+      - --dubbo.registry.use-as-config-center=false
+      - --dubbo.protocol.host=
+
+  app:
+    <<: *backend
+    build: {context: ../../backend, dockerfile: Dockerfile.services, target: app}
+    volumes: ['app-data:/var/lib/xy']
+    command:
+      - --spring.config.import=classpath:application.example.yml,configtree:/run/secrets/
+      - --spring.profiles.active=nacos,gateway-docs
+      - --xy.nacos.address=nacos://nacos:8848
+      - --xy.user.http-enabled=false
+      - --xy.generation.output-directory=/var/lib/xy/generated
+      - --xy.deployment.directory=/var/lib/xy/published
+
+  http-registry:
+    image: python:3.13-alpine@sha256:9ef1a599f863231c3d91e941389bfdc4a2d6070557243d54df1a4e57015b960e
+    depends_on: [app, user]
+    volumes:
+      - ../gateway/nacos_http.py:/xy/nacos_http.py:ro
+      - ./register_http.py:/xy/register_http.py:ro
+    command: [python, -Bu, /xy/register_http.py]
+
+  gateway:
+    build:
+      context: ../gateway
+      dockerfile_inline: |
+        FROM higress-registry.us-west-1.cr.aliyuncs.com/higress/all-in-one@sha256:3e7de95ac088a0c86a78b9dd236e9cd1e970163f25a6c092ab4589c993073b87
+        COPY higress/ /data/
+    environment: {O11Y: 'off'}
+    depends_on: [http-registry]
+    ports: ["127.0.0.1:${XY_COMPOSE_PORT:-8080}:8080"]
+
+secrets:
+  db-password: {environment: XY_COMPOSE_DB_PASSWORD}
+  db-root-password: {environment: XY_COMPOSE_DB_ROOT_PASSWORD}
+volumes:
+  mysql-data:
+  redis-data:
+  app-data:

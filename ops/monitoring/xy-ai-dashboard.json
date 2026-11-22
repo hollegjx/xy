@@ -86,7 +86,7 @@
       "description": "按所选模型、用户或应用分别显示输入、输出和总用量；选“全部”可查看平台合计。total 已含输入和输出，缺少可靠基线时留空。",
       "gridPos": {"x":12,"y":4,"w":12,"h":8},
       "datasource": {"type":"prometheus","uid":"$ds"},
-      "fieldConfig": {"defaults":{"unit":"short"},"overrides":[]},
+      "fieldConfig": {"defaults":{"unit":"short","displayName":"${__field.labels}"},"overrides":[]},
       "options": {"legend":{"displayMode":"list","placement":"bottom","showLegend":true},"tooltip":{"mode":"multi","sort":"desc"}},
       "targets": [
         {"refId":"A","expr":"(sum by (${group:raw}, type) ((xy_ai_tokens_total{job=\"xy-backend\"} - xy_ai_tokens_total{job=\"xy-backend\"} offset ${window:raw}) or xy_ai_tokens_total{job=\"xy-backend\"})) unless on() ((present_over_time(up{job=\"xy-backend\"}[${window:raw}]) or up{job=\"xy-backend\"} offset ${window:raw}) unless on(job,instance) ((process_start_time_seconds{job=\"xy-backend\"} == process_start_time_seconds{job=\"xy-backend\"} offset ${window:raw}) and on(job,instance) (up{job=\"xy-backend\"} == 1) and on(job,instance) (up{job=\"xy-backend\"} offset ${window:raw} == 1)))","instant":false,"range":true}

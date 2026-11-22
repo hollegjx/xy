@@ -99,9 +99,20 @@ class GatewayTest(unittest.TestCase):
         self.assertEqual(cookie, "SESSION=xy-fixture; Path=/api; HttpOnly")
         for method, path, dest in (("GET", "/api/users", b"user"), ("PATCH", "/api/users/42", b"user"),
                                    ("DELETE", "/api/users/42", b"app"), ("GET", "/api/usersuffix", b"app"),
+                                   ("GET", "/api/doc.html", b"app"), ("GET", "/api/v3/api-docs/swagger-config", b"app"),
+                                   ("GET", "/api/v3/api-docs", b"app"), ("GET", "/api/v3/api-docs/xy-user", b"user"),
+                                   ("GET", "/api/v3/api-docs/xy-user-extra", b"app"),
+                                   ("POST", "/api/v3/api-docs/xy-user", b"app"),
                                    ("GET", "/api/apps/mine?current=1", b"app")):
             status, _, response = request(port, method, path, cookie="SESSION=xy-fixture")
             self.assertEqual((status, response), (200, dest + b" " + method.encode() + b" " + path.encode()))
+        head = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
+        try:
+            head.request("HEAD", "/api/v3/api-docs/xy-user")
+            response = head.getresponse()
+            self.assertEqual((response.status, response.getheader("X-XY-Test-Upstream")), (200, "user"))
+        finally:
+            head.close()
 
         events = queue.Queue()
         def read_sse():
@@ -132,6 +143,11 @@ class GatewayTest(unittest.TestCase):
 
     def upstream(self, name, host, release):
         class Handler(BaseHTTPRequestHandler):
+            def do_HEAD(self):
+                self.send_response(200)
+                self.send_header("X-XY-Test-Upstream", name)
+                self.end_headers()
+
             def handle_request(self):
                 body = self.rfile.read(int(self.headers.get("Content-Length") or 0))
                 self.send_response(200)

@@ -1,0 +1,20 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: xy-user-docs
+  namespace: higress-system
+  annotations:
+    higress.io/destination: xy-user-http.xy-http.public.nacos
+    higress.io/match-method: "GET HEAD"
+spec:
+  ingressClassName: higress
+  rules:
+    - http:
+        paths:
+          - path: /api/v3/api-docs/xy-user
+            pathType: Exact
+            backend:
+              resource:
+                apiGroup: networking.higress.io
+                kind: McpBridge
+                name: default

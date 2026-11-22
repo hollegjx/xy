@@ -23,6 +23,8 @@
 
 **第 14 章的 Redis 驱动。** 本地正文中，用户服务、应用服务的依赖都排除了 Lettuce，使用 Jedis 连接池。XY 原来用了 Spring Session 和 Spring Cache，但驱动仍是 Lettuce；现在这两项和 Redis 对话记忆均使用 Spring Data Redis 的 Jedis 连接池，分布式限流仍使用独立的 Redisson。两个 Spring 实例的共享登录测试会检查实际连接工厂和池化状态。
 
+**第 14 章「接口文档聚合」。** 教程在 Boot 3 下建议用导航跳转到各服务的文档。XY 在已有 Knife4j 入口内导航：[网关模式](../ops/gateway/README.md)列出应用和用户，两份 OpenAPI 仍由各自的 Spring 服务实时生成。用户分流后，登录只列在用户文档，级联删号只列在应用文档；无需旧版聚合 starter 或额外的文档服务。
+
 **第 14 章的 Maven 版本管理。** 本地「父项目」和 Dubbo 配置导入了 Spring Cloud、Spring Cloud Alibaba、Dubbo 的 BOM。XY 此前只手写三个 Dubbo 依赖的版本，现在由[父 POM](../backend/pom.xml)统一导入官方清单：Spring Cloud 和 Alibaba 用适配本项目 Boot 3.5 的 2025.0 系列，Dubbo 保持 3.3.7。优先保留 Boot 的 Spring/Netty 组合、百炼 SDK 的 OkHttp 4.12，以及 Dubbo 使用的 Nacos 客户端 2.5.2。分别从变更前后的提交重新打包后，平台、用户和截图三个服务的 Apache HttpClient 均从 4.5.13 升至 4.5.14；只有平台还将 Commons Logging 从 1.2 升至 1.3.6。其余第三方 JAR 的内容不变。BOM 只管版本；注册发现仍由 Dubbo 完成，没有因此启用 Spring Cloud Gateway、Nacos Config 或其他服务。
 
 **验证位置。** `SharedLoginSessionTest` 和 `GenerationMemoryRedisTest` 使用真实临时 Redis；`AiModelConfigurationTest` 走本地 HTTP 模型替身；`GenerationControllerTest` 覆盖输出、停止、工具和状态；`VueArtworkDeliveryTest` 对比两次源码交付的关系图；`ArtworkProvidersTest` 检查 Mermaid 请求、PNG 交付与 Logo 调用；`CosCoverStorageTest` 验证 SDK 请求及已有封面的兼容读取。外部 COS、真实付费模型、自托管 Kroki 和 gc 的线上配置不由这些测试证明。

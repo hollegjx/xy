@@ -12,6 +12,7 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.util.HashSet;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.boot.builder.SpringApplicationBuilder;
@@ -46,6 +47,7 @@ class UserAccountHttpTest {
                     """);
             int port = ((ServletWebServerApplicationContext) app).getWebServer().getPort();
             base = "http://127.0.0.1:" + port + "/api";
+            assertDocumentsOnlyTheSevenAccountOperations();
             var credentials = mapper.createObjectNode().put("userAccount", "member").put("userPassword", "fixture-pass");
             var reg = credentials.deepCopy().put("checkPassword", "fixture-pass");
             var id = call("POST", "/users/register", reg.toString(), 200, 0);
@@ -76,6 +78,20 @@ class UserAccountHttpTest {
         } finally {
             redis.stop();
         }
+    }
+
+    private void assertDocumentsOnlyTheSevenAccountOperations() throws Exception {
+        var request = HttpRequest.newBuilder(URI.create(base + "/v3/api-docs/xy-user")).GET().build();
+        var response = client.send(request, HttpResponse.BodyHandlers.ofByteArray());
+        assertThat(response.statusCode()).isEqualTo(200);
+        var document = mapper.readTree(response.body());
+        assertThat(document.at("/servers/0/url").asText()).isEqualTo("/api");
+        var paths = document.path("paths");
+        var operations = new HashSet<String>();
+        paths.fields().forEachRemaining(path -> path.getValue().fieldNames()
+                .forEachRemaining(method -> operations.add(method + " " + path.getKey())));
+        assertThat(operations).containsExactlyInAnyOrder("post /users/register", "post /users/login",
+                "post /users/logout", "get /users/me", "post /users", "get /users", "patch /users/{id}");
     }
 
     private JsonNode call(String method, String path, String body, int httpStatus, int code) throws Exception {

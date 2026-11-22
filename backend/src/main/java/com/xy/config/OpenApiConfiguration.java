@@ -1,15 +1,25 @@
 package com.xy.config;
 
+import io.swagger.v3.oas.models.OpenAPI;
 import io.swagger.v3.oas.models.media.JsonSchema;
 import io.swagger.v3.oas.models.media.Schema;
+import io.swagger.v3.oas.models.servers.Server;
 import java.util.List;
 import java.util.Set;
 import org.springdoc.core.customizers.OpenApiCustomizer;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Profile;
 
 @Configuration(proxyBeanMethods = false)
 public class OpenApiConfiguration {
+    @Bean
+    @Profile("gateway-docs")
+    OpenAPI gatewayDocument(@Value("${server.servlet.context-path:}") String contextPath) {
+        return new OpenAPI().servers(List.of(new Server().url(contextPath.isEmpty() ? "/" : contextPath)));
+    }
+
     @Bean
     OpenApiCustomizer nullableObjectReferences() {
         return api -> {

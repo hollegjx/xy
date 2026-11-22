@@ -58,7 +58,22 @@ final class WorkflowAssetPlanReader {
 
     WorkflowAssetPlan plan() {
         return new WorkflowAssetPlan(read("photos", WorkflowAssetPlan.Themed.class),
-                read("illustrations", WorkflowAssetPlan.Themed.class), read("logos", WorkflowAssetPlan.LogoTask.class), diagrams);
+                read("illustrations", WorkflowAssetPlan.Themed.class), logos(), diagrams);
+    }
+
+    private List<WorkflowAssetPlan.LogoTask> logos() {
+        var tasks = new ArrayList<WorkflowAssetPlan.LogoTask>();
+        for (var item : items(root, "logos")) {
+            if (!item.isObject()) continue;
+            var raw = item.path("design");
+            WorkflowAssetPlan.Logo design = null;
+            if (VueBrandLogo.acceptsDesign(raw)) {
+                try { design = mapper.treeToValue(raw, WorkflowAssetPlan.Logo.class); }
+                catch (JsonProcessingException | IllegalArgumentException ignored) { /* 仅此位置改用文字。 */ }
+            }
+            tasks.add(new WorkflowAssetPlan.LogoTask(item.path("purpose").textValue(), design));
+        }
+        return tasks;
     }
 
     private JsonNode object(Result<String> result) {

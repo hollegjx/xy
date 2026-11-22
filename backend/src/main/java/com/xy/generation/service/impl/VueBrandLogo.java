@@ -28,6 +28,13 @@ final class VueBrandLogo {
 
     record DesignKey(String name, String brief, JsonNode layers) {}
 
+    // 在工具和规划器把 JSON 绑定成整数之前检查。没有图层时，图像模型仍可按品牌简述绘制。
+    static boolean acceptsDesign(JsonNode design) {
+        var layers = design.path("layers");
+        return design.path("name").isTextual() && !design.get("name").textValue().isBlank()
+                && (layers.isMissingNode() || layers.isArray() && (layers.isEmpty() || svgLayers(layers).isPresent()));
+    }
+
     // 比较实际设计而非请求的写法；首次请求的源码仍保留原色值和绘制顺序。
     static DesignKey designKey(JsonNode design) {
         JsonNode layers = design.path("layers").deepCopy();

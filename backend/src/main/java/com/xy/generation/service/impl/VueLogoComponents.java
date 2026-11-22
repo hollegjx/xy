@@ -38,10 +38,7 @@ final class VueLogoComponents {
             if (parsed instanceof ObjectNode object) request = object;
         } catch (IOException | IllegalArgumentException invalid) { /* 不合规的标志只回退本处文字。 */ }
         String purpose = request.path("purpose").asText("").strip();
-        var layers = request.path("layers");
-        // 先按原始类型检查绘图约束，避免 SDK 把浮点数或字符串坐标转换为整数。
-        if (request.path("name").isTextual() && !request.get("name").textValue().isBlank()
-                && (layers.isMissingNode() || layers.isArray() && (layers.isEmpty() || VueBrandLogo.svgLayers(layers).isPresent()))) {
+        if (VueBrandLogo.acceptsDesign(request)) {
             var result = VueAssetTool.call(new LogoTool(mapper, artwork, executor), call, Use.class);
             if (result.isPresent()) return result.get();
         }

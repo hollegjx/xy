@@ -11,6 +11,7 @@ import dev.langchain4j.model.chat.request.ChatRequest;
 import dev.langchain4j.model.chat.response.ChatResponse;
 import dev.langchain4j.model.chat.response.StreamingChatResponseHandler;
 import dev.langchain4j.model.output.FinishReason;
+import dev.langchain4j.service.Result;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Optional;
@@ -18,6 +19,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
@@ -46,6 +48,28 @@ class NativeWorkflowAssetsTest {
             <figure id="missing" data-xy-architecture="prepared-2">仍可看说明</figure>
             <span id="footer" data-xy-logo="prepared-3">书屋</span><figure id="help" data-xy-architecture="prepared-4">借书说明</figure>
             <span id="other" data-xy-logo='{"name":"另一个标志"}'>其他品牌</span></body></html>""";
+
+    @Test
+    void plannedLogosKeepTheirSlotsAndOnlySendValidCoordinatesToTheRenderer() {
+        var mapper = new ObjectMapper();
+        var reply = Result.<String>builder().finishReason(FinishReason.STOP).content("""
+                {"logos":[{"design":{"name":"小数","layers":[{"shape":"circle","color":"#123456","coordinates":[10.8,20,5]}]}},
+                          {"design":{"name":"字符串","layers":[{"shape":"circle","color":"#123456","coordinates":["10",20,5]}]}},
+                          {"design":{"name":"书屋","layers":[{"shape":"circle","color":"#123456","coordinates":[10,20,5]}]}}]}
+                """).build();
+        var plan = new WorkflowAssetPlanReader(mapper, reply).plan();
+        var providers = mock(ArtworkProviders.class);
+        var assets = new NativeWorkflowAssets(mapper, mock(NativeContentPhoto.class), new NativeAssetImages(providers), Runnable::run);
+        var session = mock(GenerationSession.class);
+        when(session.isRunning()).thenReturn(true);
+
+        assertThat(assets.collect(plan, session)).contains("书屋", "prepared-3").doesNotContain("小数", "字符串");
+        assertThat(assets.vector("data-xy-logo", "prepared")).isEmpty();
+        assertThat(assets.vector("data-xy-logo", "prepared-2")).isEmpty();
+        assertThat(assets.vector("data-xy-logo", "prepared-3")).hasValueSatisfying(svg -> assertThat(svg).contains("<circle"));
+        verify(providers).logoImage(eq(mapper), contains("书屋"));
+        verifyNoMoreInteractions(providers);
+    }
 
     @ParameterizedTest
     @ValueSource(booleans = {false, true})

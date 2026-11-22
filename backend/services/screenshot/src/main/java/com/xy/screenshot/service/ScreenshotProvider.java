@@ -8,10 +8,11 @@ import org.springframework.beans.factory.annotation.Value;
 
 @DubboService(interfaceClass = ScreenshotService.class, retries = 0, timeout = 22_000)
 public class ScreenshotProvider implements ScreenshotService {
-    private final DockerScreenshotRenderer renderer;
+    private final ScreenshotService renderer;
 
-    public ScreenshotProvider(@Value("${xy.screenshot.docker-executable:docker}") String docker) {
-        renderer = new DockerScreenshotRenderer(docker);
+    public ScreenshotProvider(@Value("${xy.screenshot.docker-executable:docker}") String docker,
+                              @Value("${xy.screenshot.renderer-socket:}") String socket) {
+        renderer = socket.isBlank() ? new DockerScreenshotRenderer(docker) : new SocketScreenshotRenderer(socket);
     }
 
     @Override

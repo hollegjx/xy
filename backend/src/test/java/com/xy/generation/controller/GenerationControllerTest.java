@@ -824,7 +824,7 @@ class GenerationControllerTest {
 
         var logo = params.get("generateLogo");
         assertThat(logo.properties()).containsOnlyKeys("name", "layers", "brief", "purpose");
-        assertThat(logo.required()).containsExactlyInAnyOrder("name", "layers");
+        assertThat(logo.required()).containsExactly("name");
         var layer = (JsonObjectSchema) ((JsonArraySchema) logo.properties().get("layers")).items();
         assertThat(layer.required()).containsExactlyInAnyOrder("shape", "color", "coordinates");
         assertThat(layer.additionalProperties()).isFalse();

@@ -1,5 +1,6 @@
 package com.xy.generation.service.impl;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.service.AiServices;
@@ -14,7 +15,7 @@ import java.util.concurrent.CompletableFuture;
 
 /** 规划只描述页面需要什么；生成模式决定怎么取得素材、以及页面最终引用哪些文件。 */
 record WorkflowAssetPlan(List<Themed> photos, List<Themed> illustrations, List<LogoTask> logos, List<DiagramTask> architectures) {
-    record Logo(String name, String brief, List<VueBrandLogo.Layer> layers) {}
+    record Logo(String name, String brief, @JsonInclude(JsonInclude.Include.NON_NULL) List<VueBrandLogo.Layer> layers) {}
     record Themed(String theme, String purpose) {}
     record LogoTask(String purpose, Logo design) {}
     record DiagramTask(String purpose, VueArchitectureDiagram.Diagram design) {}
@@ -42,7 +43,7 @@ record WorkflowAssetPlan(List<Themed> photos, List<Themed> illustrations, List<L
                 照片 theme 只能是公开主题：{{themes}}。不要在主题里填写姓名、地址或自由搜索词。
                 插画 theme 只可选 reading（学习阅读）、teamwork（团队协作）、analytics（数据分析）。
                 每个 Logo 或架构图任务分别填写 purpose 和 design。Logo 的 design.name 为品牌名，brief 仅写图形意象，不含用户原文或个人信息。
-                layers 用六位十六进制色，坐标 0–100：circle 是 [圆心x,圆心y,半径]，line 和 polygon 分别是至少两对、三对 x,y。
+                如需指定形状或本地绘制，提供 layers：用六位十六进制色，坐标 0–100，circle 是 [圆心x,圆心y,半径]，line 和 polygon 分别是至少两对、三对 x,y。只按简述请求图像模型时可省略 layers。
                 架构图的 design.nodes 为不重复的模块名，edges 的 from、to 必须是其中的名称，label 可省略。
                 {{format}}
                 """)

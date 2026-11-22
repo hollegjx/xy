@@ -4,7 +4,9 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sun.net.httpserver.HttpServer;
 import dev.langchain4j.data.image.Image;
 import dev.langchain4j.model.image.ImageModel;
+import dev.langchain4j.model.output.FinishReason;
 import dev.langchain4j.model.output.Response;
+import dev.langchain4j.service.Result;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayOutputStream;
 import java.net.InetSocketAddress;
@@ -21,6 +23,28 @@ import static org.mockito.ArgumentMatchers.contains;
 import static org.mockito.Mockito.*;
 
 class ArtworkProvidersTest {
+    @Test
+    void aPlannedBrandBriefWithoutLayersUsesTheImageModelInBothGenerationPaths() throws Exception {
+        var mapper = new ObjectMapper();
+        var reply = Result.<String>builder().finishReason(FinishReason.STOP).content("""
+                {"logos":[{"purpose":"内部展示区","design":{"name":"纸鸢","brief":"折纸风筝"}}]}
+                """).build();
+        var design = new WorkflowAssetPlanReader(mapper, reply).plan().logos().getFirst().design();
+        String arguments = mapper.writeValueAsString(design);
+        var bytes = new ByteArrayOutputStream();
+        ImageIO.write(new BufferedImage(2, 2, BufferedImage.TYPE_INT_RGB), "png", bytes);
+        var model = mock(ImageModel.class);
+        when(model.generate(anyString())).thenReturn(Response.from(Image.builder()
+                .base64Data(Base64.getEncoder().encodeToString(bytes.toByteArray())).build()));
+        var cloud = new ArtworkProviders(Optional.of(model), "");
+
+        assertThat(new NativeAssetImages(cloud).logo(mapper, arguments)).get().asString().contains("data:image/png");
+        var vue = new VueLogoComponents().prepare(arguments, mapper, cloud, Runnable::run);
+        assertThat(vue.drawing().source().join()).get().asString().contains("data:image/png");
+        verify(model, times(2)).generate(argThat((String prompt) -> prompt.contains("折纸风筝") && !prompt.contains("内部展示区")));
+        assertThat(new NativeAssetImages(new ArtworkProviders(Optional.empty(), "")).logo(mapper, arguments)).isEmpty();
+    }
+
     @Test
     void malformedLogoCoordinatesDoNotReachTheProviderOrBlockTheNextDrawing() {
         var provider = mock(ArtworkProviders.class);

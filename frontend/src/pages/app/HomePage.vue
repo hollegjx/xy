@@ -82,7 +82,7 @@ onBeforeUnmount(() => {
     </header>
     <AForm
       id="create-app"
-      class="creation-form"
+      class="creation-form surface-card"
       name="create-app"
       :model="form"
       layout="vertical"
@@ -110,7 +110,8 @@ onBeforeUnmount(() => {
       >
         <ATextarea
           v-model:value="form.initPrompt"
-          :rows="6"
+          class="prompt-input"
+          :rows="5"
           placeholder="例如：一个摄影作品集，用简洁的网格展示照片，包含关于我和联系方式。"
         />
       </AFormItem>
@@ -139,6 +140,7 @@ onBeforeUnmount(() => {
       <AButton
         type="primary"
         shape="round"
+        size="large"
         html-type="submit"
         block
         :loading="busy"
@@ -168,53 +170,92 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .creation-page {
-  padding: 48px 0;
+  padding: 40px 0 24px;
 }
 .creation-heading {
-  margin-bottom: 32px;
+  margin-bottom: 40px;
   text-align: center;
 }
 .eyebrow {
-  margin: 0 0 16px;
-  color: var(--muted);
-  font-size: 12px;
+  display: inline-block;
+  margin: 0 0 12px;
+  color: transparent;
+  background: var(--brand-gradient);
+  -webkit-background-clip: text;
+  background-clip: text;
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
 }
 h1 {
   margin: 0;
-  font-size: 48px;
-  line-height: 1.25;
-  letter-spacing: var(--heading-tracking);
+  font-size: 56px;
+  font-weight: 700;
+  line-height: 1.08;
+  letter-spacing: -0.03em;
 }
 .introduction {
   margin: 16px 0 0;
   color: var(--muted);
-  font-size: 16px;
+  font-size: 19px;
   line-height: 1.5;
 }
 .creation-form {
-  max-width: 560px;
+  max-width: 680px;
   margin: 0 auto;
+  padding: 28px 28px 24px;
+  border-radius: var(--radius-lg);
+}
+.creation-form :deep(.ant-form-item-label > label) {
+  font-weight: 500;
+}
+.creation-form .prompt-input {
+  padding: 14px 16px;
+  border-color: transparent;
+  border-radius: var(--radius-md);
+  background: var(--surface-soft);
+  font-size: 16px;
+  line-height: 1.6;
+  resize: vertical;
+}
+.creation-form .prompt-input:hover {
+  border-color: transparent;
+  background: #efeff2;
+}
+.creation-form .prompt-input:focus {
+  border-color: var(--accent);
+  background: var(--surface);
 }
 .submit-error {
   margin-bottom: 24px;
 }
 .mode-help,
 .login-hint {
-  margin: 8px 0 0;
+  margin: 10px 0 0;
   color: var(--muted);
-  font-size: 12px;
+  font-size: 13px;
   line-height: 1.5;
 }
 .login-hint {
-  margin-top: 16px;
+  margin-top: 14px;
   text-align: center;
 }
 @media (max-width: 600px) {
   .creation-page {
-    padding: 24px 0;
+    padding: 16px 0;
+  }
+  .creation-heading {
+    margin-bottom: 28px;
   }
   h1 {
     font-size: 40px;
+  }
+  .introduction {
+    font-size: 17px;
+  }
+  .creation-form {
+    padding: 20px 16px 16px;
+    border-radius: var(--radius-md);
   }
 }
 </style>

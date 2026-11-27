@@ -123,6 +123,12 @@ onBeforeUnmount(() => {
     <template v-else>
       <ul class="app-grid">
         <li v-for="app in rows" :key="app.id" class="app-card">
+          <div class="app-card-top">
+            <span class="app-icon" :class="`mode-${app.codeGenType}`" aria-hidden="true">{{
+              Array.from(app.appName)[0]
+            }}</span>
+            <span class="app-mode">{{ generationModes[app.codeGenType].label }}</span>
+          </div>
           <h3>
             <RouterLink :to="{ name: 'app-workbench', params: { id: app.id } }" class="app-name">
               {{ app.appName }}
@@ -130,13 +136,19 @@ onBeforeUnmount(() => {
           </h3>
           <p class="app-description">{{ app.initPrompt }}</p>
           <div class="app-meta muted">
-            <span>{{ generationModes[app.codeGenType].label }}</span>
             <span>创建于 {{ app.createTime.slice(0, 10) }}</span>
-          </div>
-          <div v-if="app.deployment?.deployUrl" class="published-action">
-            <AButton :href="app.deployment.deployUrl" target="_blank" rel="noopener noreferrer">
+            <AButton
+              v-if="app.deployment?.deployUrl"
+              class="published-action"
+              type="link"
+              size="small"
+              :href="app.deployment.deployUrl"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
               查看作品
             </AButton>
+            <span v-else class="draft-badge">未发布</span>
           </div>
         </li>
       </ul>
@@ -159,9 +171,7 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .my-apps {
-  margin-top: 48px;
-  padding-top: 32px;
-  border-top: 1px solid var(--border);
+  margin-top: 72px;
 }
 .list-heading,
 .list-footer,
@@ -173,58 +183,129 @@ onBeforeUnmount(() => {
   gap: 16px;
 }
 .list-heading {
+  align-items: flex-end;
   margin-bottom: 24px;
 }
-h2,
-h3 {
-  margin: 0 0 8px;
-  font-size: 16px;
+h2 {
+  margin: 0 0 6px;
+  font-size: 28px;
   font-weight: 600;
+  letter-spacing: var(--heading-tracking);
+}
+h3 {
+  margin: 0 0 6px;
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
 }
 .muted {
   margin: 0;
   color: var(--muted);
-  font-size: 12px;
+  font-size: 13px;
 }
 .search-form {
   display: flex;
   gap: 8px;
   width: min(100%, 400px);
 }
+.search-form :deep(.ant-input-affix-wrapper) {
+  border-radius: 999px;
+}
+.search-form :deep(.ant-btn) {
+  border-radius: 999px;
+}
 .app-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 16px;
+  gap: 20px;
   margin: 0;
   padding: 0;
   list-style: none;
 }
 .app-card {
+  display: flex;
+  flex-direction: column;
   min-width: 0;
-  padding: 24px;
-  border: 1px solid var(--border);
+  padding: 20px 22px 18px;
   border-radius: var(--radius-md);
+  background: var(--surface);
+  box-shadow: var(--shadow-card);
+  transition:
+    transform var(--motion-duration) var(--motion-ease),
+    box-shadow var(--motion-duration) var(--motion-ease);
+}
+.app-card:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-lift);
+}
+.app-card-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+.app-icon {
+  display: grid;
+  width: 44px;
+  height: 44px;
+  place-items: center;
+  border-radius: 12px;
+  color: #ffffff;
+  font-size: 18px;
+  font-weight: 600;
+}
+.mode-multi_file {
+  background: linear-gradient(140deg, #5e5ce6, #0a84ff);
+}
+.mode-html {
+  background: linear-gradient(140deg, #ff9f0a, #ff375f);
+}
+.mode-vue_project {
+  background: linear-gradient(140deg, #30d158, #00a6a6);
+}
+.app-mode {
+  padding: 3px 10px;
+  border-radius: 999px;
+  color: var(--muted);
+  background: var(--fill);
+  font-size: 12px;
 }
 .app-name {
-  color: var(--accent);
+  color: var(--ink);
+  text-decoration: none;
   overflow-wrap: anywhere;
+}
+.app-name:hover {
+  color: var(--accent);
 }
 .app-description {
   display: -webkit-box;
   overflow: hidden;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
+  flex: 1;
   margin: 0 0 16px;
+  color: var(--muted);
   font-size: 14px;
   line-height: 1.5;
   overflow-wrap: anywhere;
 }
 .app-meta {
   gap: 8px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
 }
-.published-action,
+.published-action {
+  padding: 0;
+  height: auto;
+  font-size: 13px;
+}
+.draft-badge {
+  color: var(--subtle);
+  font-size: 12px;
+}
 .list-footer {
-  margin-top: 16px;
+  margin-top: 20px;
 }
 @media (max-width: 900px) {
   .app-grid {
@@ -232,6 +313,12 @@ h3 {
   }
 }
 @media (max-width: 600px) {
+  .my-apps {
+    margin-top: 48px;
+  }
+  h2 {
+    font-size: 24px;
+  }
   .app-grid {
     grid-template-columns: minmax(0, 1fr);
   }

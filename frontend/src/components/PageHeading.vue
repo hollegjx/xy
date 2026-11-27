@@ -11,19 +11,24 @@ defineProps<{ title: string; description: string }>()
 
 <style scoped>
 .page-heading {
-  margin-bottom: 24px;
+  margin-bottom: 28px;
 }
 h1 {
   margin: 0;
-  font-size: 28px;
-  font-weight: 700;
-  line-height: 1.5;
+  font-size: 32px;
+  font-weight: 600;
+  line-height: 1.25;
   letter-spacing: var(--heading-tracking);
 }
 p {
   margin: 8px 0 0;
   color: var(--muted);
-  font-size: 14px;
+  font-size: 15px;
   line-height: 1.5;
+}
+@media (max-width: 600px) {
+  h1 {
+    font-size: 28px;
+  }
 }
 </style>

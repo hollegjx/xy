@@ -278,6 +278,7 @@ onBeforeUnmount(() => {
       >
         <ATextarea
           v-model:value="form.prompt"
+          class="prompt-input"
           :rows="4"
           :disabled="loading || !history || generating || stopping"
           placeholder="描述本次需求，例如：把背景改为黑色，保留原有内容和按钮。"
@@ -306,7 +307,12 @@ onBeforeUnmount(() => {
         >
           {{ submitLabel }}
         </AButton>
-        <AButton v-if="runningId" :loading="stopping" :disabled="stopping" @click="stop"
+        <AButton
+          v-if="runningId"
+          shape="round"
+          :loading="stopping"
+          :disabled="stopping"
+          @click="stop"
           >停止生成</AButton
         >
       </div>
@@ -333,6 +339,8 @@ onBeforeUnmount(() => {
       <h2>生成记录</h2>
       <AButton
         v-if="!error"
+        size="small"
+        shape="round"
         :loading="loading"
         :disabled="loading || generating || stopping"
         @click="load"
@@ -380,7 +388,12 @@ onBeforeUnmount(() => {
           </div>
         </div>
         <ol class="message-list">
-          <li v-for="item in history.records" :key="item.id" class="message-item">
+          <li
+            v-for="item in history.records"
+            :key="item.id"
+            class="message-item"
+            :class="`message-${item.messageRole}`"
+          >
             <div class="message-heading">
               <span>{{ item.messageRole === 'user' ? '你' : 'AI' }}</span>
               <ATag v-if="item.messageRole === 'assistant'" :color="statusColors[item.status]">
@@ -415,8 +428,29 @@ onBeforeUnmount(() => {
 <style scoped>
 .generation-panel {
   display: grid;
-  gap: 16px;
+  gap: 14px;
   margin-top: 24px;
+  padding-top: 20px;
+  border-top: 1px solid var(--border);
+}
+.generation-panel :deep(.ant-form-item-label > label) {
+  font-weight: 500;
+}
+.generation-panel .prompt-input {
+  padding: 12px 14px;
+  border-color: transparent;
+  border-radius: var(--radius-sm);
+  background: var(--surface-soft);
+  font-size: 15px;
+  line-height: 1.6;
+}
+.generation-panel .prompt-input:hover {
+  border-color: transparent;
+  background: #efeff2;
+}
+.generation-panel .prompt-input:focus {
+  border-color: var(--accent);
+  background: var(--surface);
 }
 .quality-option {
   margin-top: 12px;
@@ -425,14 +459,22 @@ onBeforeUnmount(() => {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
-  margin-top: 16px;
+  margin-top: 14px;
 }
 .live-output {
+  display: grid;
   min-width: 0;
+  gap: 10px;
+  padding: 14px 16px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-soft);
+}
+.live-output > .ant-tag {
+  justify-self: start;
 }
 .history-panel {
   margin-top: 24px;
-  padding-top: 24px;
+  padding-top: 20px;
   border-top: 1px solid var(--border);
 }
 .history-heading,
@@ -444,7 +486,7 @@ onBeforeUnmount(() => {
   gap: 8px;
 }
 .history-heading {
-  margin-bottom: 16px;
+  margin-bottom: 14px;
 }
 .history-heading,
 .history-controls {
@@ -453,16 +495,17 @@ onBeforeUnmount(() => {
 .history-pagination {
   display: grid;
   gap: 12px;
-  margin-bottom: 16px;
+  margin-bottom: 14px;
 }
 h2 {
   margin: 0;
-  font-size: 16px;
+  font-size: 19px;
   font-weight: 600;
+  letter-spacing: -0.01em;
 }
 .message-list {
   display: grid;
-  gap: 16px;
+  gap: 14px;
   margin: 0;
   padding: 0;
   list-style: none;
@@ -470,10 +513,40 @@ h2 {
 .message-item {
   display: grid;
   min-width: 0;
-  gap: 12px;
-  padding: 16px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
+  gap: 6px;
+}
+.message-heading {
+  font-size: 12px;
+  color: var(--muted);
+}
+.message-heading > span:first-child {
+  color: var(--ink);
+  font-weight: 600;
+}
+.message-heading :deep(.ant-tag) {
+  margin: 0;
+  border-radius: 999px;
+  font-size: 11px;
+}
+.message-user {
+  justify-items: end;
+}
+.message-user .message-heading {
+  flex-direction: row-reverse;
+}
+.message-user .message-content {
+  max-width: 88%;
+  padding: 10px 14px;
+  border-radius: 18px 18px 6px 18px;
+  color: var(--on-accent);
+  background: var(--accent);
+}
+.message-assistant {
+  justify-self: start;
+  max-width: 92%;
+  padding: 10px 14px 12px;
+  border-radius: 18px 18px 18px 6px;
+  background: var(--surface-soft);
 }
 time,
 .history-hint {
@@ -484,9 +557,11 @@ time,
 .history-hint {
   margin: 0;
   white-space: pre-wrap;
-  line-height: 1.75;
+  line-height: 1.65;
 }
 summary {
+  color: var(--link);
+  font-size: 13px;
   cursor: pointer;
 }
 </style>

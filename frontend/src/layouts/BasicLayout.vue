@@ -23,6 +23,10 @@ const canAccessPage = computed(
     (!route.meta.adminOnly ||
       (loginUserStore.status === 'ready' && loginUserStore.user?.userRole === 'admin')),
 )
+const accountInitial = computed(() => {
+  const user = loginUserStore.user
+  return Array.from(user?.userName || user?.userAccount || '?')[0]?.toUpperCase() ?? '?'
+})
 
 async function handleLogout(): Promise<void> {
   if (loginUserStore.authAction !== null) return
@@ -79,10 +83,13 @@ watchEffect(() => {
       <ASkeletonButton
         v-if="loginUserStore.status === 'idle' || loginUserStore.status === 'loading'"
         active
+        size="small"
+        shape="round"
         aria-label="正在读取登录状态"
       />
       <template v-else-if="loginUserStore.status === 'ready'">
         <div v-if="loginUserStore.user" class="account-info" aria-label="当前账号">
+          <span class="account-avatar" aria-hidden="true">{{ accountInitial }}</span>
           <span class="account-name" :title="loginUserStore.user.userAccount">
             {{ loginUserStore.user.userName || loginUserStore.user.userAccount }}
           </span>
@@ -91,6 +98,8 @@ watchEffect(() => {
           }}</ATag>
           <AButton
             class="logout-button"
+            size="small"
+            shape="round"
             :loading="logoutBusy"
             :disabled="loginUserStore.authAction === 'login'"
             @click="handleLogout"
@@ -100,7 +109,7 @@ watchEffect(() => {
         </div>
         <template v-else-if="route.name !== 'user-register' && route.name !== 'user-login'">
           <RouterLink to="/user/login" class="nav-link">登录</RouterLink>
-          <RouterLink to="/user/register" class="nav-link">注册账号</RouterLink>
+          <RouterLink to="/user/register" class="nav-link nav-link-primary">注册账号</RouterLink>
         </template>
       </template>
       <span v-else class="account-unknown">账户状态未知</span>
@@ -144,6 +153,7 @@ watchEffect(() => {
     />
     <AResult
       v-else-if="route.meta.adminOnly && loginUserStore.status === 'ready' && loginUserStore.user"
+      class="access-denied"
       status="403"
       sub-title="此页面仅管理员可访问。"
     >
@@ -169,12 +179,36 @@ watchEffect(() => {
   min-width: 0;
   align-items: center;
 }
+.nav-link-primary {
+  margin-left: 4px;
+  color: var(--on-accent);
+  background: var(--accent);
+}
+.nav-link-primary:hover {
+  color: var(--on-accent);
+  background: var(--accent-hover);
+}
 .account-info {
   display: flex;
   align-items: center;
   gap: 8px;
   min-width: 0;
   max-width: 100%;
+  margin-left: 8px;
+  padding-left: 12px;
+  border-left: 1px solid var(--hairline);
+}
+.account-avatar {
+  display: grid;
+  flex-shrink: 0;
+  width: 26px;
+  height: 26px;
+  place-items: center;
+  border-radius: 50%;
+  color: #ffffff;
+  background: var(--brand-gradient);
+  font-size: 12px;
+  font-weight: 600;
 }
 .account-name {
   max-width: 160px;
@@ -182,14 +216,17 @@ watchEffect(() => {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 14px;
+  font-size: 13px;
+  font-weight: 500;
 }
 .account-role {
   margin: 0;
   flex-shrink: 0;
+  font-size: 11px;
 }
 .logout-button {
   flex-shrink: 0;
+  font-size: 12px;
 }
 .account-unknown {
   color: var(--muted);
@@ -198,16 +235,37 @@ watchEffect(() => {
 .session-error {
   margin-bottom: 24px;
 }
+.access-denied {
+  margin: 48px auto 0;
+  max-width: 560px;
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  box-shadow: var(--shadow-card);
+}
 .access-title {
   margin: 0;
   font-size: 28px;
+  font-weight: 600;
+  letter-spacing: var(--heading-tracking);
 }
 @media (max-width: 600px) {
   .site-header {
     flex-wrap: wrap;
+    row-gap: 4px;
   }
   .site-nav {
-    width: 100%;
+    flex: 1 1 auto;
+    gap: 0;
+  }
+  .nav-link {
+    padding: 6px 10px;
+  }
+  .account-info {
+    margin-left: 4px;
+    padding-left: 8px;
+  }
+  .account-name {
+    max-width: 96px;
   }
 }
 </style>

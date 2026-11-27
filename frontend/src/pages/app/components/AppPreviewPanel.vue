@@ -90,14 +90,25 @@ onBeforeUnmount(() => {
   <div class="preview-content" role="region" aria-label="网站预览">
     <div class="preview-heading">
       <h2>网站预览</h2>
-      <AButton v-if="available && !loading" :aria-pressed="picking" @click="setPicking(!picking)">
-        {{ picking ? '退出选择' : '选择元素' }}
-      </AButton>
-      <AButton :loading="loading" :disabled="loading" @click="load">{{
-        error ? '重试' : '刷新预览'
-      }}</AButton>
+      <div class="preview-tools">
+        <AButton
+          v-if="available && !loading"
+          size="small"
+          shape="round"
+          :type="picking ? 'primary' : 'default'"
+          :aria-pressed="picking"
+          @click="setPicking(!picking)"
+        >
+          {{ picking ? '退出选择' : '选择元素' }}
+        </AButton>
+        <AButton size="small" shape="round" :loading="loading" :disabled="loading" @click="load">{{
+          error ? '重试' : '刷新预览'
+        }}</AButton>
+      </div>
     </div>
-    <p v-if="picking" role="status">点击预览中的元素，再在「本次需求」里描述要改什么。</p>
+    <p v-if="picking" class="picking-hint" role="status">
+      点击预览中的元素，再在「本次需求」里描述要改什么。
+    </p>
     <AAlert
       v-if="error"
       type="error"
@@ -106,26 +117,34 @@ onBeforeUnmount(() => {
       show-icon
       role="alert"
     />
-    <ASkeleton
-      v-if="loading && !available"
-      active
-      :paragraph="{ rows: 6 }"
-      aria-label="正在读取预览"
-    />
-    <iframe
-      v-if="available"
-      ref="frame"
-      :key="frameKey"
-      :src="getAppPreviewUrl(appId, true)"
-      title="应用网站预览"
-      sandbox="allow-scripts"
-      referrerpolicy="no-referrer"
-      @load="syncPicking"
-    />
-    <div v-else-if="!loading && !error" class="preview-empty">
-      <AEmpty description="还没有可预览的网站"
-        ><p>{{ unavailableReason }}</p></AEmpty
-      >
+    <div class="browser-window" :class="{ picking }">
+      <div class="browser-bar" aria-hidden="true">
+        <span class="dot dot-close" />
+        <span class="dot dot-minimize" />
+        <span class="dot dot-zoom" />
+      </div>
+      <ASkeleton
+        v-if="loading && !available"
+        class="browser-skeleton"
+        active
+        :paragraph="{ rows: 6 }"
+        aria-label="正在读取预览"
+      />
+      <iframe
+        v-if="available"
+        ref="frame"
+        :key="frameKey"
+        :src="getAppPreviewUrl(appId, true)"
+        title="应用网站预览"
+        sandbox="allow-scripts"
+        referrerpolicy="no-referrer"
+        @load="syncPicking"
+      />
+      <div v-else-if="!loading && !error" class="preview-empty">
+        <AEmpty description="还没有可预览的网站"
+          ><p>{{ unavailableReason }}</p></AEmpty
+        >
+      </div>
     </div>
   </div>
 </template>
@@ -134,7 +153,7 @@ onBeforeUnmount(() => {
 .preview-content {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 14px;
   min-width: 0;
   flex: 1;
 }
@@ -145,22 +164,71 @@ onBeforeUnmount(() => {
   justify-content: space-between;
   gap: 8px;
 }
+.preview-tools {
+  display: flex;
+  gap: 8px;
+}
 h2 {
   margin: 0;
-  font-size: 16px;
+  font-size: 19px;
   font-weight: 600;
+  letter-spacing: -0.01em;
+}
+.picking-hint {
+  padding: 8px 12px;
+  border-radius: 10px;
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+.browser-window {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+  border: 1px solid var(--hairline);
+  border-radius: 14px;
+  background: var(--surface);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+  transition: box-shadow var(--motion-duration) var(--motion-ease);
+}
+.browser-window.picking {
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+.browser-bar {
+  display: flex;
+  gap: 8px;
+  padding: 11px 14px;
+  border-bottom: 1px solid var(--hairline);
+  background: #f6f6f8;
+}
+.dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+}
+.dot-close {
+  background: #ff5f57;
+}
+.dot-minimize {
+  background: #febc2e;
+}
+.dot-zoom {
+  background: #28c840;
+}
+.browser-skeleton {
+  padding: 24px;
 }
 iframe {
+  display: block;
   width: 100%;
-  height: 640px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
+  height: 620px;
+  border: none;
   background: var(--surface);
 }
 .preview-empty {
   display: grid;
   flex: 1;
-  min-height: 320px;
+  min-height: 360px;
   padding: 32px 0;
   place-items: center;
   color: var(--muted);
@@ -171,7 +239,7 @@ p {
 }
 @media (max-width: 760px) {
   iframe {
-    height: 560px;
+    height: 540px;
   }
 }
 </style>

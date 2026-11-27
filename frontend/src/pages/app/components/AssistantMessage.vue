@@ -32,10 +32,10 @@ onBeforeUnmount(() => globalThis.clearTimeout(timer))
   max-height: 320px;
   overflow: auto;
   overflow-wrap: anywhere;
-  margin-top: 12px;
-  padding: 12px;
-  background: var(--surface-soft);
-  border-radius: var(--radius-sm);
+  margin-top: 10px;
+  padding: 12px 14px;
+  background: var(--surface);
+  border-radius: 10px;
   line-height: 1.65;
 }
 .assistant-message :deep(:first-child) {

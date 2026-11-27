@@ -196,9 +196,12 @@ onBeforeUnmount(() => {
 <template>
   <div class="workbench">
     <div class="workbench-navigation">
-      <RouterLink to="/" class="back-link">返回首页</RouterLink>
+      <RouterLink to="/" class="back-link"
+        ><span class="back-chevron" aria-hidden="true">‹</span>返回首页</RouterLink
+      >
       <div v-if="app && !loading && !error" class="app-actions">
         <AButton
+          shape="round"
           :disabled="deleting || loginUserStore.authAction !== null"
           @click="renameOpen = true"
         >
@@ -223,7 +226,12 @@ onBeforeUnmount(() => {
           <template #description>
             <p class="delete-confirmation">删除后无法继续访问该应用，已发布链接也会失效。</p>
           </template>
-          <AButton danger :loading="deleting" :disabled="loginUserStore.authAction !== null">
+          <AButton
+            danger
+            shape="round"
+            :loading="deleting"
+            :disabled="loginUserStore.authAction !== null"
+          >
             {{ deleting ? '删除中' : '删除应用' }}
           </AButton>
         </APopconfirm>
@@ -267,7 +275,7 @@ onBeforeUnmount(() => {
         @close="renameOpen = false"
         @saved="handleRenamed"
       />
-      <div class="source-actions" role="region" aria-label="发布与下载">
+      <div class="source-actions surface-card" role="region" aria-label="发布与下载">
         <div class="delivery-heading">
           <div>
             <h2>发布与分享</h2>
@@ -298,6 +306,7 @@ onBeforeUnmount(() => {
               }}
             </AButton>
             <AButton
+              shape="round"
               :loading="downloading"
               :disabled="downloading || loginUserStore.authAction !== null"
               @click="downloadSource"
@@ -318,10 +327,17 @@ onBeforeUnmount(() => {
         <div v-if="app.deployment?.deployUrl" class="published-link">
           <span class="share-url">{{ app.deployment.deployUrl }}</span>
           <div class="source-download">
-            <AButton :href="app.deployment.deployUrl" target="_blank" rel="noopener noreferrer">
+            <AButton
+              shape="round"
+              :href="app.deployment.deployUrl"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
               查看作品
             </AButton>
-            <AButton :loading="copying" :disabled="copying" @click="copyLink">复制链接</AButton>
+            <AButton shape="round" :loading="copying" :disabled="copying" @click="copyLink"
+              >复制链接</AButton
+            >
           </div>
         </div>
         <p v-else-if="app.deployment" class="source-hint">已保存发布记录，当前暂无访问地址。</p>
@@ -339,7 +355,10 @@ onBeforeUnmount(() => {
         <ARadioButton value="preview">网站预览</ARadioButton>
       </ARadioGroup>
       <div class="workspace">
-        <section class="workspace-panel" :class="{ 'mobile-hidden': panel !== 'prompt' }">
+        <section
+          class="workspace-panel surface-card"
+          :class="{ 'mobile-hidden': panel !== 'prompt' }"
+        >
           <h2>初始需求</h2>
           <dl class="app-details">
             <div>
@@ -364,7 +383,7 @@ onBeforeUnmount(() => {
           />
         </section>
         <section
-          class="workspace-panel preview-panel"
+          class="workspace-panel preview-panel surface-card"
           :class="{ 'mobile-hidden': panel !== 'preview' }"
         >
           <AppPreviewPanel
@@ -389,11 +408,23 @@ onBeforeUnmount(() => {
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  margin-bottom: 24px;
+  margin-bottom: 20px;
 }
 .back-link {
-  color: var(--accent);
-  text-underline-offset: 4px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--link);
+  font-size: 14px;
+  text-decoration: none;
+}
+.back-link:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.back-chevron {
+  font-size: 20px;
+  line-height: 1;
 }
 .app-actions {
   display: flex;
@@ -410,10 +441,9 @@ onBeforeUnmount(() => {
 .source-actions {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 14px;
   margin-bottom: 24px;
-  padding-bottom: 24px;
-  border-bottom: 1px solid var(--border);
+  padding: 20px 24px;
 }
 .delivery-heading {
   display: flex;
@@ -423,7 +453,7 @@ onBeforeUnmount(() => {
   gap: 16px;
 }
 .delivery-heading h2 {
-  margin-bottom: 8px;
+  margin-bottom: 4px;
 }
 .source-download {
   display: flex;
@@ -434,65 +464,82 @@ onBeforeUnmount(() => {
 .source-hint {
   margin: 0;
   color: var(--muted);
-  font-size: 12px;
+  font-size: 13px;
 }
 .published-link {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 8px 16px;
+  gap: 10px 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
 }
 .share-url {
   flex: 1 1 240px;
   min-width: 0;
-  font-size: 14px;
+  padding: 8px 14px;
+  border-radius: 10px;
+  color: var(--ink);
+  background: var(--surface-soft);
+  font-family: 'SF Mono', ui-monospace, Menlo, Consolas, monospace;
+  font-size: 13px;
   user-select: text;
 }
 .workspace {
   display: grid;
   grid-template-columns: minmax(0, 2fr) minmax(0, 3fr);
+  align-items: start;
   gap: 24px;
 }
 .workspace-panel {
   min-width: 0;
   padding: 24px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
 }
 h2 {
   margin: 0;
-  font-size: 16px;
+  font-size: 19px;
   font-weight: 600;
+  letter-spacing: -0.01em;
 }
 .app-details {
   display: flex;
   flex-wrap: wrap;
-  gap: 16px 24px;
-  margin: 24px 0;
+  gap: 8px;
+  margin: 16px 0;
   font-size: 12px;
 }
+.app-details > div {
+  display: flex;
+  gap: 6px;
+  padding: 4px 12px;
+  border-radius: 999px;
+  background: var(--fill);
+}
 dt {
-  margin-bottom: 8px;
   color: var(--muted);
 }
 dd {
   margin: 0;
+  font-weight: 500;
 }
 .prompt-content {
   max-height: 480px;
-  overflow: auto;
+  overflow-x: hidden;
+  overflow-y: auto;
   margin: 0;
-  padding-top: 24px;
-  border-top: 1px solid var(--border);
+  padding: 14px 16px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-soft);
   white-space: pre-wrap;
-  line-height: 1.75;
+  line-height: 1.7;
 }
 .preview-panel {
   display: flex;
   flex-direction: column;
-  background: var(--surface-soft);
+  position: sticky;
+  top: calc(var(--nav-height) + 16px);
 }
-.panel-switch {
+.workbench .panel-switch {
   display: none;
 }
 @media (max-width: 760px) {
@@ -502,7 +549,13 @@ dd {
   .workspace-panel {
     padding: 16px;
   }
-  .panel-switch {
+  .source-actions {
+    padding: 16px;
+  }
+  .preview-panel {
+    position: static;
+  }
+  .workbench .panel-switch {
     display: inline-flex;
     margin-bottom: 16px;
   }

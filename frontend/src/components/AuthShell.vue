@@ -6,94 +6,69 @@ defineProps<{ title: string; description: string }>()
 
 <template>
   <section class="auth-page" :aria-label="title">
-    <aside class="auth-story" aria-label="星云">
-      <p class="brand-caption">星云 · XY</p>
-      <svg class="brand-motif" viewBox="0 0 160 96" fill="none" aria-hidden="true">
-        <g stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-          <ellipse cx="80" cy="48" rx="66" ry="23" transform="rotate(-20 80 48)" />
-          <path d="M80 22 86 42 106 48 86 54 80 74 74 54 54 48 74 42Z" />
-          <circle cx="135" cy="26" r="4" />
-        </g>
+    <div class="auth-card">
+      <svg class="auth-mark" viewBox="0 0 64 64" aria-hidden="true">
+        <defs>
+          <linearGradient id="auth-mark-fill" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0" stop-color="#7d7aff" />
+            <stop offset="0.55" stop-color="#0a84ff" />
+            <stop offset="1" stop-color="#5ac8fa" />
+          </linearGradient>
+        </defs>
+        <rect width="64" height="64" rx="16" fill="url(#auth-mark-fill)" />
+        <path d="M32 14 36.6 27.4 50 32 36.6 36.6 32 50 27.4 36.6 14 32 27.4 27.4Z" fill="#fff" />
+        <circle cx="47" cy="17" r="3" fill="#fff" opacity="0.85" />
       </svg>
-      <h2>让灵感<br />在此成形</h2>
-      <p class="story-description">描述你的想法，逐步构建自己的应用。</p>
-    </aside>
-    <div class="auth-form">
       <PageHeading :title="title" :description="description" />
       <slot />
       <div v-if="$slots.footer" class="auth-footer"><slot name="footer" /></div>
     </div>
+    <p class="auth-note">星云 · 让灵感在此成形</p>
   </section>
 </template>
 
 <style scoped>
 .auth-page {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  max-width: 1040px;
-  min-height: 560px;
-  margin: 48px auto;
-  overflow: hidden;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  background: var(--surface);
-}
-.auth-story {
   display: flex;
   flex-direction: column;
-  align-items: flex-start;
-  justify-content: center;
-  gap: 24px;
-  padding: 48px;
-  background: var(--surface-soft);
+  align-items: center;
+  padding: 40px 0 24px;
 }
-.brand-caption {
-  margin: 0;
-  color: var(--muted);
-  font-size: 12px;
-  font-weight: 600;
-  letter-spacing: 0.12em;
+.auth-card {
+  width: min(100%, 440px);
+  padding: 40px 40px 32px;
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  box-shadow: var(--shadow-card);
 }
-.brand-motif {
-  width: 160px;
-  height: 96px;
-  color: var(--muted);
+.auth-mark {
+  display: block;
+  width: 56px;
+  height: 56px;
+  margin: 0 auto 20px;
+  filter: drop-shadow(0 6px 16px rgba(10, 132, 255, 0.28));
 }
-h2 {
-  margin: 0;
-  font-size: 28px;
-  font-weight: 700;
-  line-height: 1.5;
-  letter-spacing: var(--heading-tracking);
-}
-.story-description {
-  margin: 0;
-  color: var(--muted);
-  font-size: 14px;
-  line-height: 1.5;
-}
-.auth-form {
-  min-width: 0;
-  max-width: 560px;
-  padding: 48px;
+.auth-card :deep(.page-heading) {
+  margin-bottom: 28px;
+  text-align: center;
 }
 .auth-footer {
   margin-top: 24px;
-  font-size: 14px;
+  color: var(--muted);
+  font-size: 13px;
   text-align: center;
 }
-@media (max-width: 768px) {
+.auth-note {
+  margin: 24px 0 0;
+  color: var(--subtle);
+  font-size: 12px;
+}
+@media (max-width: 600px) {
   .auth-page {
-    display: block;
-    max-width: 560px;
-    min-height: 0;
-    margin: 24px auto;
+    padding-top: 8px;
   }
-  .auth-story {
-    display: none;
-  }
-  .auth-form {
-    padding: 24px;
+  .auth-card {
+    padding: 32px 20px 24px;
   }
 }
 </style>

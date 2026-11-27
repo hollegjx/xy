@@ -159,8 +159,10 @@ async function submitRegistration(): Promise<void> {
   margin-top: 24px;
 }
 .auth-link {
-  color: var(--accent);
+  color: var(--link);
+  text-underline-offset: 3px;
+}
+.auth-link:hover {
   text-decoration: underline;
-  text-underline-offset: 4px;
 }
 </style>

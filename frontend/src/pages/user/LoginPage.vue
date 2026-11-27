@@ -110,8 +110,10 @@ async function submitLogin(): Promise<void> {
   margin-bottom: 24px;
 }
 .auth-link {
-  color: var(--accent);
+  color: var(--link);
+  text-underline-offset: 3px;
+}
+.auth-link:hover {
   text-decoration: underline;
-  text-underline-offset: 4px;
 }
 </style>

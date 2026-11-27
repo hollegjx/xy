@@ -41,7 +41,7 @@ const columns = [
   { title: '登录账号', dataIndex: 'userAccount', key: 'userAccount', width: 220 },
   { title: '昵称', dataIndex: 'userName', key: 'userName', width: 220 },
   { title: '角色', dataIndex: 'userRole', key: 'userRole', width: 120 },
-  { title: '操作', key: 'actions', width: 120, fixed: 'right' as const },
+  { title: '操作', key: 'actions', width: 170, fixed: 'right' as const },
 ]
 let active = true
 
@@ -177,8 +177,12 @@ onBeforeUnmount(() => {
           allow-clear
         />
       </label>
-      <AButton html-type="submit" :loading="loading" :disabled="deletingId !== ''">查询</AButton>
-      <AButton :disabled="busy || (!keyword && !appliedAccount)" @click="reset">重置</AButton>
+      <AButton shape="round" html-type="submit" :loading="loading" :disabled="deletingId !== ''"
+        >查询</AButton
+      >
+      <AButton shape="round" :disabled="busy || (!keyword && !appliedAccount)" @click="reset"
+        >重置</AButton
+      >
       <AButton
         type="primary"
         shape="round"
@@ -223,7 +227,7 @@ onBeforeUnmount(() => {
       <AButton v-if="appliedAccount" @click="reset">清除筛选</AButton>
       <AButton v-else @click="reset">重新查询</AButton>
     </AEmpty>
-    <template v-else>
+    <div v-else class="table-card surface-card">
       <ATable
         :columns="columns"
         :data-source="rows"
@@ -295,7 +299,7 @@ onBeforeUnmount(() => {
           @change="changePage"
         />
       </div>
-    </template>
+    </div>
     <UserAddModal :open="addOpen" @close="addOpen = false" @saved="handleAdded" />
     <UserRenameModal
       v-if="editingUser"
@@ -320,8 +324,15 @@ onBeforeUnmount(() => {
 }
 .account-filter {
   display: grid;
-  gap: 8px;
+  gap: 6px;
   width: min(100%, 360px);
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 500;
+}
+.table-card {
+  overflow: hidden;
+  padding: 4px 8px 0;
 }
 .add-user-button {
   margin-left: auto;
@@ -331,9 +342,13 @@ onBeforeUnmount(() => {
 }
 .row-actions {
   display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 4px;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0 12px;
+}
+.row-actions :deep(.ant-btn-link) {
+  height: auto;
+  padding: 0;
 }
 .delete-confirmation {
   width: min(280px, calc(100vw - 96px));
@@ -349,7 +364,8 @@ onBeforeUnmount(() => {
   justify-content: space-between;
   align-items: center;
   gap: 16px;
-  margin-top: 16px;
+  padding: 14px 8px 16px;
+  border-top: 1px solid var(--border);
 }
 .muted {
   color: var(--muted);

@@ -121,8 +121,14 @@ onBeforeUnmount(() => {
       <AButton v-else href="#create-app">开始创建</AButton>
     </AEmpty>
     <template v-else>
-      <ul class="app-grid">
-        <li v-for="app in rows" :key="app.id" class="app-card">
+      <ul class="app-grid stagger">
+        <li v-for="app in rows" :key="app.id" class="app-card lift">
+          <div class="app-card-top">
+            <span class="app-icon" :class="`mode-${app.codeGenType}`" aria-hidden="true">{{
+              Array.from(app.appName)[0]
+            }}</span>
+            <span class="app-mode">{{ generationModes[app.codeGenType].label }}</span>
+          </div>
           <h3>
             <RouterLink :to="{ name: 'app-workbench', params: { id: app.id } }" class="app-name">
               {{ app.appName }}
@@ -130,13 +136,19 @@ onBeforeUnmount(() => {
           </h3>
           <p class="app-description">{{ app.initPrompt }}</p>
           <div class="app-meta muted">
-            <span>{{ generationModes[app.codeGenType].label }}</span>
             <span>创建于 {{ app.createTime.slice(0, 10) }}</span>
-          </div>
-          <div v-if="app.deployment?.deployUrl" class="published-action">
-            <AButton :href="app.deployment.deployUrl" target="_blank" rel="noopener noreferrer">
+            <AButton
+              v-if="app.deployment?.deployUrl"
+              class="published-action"
+              type="link"
+              size="small"
+              :href="app.deployment.deployUrl"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
               查看作品
             </AButton>
+            <span v-else class="draft-badge">未发布</span>
           </div>
         </li>
       </ul>
@@ -159,9 +171,7 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .my-apps {
-  margin-top: 48px;
-  padding-top: 32px;
-  border-top: 1px solid var(--border);
+  margin-top: 72px;
 }
 .list-heading,
 .list-footer,
@@ -173,58 +183,143 @@ onBeforeUnmount(() => {
   gap: 16px;
 }
 .list-heading {
+  align-items: flex-end;
   margin-bottom: 24px;
 }
-h2,
-h3 {
-  margin: 0 0 8px;
-  font-size: 16px;
+h2 {
+  margin: 0 0 6px;
+  font-size: 28px;
   font-weight: 600;
+  letter-spacing: var(--heading-tracking);
+}
+h3 {
+  margin: 0 0 6px;
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
 }
 .muted {
   margin: 0;
   color: var(--muted);
-  font-size: 12px;
+  font-size: 13px;
 }
 .search-form {
   display: flex;
   gap: 8px;
   width: min(100%, 400px);
 }
+.search-form :deep(.ant-input-affix-wrapper) {
+  border-radius: 999px;
+  background: var(--surface);
+  box-shadow: 0 0 0 1px var(--hairline);
+}
+.search-form :deep(.ant-btn) {
+  border-radius: 999px;
+}
 .app-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 16px;
+  gap: 20px;
   margin: 0;
   padding: 0;
   list-style: none;
 }
 .app-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
   min-width: 0;
-  padding: 24px;
-  border: 1px solid var(--border);
+  padding: 22px 22px 18px;
   border-radius: var(--radius-md);
+  background: var(--surface);
+  box-shadow: var(--shadow-card);
+}
+.app-card-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+.app-icon {
+  display: grid;
+  width: 44px;
+  height: 44px;
+  place-items: center;
+  border-radius: 12px;
+  color: #ffffff;
+  font-size: 18px;
+  font-weight: 600;
+  transition: transform 520ms var(--ease-spring);
+}
+.app-card:hover .app-icon {
+  transform: rotate(-6deg) scale(1.06);
+}
+/* 生成模式用黑、深灰、浅灰三种底色区分，不用彩色 */
+.mode-multi_file {
+  background: #1d1d1f;
+}
+.mode-html {
+  background: #636366;
+}
+.mode-vue_project {
+  color: var(--ink);
+  background: var(--surface-soft);
+  box-shadow: inset 0 0 0 1.5px var(--ink);
+}
+.app-mode {
+  padding: 3px 10px;
+  border-radius: 999px;
+  color: var(--muted);
+  background: var(--fill);
+  font-size: 12px;
 }
 .app-name {
-  color: var(--accent);
+  color: var(--ink);
+  text-decoration: none;
   overflow-wrap: anywhere;
+}
+.app-name:hover {
+  color: var(--ink);
+}
+/* 整张卡片可点：标题链接的点击区扩展到卡片，「查看作品」按钮仍在上层可单独点击 */
+.app-name::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+}
+.published-action {
+  position: relative;
+  z-index: 1;
 }
 .app-description {
   display: -webkit-box;
   overflow: hidden;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
+  flex: 1;
   margin: 0 0 16px;
+  color: var(--muted);
   font-size: 14px;
   line-height: 1.5;
   overflow-wrap: anywhere;
 }
 .app-meta {
   gap: 8px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
 }
-.published-action,
+.published-action {
+  padding: 0;
+  height: auto;
+  font-size: 13px;
+}
+.draft-badge {
+  color: var(--subtle);
+  font-size: 12px;
+}
 .list-footer {
-  margin-top: 16px;
+  margin-top: 20px;
 }
 @media (max-width: 900px) {
   .app-grid {
@@ -232,6 +327,12 @@ h3 {
   }
 }
 @media (max-width: 600px) {
+  .my-apps {
+    margin-top: 48px;
+  }
+  h2 {
+    font-size: 24px;
+  }
   .app-grid {
     grid-template-columns: minmax(0, 1fr);
   }

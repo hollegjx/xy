@@ -40,10 +40,12 @@ onMounted(load)
 <template>
   <div class="status-heading">
     <PageHeading title="连接检查" description="查看平台服务与数据库的连接状态。" />
-    <AButton href="/api/doc.html" target="_blank" rel="noopener noreferrer">接口文档</AButton>
+    <AButton shape="round" href="/api/doc.html" target="_blank" rel="noopener noreferrer"
+      >接口文档</AButton
+    >
   </div>
 
-  <ACard title="服务连接">
+  <ACard class="status-card" title="服务连接">
     <div class="status-content" aria-live="polite" :aria-busy="loading">
       <ASkeleton v-if="loading" active :paragraph="{ rows: 3 }" />
       <AAlert
@@ -94,11 +96,19 @@ onMounted(load)
 .status-content {
   min-height: 176px;
 }
+.status-card {
+  max-width: 720px;
+}
 .connection-details {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 24px;
-  margin: 24px 0;
+  gap: 12px;
+  margin: 20px 0;
+}
+.connection-details > div {
+  padding: 14px 16px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-soft);
 }
 dt {
   margin-bottom: 8px;
@@ -115,8 +125,11 @@ dd {
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  padding-top: 24px;
+  padding-top: 20px;
   border-top: 1px solid var(--border);
+}
+.description {
+  font-size: 13px;
 }
 @media (max-width: 600px) {
   .status-heading {

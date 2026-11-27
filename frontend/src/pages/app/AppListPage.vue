@@ -319,7 +319,9 @@ onBeforeUnmount(() => {
         :disabled="deletingId !== '' || featuringId !== ''"
         >查询</AButton
       >
-      <AButton :disabled="busy || (!draftHasFilters && !hasFilters)" @click="reset"> 重置 </AButton>
+      <AButton shape="round" :disabled="busy || (!draftHasFilters && !hasFilters)" @click="reset">
+        重置
+      </AButton>
     </form>
     <AAlert
       v-if="deleteError"
@@ -370,7 +372,7 @@ onBeforeUnmount(() => {
       <AButton v-if="hasFilters" @click="reset">清除筛选</AButton>
       <AButton v-else @click="load">重新查询</AButton>
     </AEmpty>
-    <template v-else>
+    <div v-else class="table-card surface-card">
       <ATable
         :columns="columns"
         :data-source="rows"
@@ -489,7 +491,7 @@ onBeforeUnmount(() => {
           @change="changePage"
         />
       </div>
-    </template>
+    </div>
     <AppAdminDetailModal
       v-if="detailId"
       :key="detailId"
@@ -523,7 +525,14 @@ onBeforeUnmount(() => {
 .owner-filter,
 .extra-filters > * {
   display: grid;
-  gap: 8px;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 500;
+}
+.table-card {
+  overflow: hidden;
+  padding: 4px 8px 0;
 }
 .name-filter {
   width: min(100%, 320px);
@@ -549,21 +558,26 @@ onBeforeUnmount(() => {
   padding: 0;
   border: 0;
   background: transparent;
-  color: var(--accent);
+  color: var(--ink);
   font: inherit;
+  font-weight: 500;
   text-align: start;
-  text-decoration: underline;
-  text-underline-offset: 4px;
   cursor: pointer;
+}
+.app-title:hover:not(:disabled) {
+  color: var(--link);
+  text-decoration: underline;
+  text-underline-offset: 3px;
 }
 .row-actions {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 4px;
+  gap: 2px;
 }
 .action-link {
-  padding-inline: 0;
+  height: auto;
+  padding: 2px 0;
 }
 .delete-confirmation {
   width: min(280px, calc(100vw - 96px));
@@ -583,7 +597,8 @@ onBeforeUnmount(() => {
   justify-content: space-between;
   align-items: center;
   gap: 16px;
-  margin-top: 16px;
+  padding: 14px 8px 16px;
+  border-top: 1px solid var(--border);
 }
 @media (max-width: 600px) {
   .name-filter,

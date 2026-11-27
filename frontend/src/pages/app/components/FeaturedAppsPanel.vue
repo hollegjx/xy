@@ -75,21 +75,43 @@ onBeforeUnmount(() => {
       :image="AEmpty.PRESENTED_IMAGE_SIMPLE"
       description="还没有精选作品，期待灵感在此成形。"
     />
-    <ul v-else class="featured-grid">
-      <li v-for="app in rows" :key="app.id" class="featured-card">
-        <img
-          v-if="app.coverUrl && !brokenCovers.has(app.coverUrl)"
-          class="work-cover"
-          :src="app.coverUrl"
-          alt=""
-          width="960"
-          height="540"
-          loading="lazy"
-          @error="brokenCovers.add(app.coverUrl)"
-        />
-        <h3>{{ app.appName }}</h3>
-        <p class="muted">{{ generationModes[app.codeGenType].label }}</p>
-        <AButton :href="app.deployUrl" target="_blank" rel="noopener noreferrer">查看作品</AButton>
+    <ul v-else class="featured-grid stagger">
+      <li v-for="app in rows" :key="app.id" class="featured-card lift">
+        <div class="cover-frame">
+          <img
+            v-if="app.coverUrl && !brokenCovers.has(app.coverUrl)"
+            class="work-cover zoom-media"
+            :src="app.coverUrl"
+            alt=""
+            width="960"
+            height="540"
+            loading="lazy"
+            @error="brokenCovers.add(app.coverUrl)"
+          />
+          <div
+            v-else
+            class="work-cover cover-placeholder zoom-media"
+            :class="`mode-${app.codeGenType}`"
+            aria-hidden="true"
+          >
+            <span>{{ Array.from(app.appName)[0] }}</span>
+          </div>
+        </div>
+        <div class="featured-body">
+          <div class="featured-text">
+            <h3>{{ app.appName }}</h3>
+            <p class="muted">{{ generationModes[app.codeGenType].label }}</p>
+          </div>
+          <AButton
+            type="primary"
+            size="small"
+            shape="round"
+            :href="app.deployUrl"
+            target="_blank"
+            rel="noopener noreferrer"
+            >查看作品</AButton
+          >
+        </div>
       </li>
     </ul>
     <nav v-if="current > 1 || hasNext" class="featured-pages" aria-label="精选作品分页">
@@ -102,46 +124,54 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .featured-apps {
-  margin-top: 48px;
-  padding-top: 32px;
-  border-top: 1px solid var(--border);
+  margin-top: 72px;
 }
 .list-heading {
   display: flex;
   flex-wrap: wrap;
-  align-items: center;
+  align-items: flex-end;
   justify-content: space-between;
   gap: 16px;
   margin-bottom: 24px;
 }
-h2,
+h2 {
+  margin: 0;
+  font-size: 28px;
+  font-weight: 600;
+  letter-spacing: var(--heading-tracking);
+}
 h3 {
   margin: 0;
-  font-size: 16px;
+  font-size: 17px;
   font-weight: 600;
+  letter-spacing: -0.01em;
   overflow-wrap: anywhere;
 }
 .muted {
-  margin: 8px 0 0;
+  margin: 6px 0 0;
   color: var(--muted);
-  font-size: 12px;
+  font-size: 13px;
+}
+.list-heading :deep(.ant-btn) {
+  border-radius: 999px;
 }
 .featured-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 16px;
+  gap: 20px;
   margin: 0;
   padding: 0;
   list-style: none;
 }
 .featured-card {
   min-width: 0;
-  padding: 24px;
-  border: 1px solid var(--border);
+  overflow: hidden;
   border-radius: var(--radius-md);
+  background: var(--surface);
+  box-shadow: var(--shadow-card);
 }
-.featured-card .muted {
-  margin-bottom: 16px;
+.cover-frame {
+  overflow: hidden;
 }
 .featured-pages {
   display: flex;
@@ -158,9 +188,40 @@ h3 {
   height: auto;
   aspect-ratio: 16 / 9;
   object-fit: cover;
-  margin-bottom: 16px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
+  background: var(--surface-soft);
+}
+.cover-placeholder {
+  display: grid;
+  place-items: center;
+}
+.cover-placeholder span {
+  color: rgba(255, 255, 255, 0.92);
+  font-size: 52px;
+  font-weight: 700;
+  letter-spacing: -0.04em;
+}
+/* 没有封面时按生成模式给灰阶底色 */
+.mode-multi_file {
+  background: linear-gradient(140deg, #1d1d1f, #3a3a3c);
+}
+.mode-html {
+  background: linear-gradient(140deg, #8e8e93, #636366);
+}
+.mode-vue_project {
+  background: linear-gradient(140deg, #f5f5f7, #d2d2d7);
+}
+.mode-vue_project span {
+  color: var(--ink);
+}
+.featured-body {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 20px 18px;
+}
+.featured-text {
+  min-width: 0;
 }
 @media (max-width: 900px) {
   .featured-grid {
@@ -168,6 +229,12 @@ h3 {
   }
 }
 @media (max-width: 600px) {
+  .featured-apps {
+    margin-top: 48px;
+  }
+  h2 {
+    font-size: 24px;
+  }
   .featured-grid {
     grid-template-columns: minmax(0, 1fr);
   }

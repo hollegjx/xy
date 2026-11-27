@@ -75,25 +75,27 @@ onBeforeUnmount(() => {
       :image="AEmpty.PRESENTED_IMAGE_SIMPLE"
       description="还没有精选作品，期待灵感在此成形。"
     />
-    <ul v-else class="featured-grid">
-      <li v-for="app in rows" :key="app.id" class="featured-card">
-        <img
-          v-if="app.coverUrl && !brokenCovers.has(app.coverUrl)"
-          class="work-cover"
-          :src="app.coverUrl"
-          alt=""
-          width="960"
-          height="540"
-          loading="lazy"
-          @error="brokenCovers.add(app.coverUrl)"
-        />
-        <div
-          v-else
-          class="work-cover cover-placeholder"
-          :class="`mode-${app.codeGenType}`"
-          aria-hidden="true"
-        >
-          <span>{{ Array.from(app.appName)[0] }}</span>
+    <ul v-else class="featured-grid stagger">
+      <li v-for="app in rows" :key="app.id" class="featured-card lift">
+        <div class="cover-frame">
+          <img
+            v-if="app.coverUrl && !brokenCovers.has(app.coverUrl)"
+            class="work-cover zoom-media"
+            :src="app.coverUrl"
+            alt=""
+            width="960"
+            height="540"
+            loading="lazy"
+            @error="brokenCovers.add(app.coverUrl)"
+          />
+          <div
+            v-else
+            class="work-cover cover-placeholder zoom-media"
+            :class="`mode-${app.codeGenType}`"
+            aria-hidden="true"
+          >
+            <span>{{ Array.from(app.appName)[0] }}</span>
+          </div>
         </div>
         <div class="featured-body">
           <div class="featured-text">
@@ -167,13 +169,9 @@ h3 {
   border-radius: var(--radius-md);
   background: var(--surface);
   box-shadow: var(--shadow-card);
-  transition:
-    transform var(--motion-duration) var(--motion-ease),
-    box-shadow var(--motion-duration) var(--motion-ease);
 }
-.featured-card:hover {
-  transform: translateY(-2px);
-  box-shadow: var(--shadow-lift);
+.cover-frame {
+  overflow: hidden;
 }
 .featured-pages {
   display: flex;
@@ -198,18 +196,22 @@ h3 {
 }
 .cover-placeholder span {
   color: rgba(255, 255, 255, 0.92);
-  font-size: 48px;
-  font-weight: 600;
-  text-shadow: 0 6px 24px rgba(0, 0, 0, 0.15);
+  font-size: 52px;
+  font-weight: 700;
+  letter-spacing: -0.04em;
 }
+/* 没有封面时按生成模式给灰阶底色 */
 .mode-multi_file {
-  background: linear-gradient(140deg, #5e5ce6, #0a84ff 60%, #64d2ff);
+  background: linear-gradient(140deg, #1d1d1f, #3a3a3c);
 }
 .mode-html {
-  background: linear-gradient(140deg, #ff9f0a, #ff375f);
+  background: linear-gradient(140deg, #8e8e93, #636366);
 }
 .mode-vue_project {
-  background: linear-gradient(140deg, #30d158, #00a6a6);
+  background: linear-gradient(140deg, #f5f5f7, #d2d2d7);
+}
+.mode-vue_project span {
+  color: var(--ink);
 }
 .featured-body {
   display: flex;

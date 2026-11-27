@@ -8,14 +8,7 @@ defineProps<{ title: string; description: string }>()
   <section class="auth-page" :aria-label="title">
     <div class="auth-card">
       <svg class="auth-mark" viewBox="0 0 64 64" aria-hidden="true">
-        <defs>
-          <linearGradient id="auth-mark-fill" x1="0" y1="0" x2="1" y2="1">
-            <stop offset="0" stop-color="#7d7aff" />
-            <stop offset="0.55" stop-color="#0a84ff" />
-            <stop offset="1" stop-color="#5ac8fa" />
-          </linearGradient>
-        </defs>
-        <rect width="64" height="64" rx="16" fill="url(#auth-mark-fill)" />
+        <rect width="64" height="64" rx="18" fill="#1d1d1f" />
         <path d="M32 14 36.6 27.4 50 32 36.6 36.6 32 50 27.4 36.6 14 32 27.4 27.4Z" fill="#fff" />
         <circle cx="47" cy="17" r="3" fill="#fff" opacity="0.85" />
       </svg>
@@ -37,16 +30,26 @@ defineProps<{ title: string; description: string }>()
 .auth-card {
   width: min(100%, 440px);
   padding: 40px 40px 32px;
-  border-radius: var(--radius-lg);
+  border-radius: 28px;
   background: var(--surface);
-  box-shadow: var(--shadow-card);
+  box-shadow:
+    0 0 0 1px rgba(0, 0, 0, 0.04),
+    0 4px 12px rgba(0, 0, 0, 0.04),
+    0 24px 56px rgba(0, 0, 0, 0.08);
 }
 .auth-mark {
   display: block;
   width: 56px;
   height: 56px;
   margin: 0 auto 20px;
-  filter: drop-shadow(0 6px 16px rgba(10, 132, 255, 0.28));
+  filter: drop-shadow(0 6px 16px rgba(0, 0, 0, 0.18));
+  animation: auth-mark-in 760ms var(--ease-spring) 200ms backwards;
+}
+@keyframes auth-mark-in {
+  from {
+    opacity: 0;
+    transform: scale(0.6) rotate(-20deg);
+  }
 }
 .auth-card :deep(.page-heading) {
   margin-bottom: 28px;

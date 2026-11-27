@@ -4,6 +4,7 @@ import zhCN from 'ant-design-vue/es/locale/zh_CN'
 import { RouterView } from 'vue-router'
 
 const motionEase = 'cubic-bezier(0.22, 1, 0.36, 1)'
+const motionSpring = 'cubic-bezier(0.34, 1.56, 0.64, 1)'
 </script>
 
 <template>
@@ -12,23 +13,27 @@ const motionEase = 'cubic-bezier(0.22, 1, 0.36, 1)'
     :auto-insert-space-in-button="false"
     :theme="{
       token: {
-        colorPrimary: '#0071e3',
-        colorInfo: '#0071e3',
-        colorLink: '#0066cc',
-        colorSuccess: '#28a745',
-        colorWarning: '#ff9f0a',
-        colorError: '#ff3b30',
+        colorPrimary: '#1d1d1f',
+        colorInfo: '#1d1d1f',
+        colorLink: '#1d1d1f',
+        colorLinkHover: '#3a3a3c',
+        colorLinkActive: '#000000',
+        colorSuccess: '#248a3d',
+        colorWarning: '#b25000',
+        colorError: '#d70015',
         colorText: '#1d1d1f',
         colorTextSecondary: '#6e6e73',
         colorTextTertiary: '#86868b',
         colorBorder: '#d2d2d7',
-        colorBorderSecondary: '#e5e5ea',
+        colorBorderSecondary: '#e8e8ed',
         colorBgLayout: '#f5f5f7',
         colorBgContainer: '#ffffff',
-        colorFillAlter: '#fafafc',
-        controlOutline: 'rgba(0, 113, 227, 0.16)',
+        colorFillAlter: '#f5f5f7',
+        controlOutline: 'rgba(0, 0, 0, 0.06)',
+        controlItemBgActive: '#f5f5f7',
         controlOutlineWidth: 3,
         borderRadius: 12,
+        borderRadiusOuter: 12,
         borderRadiusSM: 8,
         borderRadiusLG: 18,
         controlHeight: 40,
@@ -44,7 +49,7 @@ const motionEase = 'cubic-bezier(0.22, 1, 0.36, 1)'
         motionEaseOutCirc: motionEase,
         motionEaseInOutCirc: motionEase,
         motionEaseInOut: motionEase,
-        motionEaseOutBack: motionEase,
+        motionEaseOutBack: motionSpring,
         motionEaseInBack: motionEase,
         motionEaseInQuint: motionEase,
         motionEaseOutQuint: motionEase,
@@ -53,7 +58,7 @@ const motionEase = 'cubic-bezier(0.22, 1, 0.36, 1)'
       components: {
         Button: { controlOutlineWidth: 0 },
         Card: { boxShadow: 'none' },
-        Table: { colorFillAlter: '#fafafc' },
+        Table: { colorFillAlter: '#f5f5f7' },
       },
     }"
   >

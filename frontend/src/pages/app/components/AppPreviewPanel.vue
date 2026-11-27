@@ -207,13 +207,13 @@ h2 {
   border-radius: 50%;
 }
 .dot-close {
-  background: #ff5f57;
+  background: #d2d2d7;
 }
 .dot-minimize {
-  background: #febc2e;
+  background: #d2d2d7;
 }
 .dot-zoom {
-  background: #28c840;
+  background: #d2d2d7;
 }
 .browser-skeleton {
   padding: 24px;

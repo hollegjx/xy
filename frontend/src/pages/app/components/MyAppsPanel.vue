@@ -121,8 +121,8 @@ onBeforeUnmount(() => {
       <AButton v-else href="#create-app">开始创建</AButton>
     </AEmpty>
     <template v-else>
-      <ul class="app-grid">
-        <li v-for="app in rows" :key="app.id" class="app-card">
+      <ul class="app-grid stagger">
+        <li v-for="app in rows" :key="app.id" class="app-card lift">
           <div class="app-card-top">
             <span class="app-icon" :class="`mode-${app.codeGenType}`" aria-hidden="true">{{
               Array.from(app.appName)[0]
@@ -210,6 +210,8 @@ h3 {
 }
 .search-form :deep(.ant-input-affix-wrapper) {
   border-radius: 999px;
+  background: var(--surface);
+  box-shadow: 0 0 0 1px var(--hairline);
 }
 .search-form :deep(.ant-btn) {
   border-radius: 999px;
@@ -223,20 +225,14 @@ h3 {
   list-style: none;
 }
 .app-card {
+  position: relative;
   display: flex;
   flex-direction: column;
   min-width: 0;
-  padding: 20px 22px 18px;
+  padding: 22px 22px 18px;
   border-radius: var(--radius-md);
   background: var(--surface);
   box-shadow: var(--shadow-card);
-  transition:
-    transform var(--motion-duration) var(--motion-ease),
-    box-shadow var(--motion-duration) var(--motion-ease);
-}
-.app-card:hover {
-  transform: translateY(-2px);
-  box-shadow: var(--shadow-lift);
 }
 .app-card-top {
   display: flex;
@@ -253,15 +249,22 @@ h3 {
   color: #ffffff;
   font-size: 18px;
   font-weight: 600;
+  transition: transform 520ms var(--ease-spring);
 }
+.app-card:hover .app-icon {
+  transform: rotate(-6deg) scale(1.06);
+}
+/* 生成模式用黑、深灰、浅灰三种底色区分，不用彩色 */
 .mode-multi_file {
-  background: linear-gradient(140deg, #5e5ce6, #0a84ff);
+  background: #1d1d1f;
 }
 .mode-html {
-  background: linear-gradient(140deg, #ff9f0a, #ff375f);
+  background: #636366;
 }
 .mode-vue_project {
-  background: linear-gradient(140deg, #30d158, #00a6a6);
+  color: var(--ink);
+  background: var(--surface-soft);
+  box-shadow: inset 0 0 0 1.5px var(--ink);
 }
 .app-mode {
   padding: 3px 10px;
@@ -276,7 +279,18 @@ h3 {
   overflow-wrap: anywhere;
 }
 .app-name:hover {
-  color: var(--accent);
+  color: var(--ink);
+}
+/* 整张卡片可点：标题链接的点击区扩展到卡片，「查看作品」按钮仍在上层可单独点击 */
+.app-name::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+}
+.published-action {
+  position: relative;
+  z-index: 1;
 }
 .app-description {
   display: -webkit-box;

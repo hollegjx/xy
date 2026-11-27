@@ -67,6 +67,7 @@ const tiles = [0, 1, 2, 3, 4, 5]
 <style scoped>
 /*
  * 12 秒时间轴（所有元素共用周期，用关键帧百分比编排，不用 animation-delay）：
+ *   （放在首屏标题与创建表单之间：先让访客看懂「一句话生成网站」，再给输入框）
  *   2% 用户需求 → 8% 助手回复
  *   12% 步骤「规划」✓ → 15% 预览导航条；18% 步骤「index.html」✓ + 文件 index.html
  *   21% 标题区出现；24% 步骤「style.css」✓ + 文件 style.css
@@ -80,10 +81,10 @@ const tiles = [0, 1, 2, 3, 4, 5]
   --loop: 12s;
   position: relative;
   max-width: 1060px;
-  margin: 64px auto 0;
-  padding: 0 0 80px;
+  margin: 0 auto;
+  padding: 0 0 56px;
   text-align: left;
-  animation: xd-stage-in 1.4s var(--ease-out) 560ms backwards;
+  animation: xd-stage-in 1.4s var(--ease-out) 420ms backwards;
 }
 @keyframes xd-stage-in {
   from {
@@ -95,7 +96,7 @@ const tiles = [0, 1, 2, 3, 4, 5]
   .xd-window {
     animation: xd-settle linear both;
     animation-timeline: view();
-    animation-range: entry 0% cover 45%;
+    animation-range: entry 0% entry 60%;
   }
   @keyframes xd-settle {
     from {
@@ -795,12 +796,11 @@ const tiles = [0, 1, 2, 3, 4, 5]
 }
 @media (max-width: 760px) {
   .xd-stage {
-    margin-top: 40px;
-    padding-bottom: 48px;
+    padding-bottom: 32px;
   }
   .xd-window {
     grid-template-columns: minmax(0, 1fr);
-    height: 380px;
+    height: 320px;
   }
   .xd-chat {
     display: none;

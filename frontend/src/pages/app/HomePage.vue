@@ -98,9 +98,10 @@ onBeforeUnmount(() => {
         <h1 class="hero-in hero-in-2">从一个想法开始</h1>
         <p class="introduction hero-in hero-in-3">描述你想做的网站，为它创建一个专属工作台。</p>
       </header>
+      <HomeDemo />
       <AForm
         id="create-app"
-        class="creation-form surface-card hero-in hero-in-4"
+        class="creation-form surface-card hero-in hero-in-5"
         name="create-app"
         :model="form"
         layout="vertical"
@@ -178,7 +179,6 @@ onBeforeUnmount(() => {
           登录后即可创建，已填写的需求会在登录跳转时保留。
         </p>
       </AForm>
-      <HomeDemo />
     </div>
     <div class="home-lists">
       <MyAppsPanel
@@ -241,8 +241,8 @@ onBeforeUnmount(() => {
 .hero-in-3 {
   animation-delay: 320ms;
 }
-.hero-in-4 {
-  animation-delay: 460ms;
+.hero-in-5 {
+  animation-delay: 700ms;
 }
 .creation-heading {
   margin-bottom: 44px;
@@ -269,7 +269,7 @@ h1 {
 }
 .creation-form {
   max-width: 680px;
-  margin: 0 auto;
+  margin: 0 auto 72px;
   padding: 28px 28px 24px;
   border-radius: 28px;
   box-shadow:
